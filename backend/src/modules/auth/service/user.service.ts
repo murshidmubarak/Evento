@@ -27,6 +27,7 @@ export interface SafeUser {
   phone?: string;
   profileImage?: string;
   role: string;
+  workerType?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -183,6 +184,86 @@ export class UserService {
   }
 
   /**
+   * Admin creates an Event Manager.
+   *
+   * Business Rules:
+   * 1. Normalizes email (lowercase, trim).
+   * 2. Checks if email is already registered; throws 409 Conflict if so.
+   * 3. Hashes password using bcrypt.
+   * 4. Forces user role to 'event_manager'.
+   * 5. Saves user via UserRepository.
+   * 6. Returns sanitized user data omitting password.
+   */
+  async createEventManager(dto: RegisterUserDto): Promise<SafeUser> {
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    // 1. Check duplicate email
+    const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+    if (existingUser) {
+      throw ApiError.conflict('Email is already registered');
+    }
+
+    // 2. Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+
+    // 3. Prepare payload with forced role 'event_manager'
+    const userData: Partial<IUser> = {
+      name: dto.name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      phone: dto.phone?.trim(),
+      profileImage: dto.profileImage?.trim(),
+      role: 'event_manager', // Backend is source of truth — force role to 'event_manager'
+      isActive: true,
+    };
+
+    // 4. Save via repository
+    const createdUser = await this.userRepository.create(userData);
+
+    // 5. Return safe user data
+    return this.toSafeUser(createdUser);
+  }
+
+  /**
+   * Admin or Event Manager creates a Worker.
+   *
+   * Business Rules:
+   * 1. Normalizes email.
+   * 2. Checks duplicate email.
+   * 3. Hashes password using bcrypt.
+   * 4. Forces role to 'worker'.
+   * 5. Includes the mandatory workerType field.
+   * 6. Returns sanitized user data.
+   */
+  async createWorker(dto: RegisterUserDto & { workerType: string }): Promise<SafeUser> {
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+    if (existingUser) {
+      throw ApiError.conflict('Email is already registered');
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+
+    const userData: Partial<IUser> = {
+      name: dto.name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      phone: dto.phone?.trim(),
+      profileImage: dto.profileImage?.trim(),
+      role: 'worker', // Backend enforces role
+      workerType: dto.workerType.trim(),
+      isActive: true, // Default status
+    };
+
+    const createdUser = await this.userRepository.create(userData);
+
+    return this.toSafeUser(createdUser);
+  }
+
+  /**
    * Fetches the current authenticated user by ID.
    *
    * Business Rules:
@@ -215,6 +296,7 @@ export class UserService {
       phone: user.phone,
       profileImage: user.profileImage,
       role: user.role,
+      workerType: user.workerType,
       isActive: user.isActive,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

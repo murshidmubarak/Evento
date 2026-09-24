@@ -10,6 +10,7 @@ export interface IUser extends Document {
   phone?: string;
   profileImage?: string;
   role: UserRole;
+  workerType?: string;
   isActive: boolean;
   googleId?: string;
   passwordResetTokenHash?: string;
@@ -52,6 +53,22 @@ const userSchema = new Schema<IUser>(
         message: 'Role must be admin, client, event_manager, or worker',
       },
       default: 'client',
+    },
+    workerType: {
+      type: String,
+      enum: {
+        values: [
+          'Catering Boy',
+          'Catering Supervisor',
+          'Chef',
+          'Cameraman / Photographer',
+          'Videographer',
+          'Decoration Worker',
+          'Juice Worker',
+          'Host'
+        ],
+        message: 'Invalid worker type',
+      },
     },
     isActive: {
       type: Boolean,

@@ -3,6 +3,7 @@ import cors from 'cors';
 import { errorMiddleware } from './middlewares/error.middleware.js';
 import { ApiError } from './utils/ApiError.js';
 import authRouter from './modules/auth/routes/auth.routes.js';
+import userRouter from './modules/users/routes/user.routes.js';
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.get('/api/health', (_req: Request, res: Response): void => {
 // ─── API Routes ───────────────────────────────────────────────────────────────
 
 app.use('/api/auth', authRouter);
+app.use('/api/users', userRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

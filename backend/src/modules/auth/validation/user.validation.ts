@@ -93,3 +93,50 @@ export const validateResetPassword = (req: Request, _res: Response, next: NextFu
 
   next();
 };
+
+export const validateWorkerCreation = (req: Request, _res: Response, next: NextFunction): void => {
+  const { name, email, password, phone, workerType } = req.body;
+  const errors: string[] = [];
+
+  // Validate Name
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    errors.push('Name is required and must be a non-empty string');
+  }
+
+  // Validate Email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
+    errors.push('A valid email address is required');
+  }
+
+  // Validate Password
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    errors.push('Password is required and must be at least 6 characters long');
+  }
+
+  // Validate Phone
+  if (phone !== undefined && phone !== null && typeof phone !== 'string') {
+    errors.push('Phone must be a valid string');
+  }
+
+  // Validate WorkerType
+  const allowedWorkerTypes = [
+    'Catering Boy',
+    'Catering Supervisor',
+    'Chef',
+    'Cameraman / Photographer',
+    'Videographer',
+    'Decoration Worker',
+    'Juice Worker',
+    'Host'
+  ];
+  if (!workerType || typeof workerType !== 'string' || !allowedWorkerTypes.includes(workerType.trim())) {
+    errors.push('A valid workerType is required');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
