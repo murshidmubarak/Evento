@@ -67,4 +67,15 @@ export class UserController {
 
     new ApiResponse(200, 'If an account exists for this email, password reset instructions will be sent.', {}).send(res);
   });
+
+  /**
+   * POST /api/auth/reset-password
+   * Completes the password reset process.
+   */
+  resetPassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { token, newPassword } = req.body;
+    await this.userService.resetPassword(token, newPassword);
+
+    new ApiResponse(200, 'Password reset successfully', {}).send(res);
+  });
 }

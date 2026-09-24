@@ -39,4 +39,21 @@ export class UserRepository {
       passwordResetExpiresAt: expiresAt,
     });
   }
+
+  /**
+   * Find a user document by password reset token hash.
+   */
+  async findByPasswordResetToken(hash: string): Promise<IUser | null> {
+    return User.findOne({ passwordResetTokenHash: hash }).select('+passwordResetTokenHash +passwordResetExpiresAt');
+  }
+
+  /**
+   * Update the user's password and clear the reset token fields.
+   */
+  async updatePasswordAndClearResetToken(id: string, newPasswordHash: string): Promise<void> {
+    await User.findByIdAndUpdate(id, {
+      password: newPasswordHash,
+      $unset: { passwordResetTokenHash: 1, passwordResetExpiresAt: 1 },
+    });
+  }
 }

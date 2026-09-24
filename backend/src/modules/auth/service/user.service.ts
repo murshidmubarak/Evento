@@ -158,6 +158,31 @@ export class UserService {
   }
 
   /**
+   * Resets the user's password using a valid reset token.
+   *
+   * Business Rules:
+   * 1. Hash the provided raw token.
+   * 2. Look up the user by the hashed token.
+   * 3. Verify user exists and token has not expired.
+   * 4. Hash the new password.
+   * 5. Update user password and clear reset token fields.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await this.userRepository.findByPasswordResetToken(resetTokenHash);
+
+    if (!user || !user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now()) {
+      throw ApiError.badRequest('Invalid or expired password reset token.');
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    await this.userRepository.updatePasswordAndClearResetToken(user._id.toString(), hashedPassword);
+  }
+
+  /**
    * Fetches the current authenticated user by ID.
    *
    * Business Rules:

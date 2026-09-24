@@ -70,3 +70,26 @@ export const validateForgotPassword = (req: Request, _res: Response, next: NextF
 
   next();
 };
+
+export const validateResetPassword = (req: Request, _res: Response, next: NextFunction): void => {
+  const { token, newPassword, confirmPassword } = req.body;
+  const errors: string[] = [];
+
+  if (!token || typeof token !== 'string' || token.trim().length === 0) {
+    errors.push('Token is required');
+  }
+
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+    errors.push('New password is required and must be at least 6 characters long');
+  }
+
+  if (newPassword !== confirmPassword) {
+    errors.push('Passwords do not match');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

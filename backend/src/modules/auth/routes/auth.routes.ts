@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { UserController } from '../controller/user.controller.js';
-import { validateRegistration, validateLogin, validateForgotPassword } from '../validation/user.validation.js';
+import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword } from '../validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -33,6 +33,14 @@ router.get('/me', authenticate, userController.getMe);
  * @access  Public
  */
 router.post('/forgot-password', validateForgotPassword, userController.forgotPassword);
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Completes password reset process
+ * @access  Public
+ */
+router.post('/reset-password', validateResetPassword, userController.resetPassword);
+
 /**
  * @route   POST /api/auth/logout
  * @desc    Logout user (client-side token removal)
