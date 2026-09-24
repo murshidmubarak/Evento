@@ -1,0 +1,53 @@
+
+---
+
+# 2. `docs/09-change-impact-log.md`
+
+This one is especially useful for Antigravity because you want it to warn you before making a change that affects other parts of the system.
+
+```md
+# EventOps ERP — Change Impact Log
+
+## Purpose
+
+This document tracks changes that can affect other files, modules, APIs, database structures, frontend features, tests, or business workflows.
+
+The purpose is to prevent unintended side effects and uncontrolled changes.
+
+Every significant structural or shared change must record its expected impact.
+
+---
+
+# Mandatory Change Impact Workflow
+
+Before modifying an existing file or shared component:
+
+1. Identify the file being changed.
+2. Identify what it provides or controls.
+3. Search this document for existing impact information.
+4. Identify all known affected files/modules.
+5. Determine the impact level.
+6. If the impact is Serious or Critical:
+   - STOP before implementation.
+   - Clearly report the impact to the developer.
+   - List the files/modules that may be affected.
+   - Explain why they are affected.
+   - Wait for approval before proceeding.
+7. If the impact is Low or Medium:
+   - Continue only after reviewing the affected areas.
+8. After implementation:
+   - Verify the affected areas.
+   - Update this document when necessary.
+
+---
+
+# Impact Levels
+
+## LOW
+
+Change is isolated and has little or no effect outside the target file/module.
+
+Example:
+
+```text
+Change local UI text in one page.
