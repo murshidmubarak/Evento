@@ -21,6 +21,12 @@ export interface LoginUserDto {
   password: string;
 }
 
+export interface UpdateProfileDto {
+  name?: string;
+  phone?: string;
+  profileImage?: string;
+}
+
 export interface SafeUser {
   id: string;
   name: string;
@@ -321,6 +327,45 @@ export class UserService {
     }
 
     return this.toSafeUser(user);
+  }
+
+  /**
+   * Updates the current authenticated user's profile.
+   *
+   * Business Rules:
+   * 1. Updates only allowed profile fields: name, phone, profileImage.
+   * 2. Prevents updating protected fields like _id, role, businessId, isActive, password, workerType, email.
+   * 3. Rejects non-existent or inactive users.
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<SafeUser> {
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    if (!user.isActive) {
+      throw ApiError.unauthorized('Account is inactive. Please contact support.');
+    }
+
+    const updateData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage'>> = {};
+
+    if (dto.name !== undefined) {
+      updateData.name = dto.name.trim();
+    }
+    if (dto.phone !== undefined) {
+      updateData.phone = dto.phone.trim();
+    }
+    if (dto.profileImage !== undefined) {
+      updateData.profileImage = dto.profileImage.trim();
+    }
+
+    const updatedUser = await this.userRepository.updateProfile(userId, updateData);
+    
+    if (!updatedUser) {
+      throw ApiError.internal('Failed to update profile');
+    }
+
+    return this.toSafeUser(updatedUser);
   }
 
   /**

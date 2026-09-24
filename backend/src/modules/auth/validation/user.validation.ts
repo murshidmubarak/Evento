@@ -155,3 +155,32 @@ export const validateUserStatusUpdate = (req: Request, _res: Response, next: Nex
 
   next();
 };
+
+export const validateProfileUpdate = (req: Request, _res: Response, next: NextFunction): void => {
+  const { name, phone, profileImage } = req.body;
+  const errors: string[] = [];
+
+  if (name !== undefined) {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      errors.push('Name must be a non-empty string');
+    }
+  }
+
+  if (phone !== undefined && phone !== null) {
+    if (typeof phone !== 'string') {
+      errors.push('Phone must be a valid string');
+    }
+  }
+
+  if (profileImage !== undefined && profileImage !== null) {
+    if (typeof profileImage !== 'string') {
+      errors.push('Profile image must be a valid string');
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

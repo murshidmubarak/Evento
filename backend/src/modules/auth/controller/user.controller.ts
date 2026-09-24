@@ -49,6 +49,22 @@ export class UserController {
   });
 
   /**
+   * PATCH /api/auth/me
+   * Updates current authenticated user profile data.
+   */
+  updateMe = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw ApiError.unauthorized('Authentication required');
+    }
+
+    const updatedUser = await this.userService.updateProfile(req.user.id, req.body);
+
+    new ApiResponse(200, 'Profile updated successfully', {
+      user: updatedUser,
+    }).send(res);
+  });
+
+  /**
    * POST /api/auth/logout
    * Handles user logout. For stateless JWTs, there is no server-side token invalidation required.
    * The frontend is responsible for discarding the token.

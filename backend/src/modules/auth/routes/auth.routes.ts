@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { UserController } from '../controller/user.controller.js';
-import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword } from '../validation/user.validation.js';
+import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword, validateProfileUpdate } from '../validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -26,6 +26,13 @@ router.post('/login', validateLogin, userController.login);
  * @access  Private
  */
 router.get('/me', authenticate, userController.getMe);
+
+/**
+ * @route   PATCH /api/auth/me
+ * @desc    Update current authenticated user profile
+ * @access  Private
+ */
+router.patch('/me', authenticate, validateProfileUpdate, userController.updateMe);
 
 /**
  * @route   POST /api/auth/forgot-password

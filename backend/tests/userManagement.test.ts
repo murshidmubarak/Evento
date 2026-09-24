@@ -9,9 +9,13 @@ import jwt from 'jsonwebtoken';
 import { env } from '../src/config/env.js';
 import bcrypt from 'bcryptjs';
 
+import { Sequence } from '../src/modules/users/model/sequence.model.js';
+
 describe('User Management Endpoints', () => {
   before(async () => {
     await connectDB();
+    await User.deleteMany({});
+    await Sequence.deleteMany({});
   });
 
   after(async () => {

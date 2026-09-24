@@ -67,4 +67,15 @@ export class UserRepository {
       { new: true }
     );
   }
+
+  /**
+   * Update the user's profile.
+   */
+  async updateProfile(id: string, profileData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage'>>): Promise<IUser | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: profileData },
+      { new: true, runValidators: true }
+    );
+  }
 }

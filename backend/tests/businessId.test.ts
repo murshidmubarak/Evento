@@ -41,14 +41,14 @@ describe('Business ID Generation & Assignment', () => {
   });
 
   after(async () => {
-    await User.deleteMany({ email: { $regex: 'businessid' } });
+    await User.deleteMany({ email: { $ne: 'admin.businessid@example.com' } });
     await Sequence.deleteMany({});
     server.close();
     await mongoose.disconnect();
   });
 
   beforeEach(async () => {
-    await User.deleteMany({ email: { $regex: 'businessid_test' } });
+    await User.deleteMany({ email: { $ne: 'admin.businessid@example.com' } });
     await Sequence.deleteMany({});
   });
 
