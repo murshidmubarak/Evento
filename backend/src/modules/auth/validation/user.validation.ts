@@ -140,3 +140,18 @@ export const validateWorkerCreation = (req: Request, _res: Response, next: NextF
 
   next();
 };
+
+export const validateUserStatusUpdate = (req: Request, _res: Response, next: NextFunction): void => {
+  const { isActive } = req.body;
+  const errors: string[] = [];
+
+  if (isActive === undefined || isActive === null || typeof isActive !== 'boolean') {
+    errors.push('isActive is required and must be a boolean');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

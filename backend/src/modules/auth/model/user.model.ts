@@ -11,6 +11,7 @@ export interface IUser extends Document {
   profileImage?: string;
   role: UserRole;
   workerType?: string;
+  businessId?: string;
   isActive: boolean;
   googleId?: string;
   passwordResetTokenHash?: string;
@@ -69,6 +70,14 @@ const userSchema = new Schema<IUser>(
         ],
         message: 'Invalid worker type',
       },
+    },
+    businessId: {
+      type: String,
+      // No globally unique index here unless we make it sparse, but the requirements say unique within assigned category.
+      // Sparse index is okay since admin/client don't have it.
+      unique: true,
+      sparse: true,
+      trim: true,
     },
     isActive: {
       type: Boolean,

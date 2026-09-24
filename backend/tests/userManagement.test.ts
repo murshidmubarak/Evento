@@ -410,4 +410,189 @@ describe('User Management Endpoints', () => {
       }
     });
   });
+
+  describe('User Status Management', () => {
+    const generateToken = (userId: string, role: string) => {
+      return jwt.sign({ userId, role }, env.jwtSecret, { expiresIn: '1h' });
+    };
+
+    it('1. Unauthenticated request -> 401', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/some-id/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive: false }),
+        });
+        assert.equal(res.status, 401);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('2. Client role request -> 403', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const token = generateToken(new mongoose.Types.ObjectId().toString(), 'client');
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/some-id/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false }),
+        });
+        assert.equal(res.status, 403);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('3. Event Manager role request -> 403', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const token = generateToken(new mongoose.Types.ObjectId().toString(), 'event_manager');
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/some-id/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false }),
+        });
+        assert.equal(res.status, 403);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('4. Worker role request -> 403', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const token = generateToken(new mongoose.Types.ObjectId().toString(), 'worker');
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/some-id/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false }),
+        });
+        assert.equal(res.status, 403);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('5. Admin can deactivate an active user & 9. Request cannot change role & 10. Mass assignment ignored', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const adminId = new mongoose.Types.ObjectId().toString();
+        const token = generateToken(adminId, 'admin');
+
+        const targetUser = new User({ name: 'Target', email: 'target_deact@example.com', password: 'hash', role: 'worker', isActive: true, workerType: 'Host' });
+        await targetUser.save();
+
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/${targetUser._id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false, role: 'admin', email: 'hacked@example.com' }), // malicious payload
+        });
+
+        assert.equal(res.status, 200);
+        const data = await res.json() as any;
+        assert.equal(data.success, true);
+        assert.equal(data.data.user.isActive, false);
+        assert.equal(data.data.user.role, 'worker', 'Role must not be changed');
+        assert.equal(data.data.user.email, 'target_deact@example.com', 'Email must not be changed');
+
+        const dbUser = await User.findById(targetUser._id);
+        assert.ok(dbUser);
+        assert.equal(dbUser.isActive, false);
+        assert.equal(dbUser.role, 'worker');
+
+        await User.findByIdAndDelete(targetUser._id);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('6. Admin can activate an inactive user & 11. Deactivated user cannot log in & 12. Reactivated user can log in', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const adminId = new mongoose.Types.ObjectId().toString();
+        const token = generateToken(adminId, 'admin');
+
+        const passwordHash = await bcrypt.hash('password123', 10);
+        const targetUser = new User({ name: 'Target', email: 'target_act@example.com', password: passwordHash, role: 'client', isActive: false });
+        await targetUser.save();
+
+        // Ensure inactive user cannot login
+        const loginRes1 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'target_act@example.com', password: 'password123' }),
+        });
+        assert.equal(loginRes1.status, 401);
+
+        // Reactivate user
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/${targetUser._id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: true }),
+        });
+        assert.equal(res.status, 200);
+
+        // Ensure reactivated user can login
+        const loginRes2 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'target_act@example.com', password: 'password123' }),
+        });
+        assert.equal(loginRes2.status, 200);
+
+        await User.findByIdAndDelete(targetUser._id);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('7. Non-existent user returns 404', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const adminId = new mongoose.Types.ObjectId().toString();
+        const token = generateToken(adminId, 'admin');
+        const fakeId = new mongoose.Types.ObjectId().toString();
+
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/${fakeId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false }),
+        });
+
+        assert.equal(res.status, 404);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('8. Invalid user ID is handled correctly (e.g. 500 or 400)', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const adminId = new mongoose.Types.ObjectId().toString();
+        const token = generateToken(adminId, 'admin');
+
+        const res = await fetch(`http://127.0.0.1:${port}/api/users/invalid-id/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ isActive: false }),
+        });
+
+        // The exact status depends on whether Mongoose casts it or not, usually 500 in standard catchAsync without specific CastError handling, or 400.
+        // We just assert it fails (not 200)
+        assert.notEqual(res.status, 200);
+      } finally {
+        server.close();
+      }
+    });
+  });
 });

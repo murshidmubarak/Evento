@@ -56,4 +56,15 @@ export class UserRepository {
       $unset: { passwordResetTokenHash: 1, passwordResetExpiresAt: 1 },
     });
   }
+
+  /**
+   * Update the active status of a user.
+   */
+  async updateUserStatus(id: string, isActive: boolean): Promise<IUser | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { isActive },
+      { new: true }
+    );
+  }
 }

@@ -5,6 +5,7 @@ import { UserRepository } from '../repository/user.repository.js';
 import { ApiError } from '../../../utils/ApiError.js';
 import { env } from '../../../config/env.js';
 import type { IUser } from '../model/user.model.js';
+import { BusinessIdService } from '../../users/service/business-id.service.js';
 
 export interface RegisterUserDto {
   name: string;
@@ -28,6 +29,7 @@ export interface SafeUser {
   profileImage?: string;
   role: string;
   workerType?: string;
+  businessId?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -39,7 +41,10 @@ export interface LoginResult {
 }
 
 export class UserService {
-  constructor(private readonly userRepository: UserRepository = new UserRepository()) {}
+  constructor(
+    private readonly userRepository: UserRepository = new UserRepository(),
+    private readonly businessIdService: BusinessIdService = new BusinessIdService()
+  ) {}
 
   /**
    * Registers a new client user.
@@ -215,6 +220,7 @@ export class UserService {
       phone: dto.phone?.trim(),
       profileImage: dto.profileImage?.trim(),
       role: 'event_manager', // Backend is source of truth — force role to 'event_manager'
+      businessId: await this.businessIdService.generateBusinessId('event_manager'),
       isActive: true,
     };
 
@@ -255,12 +261,44 @@ export class UserService {
       profileImage: dto.profileImage?.trim(),
       role: 'worker', // Backend enforces role
       workerType: dto.workerType.trim(),
+      businessId: await this.businessIdService.generateBusinessId(dto.workerType.trim()),
       isActive: true, // Default status
     };
 
     const createdUser = await this.userRepository.create(userData);
 
     return this.toSafeUser(createdUser);
+  }
+
+  /**
+   * Updates a user's active status.
+   *
+   * Business Rules:
+   * 1. Target user must exist.
+   * 2. Cannot deactivate/modify own status (prevents self-lockout).
+   * 3. Must handle already active/inactive cases correctly.
+   * 4. Only updates the isActive field.
+   */
+  async updateUserStatus(targetUserId: string, isActive: boolean, requestingAdminId: string): Promise<SafeUser> {
+    if (targetUserId === requestingAdminId) {
+      throw ApiError.badRequest('Admins cannot change their own account status');
+    }
+
+    const targetUser = await this.userRepository.findById(targetUserId);
+    if (!targetUser) {
+      throw ApiError.notFound('User not found');
+    }
+
+    if (targetUser.isActive === isActive) {
+      throw ApiError.badRequest(`User is already ${isActive ? 'active' : 'inactive'}`);
+    }
+
+    const updatedUser = await this.userRepository.updateUserStatus(targetUserId, isActive);
+    if (!updatedUser) {
+      throw ApiError.notFound('User not found during update');
+    }
+
+    return this.toSafeUser(updatedUser);
   }
 
   /**
@@ -297,6 +335,7 @@ export class UserService {
       profileImage: user.profileImage,
       role: user.role,
       workerType: user.workerType,
+      businessId: user.businessId,
       isActive: user.isActive,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

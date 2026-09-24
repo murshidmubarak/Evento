@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { UserManagementController } from '../controller/user-management.controller.js';
-import { validateRegistration, validateWorkerCreation } from '../../auth/validation/user.validation.js';
+import { validateRegistration, validateWorkerCreation, validateUserStatusUpdate } from '../../auth/validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
 
@@ -31,6 +31,19 @@ router.post(
   authorize('admin', 'event_manager'),
   validateWorkerCreation,
   userManagementController.createWorker
+);
+
+/**
+ * @route   PATCH /api/users/:id/status
+ * @desc    Admin updates a user's active status
+ * @access  Private (Admin only)
+ */
+router.patch(
+  '/:id/status',
+  authenticate,
+  authorize('admin'),
+  validateUserStatusUpdate,
+  userManagementController.updateUserStatus
 );
 
 export default router;

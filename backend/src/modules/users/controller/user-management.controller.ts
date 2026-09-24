@@ -29,4 +29,20 @@ export class UserManagementController {
       user: safeUser,
     }).send(res);
   });
+
+  /**
+   * PATCH /api/users/:id/status
+   * Admin updates a user's active status.
+   */
+  updateUserStatus = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const targetUserId = req.params.id;
+    const { isActive } = req.body;
+    const requestingAdminId = req.user!.id; // Ensure req.user is accessed safely, authenticate middleware guarantees it
+
+    const safeUser = await this.userService.updateUserStatus(targetUserId, isActive, requestingAdminId);
+
+    new ApiResponse(200, `User ${isActive ? 'activated' : 'deactivated'} successfully`, {
+      user: safeUser,
+    }).send(res);
+  });
 }
