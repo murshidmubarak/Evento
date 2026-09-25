@@ -79,3 +79,20 @@ export const validateServiceStatusUpdate = (req: Request, _res: Response, next: 
 
   next();
 };
+
+export const validateCalculatePrice = (req: Request, _res: Response, next: NextFunction): void => {
+  const { guestCount } = req.body;
+  const errors: string[] = [];
+
+  if (guestCount !== undefined && guestCount !== null) {
+    if (typeof guestCount !== 'number' || guestCount <= 0 || !Number.isInteger(guestCount)) {
+      errors.push('If provided, guestCount must be a positive integer');
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

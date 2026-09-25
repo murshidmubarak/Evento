@@ -74,4 +74,47 @@ export class ServiceService {
     }
     return service;
   }
+
+  async calculatePrice(id: string, data: { guestCount?: number }): Promise<{
+    serviceId: string;
+    serviceName: string;
+    pricingType: PricingType;
+    basePrice: number;
+    quantity: number | null;
+    amount: number;
+  }> {
+    const service = await this.repository.findById(id);
+    if (!service) {
+      throw ApiError.notFound('Service not found');
+    }
+
+    if (!service.isActive) {
+      throw ApiError.badRequest('Cannot calculate price for an inactive service');
+    }
+
+    let amount = 0;
+    let quantity: number | null = null;
+
+    if (service.pricingType === 'per_guest') {
+      if (data.guestCount === undefined || data.guestCount === null) {
+        throw ApiError.badRequest('guestCount is required for per_guest pricing');
+      }
+      quantity = data.guestCount;
+      // Money Representation: Use standard JS Numbers but enforce fixed 2-decimal rounding to maintain consistent precision.
+      amount = Math.round(service.basePrice * quantity * 100) / 100;
+    } else if (service.pricingType === 'per_event') {
+      amount = Math.round(service.basePrice * 100) / 100;
+    } else if (service.pricingType === 'package') {
+      amount = Math.round(service.basePrice * 100) / 100;
+    }
+
+    return {
+      serviceId: service._id.toString(),
+      serviceName: service.name,
+      pricingType: service.pricingType,
+      basePrice: service.basePrice,
+      quantity,
+      amount,
+    };
+  }
 }

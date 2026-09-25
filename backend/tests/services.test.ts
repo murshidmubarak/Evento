@@ -263,4 +263,195 @@ describe('Service Catalog API', () => {
     assert.equal(data3.data.service.isActive, true);
     assert.equal(data3.data.service.basePrice, 200);
   });
+
+  describe('Pricing Calculation Engine', () => {
+    let perGuestServiceId: string;
+    let perEventServiceId: string;
+    let packageServiceId: string;
+
+    beforeEach(async () => {
+      const s1 = await fetch(`http://127.0.0.1:${port}/api/services`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ name: 'Catering', description: 'Food', pricingType: 'per_guest', basePrice: 500 }),
+      });
+      perGuestServiceId = (await s1.json() as any).data.service._id;
+
+      const s2 = await fetch(`http://127.0.0.1:${port}/api/services`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ name: 'Venue', description: 'Hall', pricingType: 'per_event', basePrice: 50000 }),
+      });
+      perEventServiceId = (await s2.json() as any).data.service._id;
+
+      const s3 = await fetch(`http://127.0.0.1:${port}/api/services`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ name: 'Premium Bundle', description: 'Bundle', pricingType: 'package', basePrice: 150000 }),
+      });
+      packageServiceId = (await s3.json() as any).data.service._id;
+    });
+
+    it('15. Unauthenticated calculation request → 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guestCount: 200 }),
+      });
+      assert.equal(res.status, 401);
+    });
+
+    it('16. Active per_guest service calculates correctly (500 * 200 = 100000)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200 }),
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json() as any;
+      assert.equal(data.data.amount, 100000);
+      assert.equal(data.data.quantity, 200);
+      assert.equal(data.data.basePrice, 500);
+    });
+
+    it('17. Active per_event service calculates base price (ignores guestCount)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perEventServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200 }),
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json() as any;
+      assert.equal(data.data.amount, 50000);
+    });
+
+    it('18. Active package service calculates base price', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${packageServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({}),
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json() as any;
+      assert.equal(data.data.amount, 150000);
+    });
+
+    it('19. Missing guestCount for per_guest → validation error', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({}), // Missing guestCount
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('20. Zero/negative guestCount handled according to validation rules', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: -5 }),
+      });
+      assert.equal(res.status, 400);
+
+      const res2 = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 0 }),
+      });
+      assert.equal(res2.status, 400);
+    });
+
+    it('21. Invalid guestCount rejected (decimals, strings)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200.5 }),
+      });
+      assert.equal(res.status, 400);
+
+      const res2 = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: "200" }),
+      });
+      assert.equal(res2.status, 400);
+    });
+
+    it('22. Non-existent service handled correctly', async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString();
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${fakeId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200 }),
+      });
+      assert.equal(res.status, 404);
+    });
+
+    it('23. Inactive service cannot be normally calculated', async () => {
+      // Deactivate it first
+      await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ isActive: false }),
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200 }),
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('24. Backend uses database basePrice rather than caller-supplied price & cannot override amount', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200, basePrice: 10, amount: 50, pricingType: 'package' }),
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json() as any;
+      
+      // Values should remain driven by DB (500 * 200 = 100000)
+      assert.equal(data.data.basePrice, 500);
+      assert.equal(data.data.pricingType, 'per_guest');
+      assert.equal(data.data.amount, 100000);
+    });
+
+    it('25. Calculation endpoint does not modify Service data', async () => {
+      await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 200, basePrice: 10 }),
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${perGuestServiceId}`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` },
+      });
+      const data = await res.json() as any;
+      assert.equal(data.data.service.basePrice, 500); // Unchanged
+    });
+
+    it('26. Decimal/money calculation follows fixed 2-decimal strategy', async () => {
+      // Create a service with decimal basePrice
+      const s = await fetch(`http://127.0.0.1:${port}/api/services`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ name: 'Decimal Service', description: 'Test', pricingType: 'per_guest', basePrice: 50.55 }),
+      });
+      const decimalServiceId = (await s.json() as any).data.service._id;
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/services/${decimalServiceId}/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken}` },
+        body: JSON.stringify({ guestCount: 3 }),
+      });
+      
+      const data = await res.json() as any;
+      // 50.55 * 3 = 151.65
+      // 50.55 * 3 in JS is 151.64999999999998
+      // But we round to 2 decimals using Math.round(val * 100) / 100 -> 151.65
+      assert.equal(data.data.amount, 151.65);
+    });
+  });
 });
