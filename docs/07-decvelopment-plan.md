@@ -184,7 +184,6 @@ Features:
 Create Service
 Update Service
 Activate/deactivate Service
-Service pricing
 Pricing type
 
 Supported pricing types:
@@ -201,8 +200,6 @@ Photography
 Videography
 Juice
 Hosting
-
-Backend must calculate service pricing.
 
 8. Phase 6 - Client Event Management
 

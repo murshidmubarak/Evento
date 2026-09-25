@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { ServiceController } from '../controller/service.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
-import { validateCreateService, validateUpdateService, validateServiceStatusUpdate, validateCalculatePrice } from '../validation/service.validation.js';
+import { validateCreateService, validateUpdateService, validateServiceStatusUpdate } from '../validation/service.validation.js';
 
 const router = Router();
 const serviceController = new ServiceController();
@@ -68,16 +68,6 @@ router.get(
   serviceController.getServiceById
 );
 
-/**
- * @route   POST /api/services/:id/calculate
- * @desc    Calculate deterministic price for a service
- * @access  Private (Authenticated users)
- */
-router.post(
-  '/:id/calculate',
-  authenticate,
-  validateCalculatePrice,
-  serviceController.calculatePrice
-);
+
 
 export default router;

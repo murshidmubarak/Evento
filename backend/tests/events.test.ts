@@ -52,7 +52,6 @@ describe('Event Requests API', () => {
       name: 'Test Catering',
       description: 'Food',
       pricingType: 'per_guest',
-      basePrice: 500,
       isActive: true,
     });
     activeServiceId = activeService._id.toString();
@@ -61,7 +60,6 @@ describe('Event Requests API', () => {
       name: 'Test Decoration',
       description: 'Deco',
       pricingType: 'per_event',
-      basePrice: 10000,
       isActive: false,
     });
     inactiveServiceId = inactiveService._id.toString();

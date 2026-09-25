@@ -67,7 +67,6 @@ Fields:
 - name
 - description
 - pricingType
-- basePrice
 - isActive
 - createdAt
 - updatedAt

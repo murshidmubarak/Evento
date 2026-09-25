@@ -49,5 +49,21 @@ Change is isolated and has little or no effect outside the target file/module.
 
 Example:
 
-```text
 Change local UI text in one page.
+```
+
+### [Service Catalog & Pricing]
+**Date:** [Current Date]
+**Changes:**
+- Created Service Catalog API (CRUD).
+- Implemented Client Event Request API.
+
+### [Pricing Architecture Refactor]
+**Date:** [Current Date]
+**Changes:**
+- Removed standalone Pricing Calculation Engine and `/api/services/:id/calculate` route.
+- Removed `basePrice` from the Service model, validation, logic, and tests.
+- Retained `pricingType` (per_guest, per_event, package) for future Quotation context.
+- Updated database and dev plan documentation to reflect the new architecture.
+**Impact:**
+- Low impact. Refactored independent service module. Test suite adapted successfully. No consumer breakage because Quotations/Payments are not yet implemented.

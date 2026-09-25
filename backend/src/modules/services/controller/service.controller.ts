@@ -87,16 +87,4 @@ export class ServiceController {
     }
   };
 
-  calculatePrice = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const result = await this.serviceService.calculatePrice(id, req.body);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  };
 }

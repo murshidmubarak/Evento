@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../../../utils/ApiError.js';
 
 export const validateCreateService = (req: Request, _res: Response, next: NextFunction): void => {
-  const { name, description, pricingType, basePrice } = req.body;
+  const { name, description, pricingType } = req.body;
   const errors: string[] = [];
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -18,10 +18,6 @@ export const validateCreateService = (req: Request, _res: Response, next: NextFu
     errors.push('Pricing type must be one of: per_guest, per_event, package');
   }
 
-  if (basePrice === undefined || basePrice === null || typeof basePrice !== 'number' || basePrice < 0) {
-    errors.push('Base price is required and must be a non-negative number');
-  }
-
   if (errors.length > 0) {
     return next(ApiError.badRequest('Validation failed', errors));
   }
@@ -30,7 +26,7 @@ export const validateCreateService = (req: Request, _res: Response, next: NextFu
 };
 
 export const validateUpdateService = (req: Request, _res: Response, next: NextFunction): void => {
-  const { name, description, pricingType, basePrice } = req.body;
+  const { name, description, pricingType } = req.body;
   const errors: string[] = [];
 
   if (name !== undefined) {
@@ -52,12 +48,6 @@ export const validateUpdateService = (req: Request, _res: Response, next: NextFu
     }
   }
 
-  if (basePrice !== undefined) {
-    if (typeof basePrice !== 'number' || basePrice < 0) {
-      errors.push('Base price must be a non-negative number');
-    }
-  }
-
   if (errors.length > 0) {
     return next(ApiError.badRequest('Validation failed', errors));
   }
@@ -71,23 +61,6 @@ export const validateServiceStatusUpdate = (req: Request, _res: Response, next: 
 
   if (isActive === undefined || isActive === null || typeof isActive !== 'boolean') {
     errors.push('isActive is required and must be a boolean');
-  }
-
-  if (errors.length > 0) {
-    return next(ApiError.badRequest('Validation failed', errors));
-  }
-
-  next();
-};
-
-export const validateCalculatePrice = (req: Request, _res: Response, next: NextFunction): void => {
-  const { guestCount } = req.body;
-  const errors: string[] = [];
-
-  if (guestCount !== undefined && guestCount !== null) {
-    if (typeof guestCount !== 'number' || guestCount <= 0 || !Number.isInteger(guestCount)) {
-      errors.push('If provided, guestCount must be a positive integer');
-    }
   }
 
   if (errors.length > 0) {

@@ -6,7 +6,6 @@ export interface IService extends Document {
   name: string;
   description: string;
   pricingType: PricingType;
-  basePrice: number;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -32,11 +31,6 @@ const serviceSchema = new Schema<IService>(
         message: '{VALUE} is not a valid pricing type',
       },
       required: [true, 'Pricing type is required'],
-    },
-    basePrice: {
-      type: Number,
-      required: [true, 'Base price is required'],
-      min: [0, 'Base price cannot be negative'],
     },
     isActive: {
       type: Boolean,
