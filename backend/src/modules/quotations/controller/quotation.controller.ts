@@ -58,3 +58,27 @@ export const getQuotation = catchAsync(async (req: Request, res: Response) => {
 
   new ApiResponse(200, 'Quotation retrieved successfully', quotation).send(res);
 });
+
+export const sendQuotation = catchAsync(async (req: Request, res: Response) => {
+  const user = { id: req.user!.id, role: req.user!.role };
+  const quotation = await quotationService.sendQuotation(user, req.params.id);
+  new ApiResponse(200, 'Quotation sent successfully', quotation).send(res);
+});
+
+export const acceptQuotation = catchAsync(async (req: Request, res: Response) => {
+  const user = { id: req.user!.id, role: req.user!.role };
+  const quotation = await quotationService.acceptQuotation(user, req.params.id);
+  new ApiResponse(200, 'Quotation accepted successfully', quotation).send(res);
+});
+
+export const rejectQuotation = catchAsync(async (req: Request, res: Response) => {
+  const user = { id: req.user!.id, role: req.user!.role };
+  const quotation = await quotationService.rejectQuotation(user, req.params.id);
+  new ApiResponse(200, 'Quotation rejected successfully', quotation).send(res);
+});
+
+export const requestChangesQuotation = catchAsync(async (req: Request, res: Response) => {
+  const user = { id: req.user!.id, role: req.user!.role };
+  const quotation = await quotationService.requestChangesQuotation(user, req.params.id);
+  new ApiResponse(200, 'Changes requested successfully', quotation).send(res);
+});

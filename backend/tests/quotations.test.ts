@@ -395,4 +395,142 @@ describe('Quotations API', () => {
     });
     assert.equal(workerRes.status, 403);
   });
+
+  it('34. Send Quotation', async () => {
+    // 1. Create a draft quotation
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken1}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId1))
+    });
+    const { data: q } = await createRes.json() as any;
+
+    // Unauthenticated send
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, { method: 'PATCH' });
+    assert.equal(res1.status, 401);
+
+    // Client cannot send
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${clientToken1}` }
+    });
+    assert.equal(res2.status, 403);
+
+    // Unauthorized Event Manager cannot send (manager 2 trying to send manager 1's event's quotation)
+    const res3 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${managerToken2}` }
+    });
+    assert.equal(res3.status, 403);
+
+    // Authorized Manager can send
+    const res4 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${managerToken1}` }
+    });
+    assert.equal(res4.status, 200);
+    const data4 = await res4.json() as any;
+    assert.equal(data4.data.status, 'sent');
+  });
+
+  it('35. Client Accept Quotation', async () => {
+    // Create & send
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId1))
+    });
+    const { data: q } = await createRes.json() as any;
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+
+    // Unauthenticated accept
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/accept`, { method: 'PATCH' });
+    assert.equal(res1.status, 401);
+
+    // Admin cannot accept
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/accept`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    assert.equal(res2.status, 403);
+
+    // Client 2 cannot accept Client 1's quotation
+    const res3 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/accept`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${clientToken2}` }
+    });
+    assert.equal(res3.status, 403);
+
+    // Client 1 can accept
+    const res4 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/accept`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${clientToken1}` }
+    });
+    assert.equal(res4.status, 200);
+    const data4 = await res4.json() as any;
+    assert.equal(data4.data.status, 'accepted');
+
+    // Verify Event status changed to awaiting_payment
+    const evRes = await Event.findById(eventId1);
+    assert.equal(evRes?.status, 'awaiting_payment');
+  });
+
+  it('36. Client Reject Quotation', async () => {
+    // Create & send
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId2, activeServiceId1))
+    });
+    const { data: q } = await createRes.json() as any;
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+
+    // Client 2 can reject
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/reject`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${clientToken2}` }
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json() as any;
+    assert.equal(data.data.status, 'rejected');
+
+    // Event status should NOT change to confirmed/awaiting_payment
+    const evRes = await Event.findById(eventId2);
+    assert.notEqual(evRes?.status, 'awaiting_payment');
+  });
+
+  it('37. Client Request Changes', async () => {
+    // Create & send
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId1))
+    });
+    const { data: q } = await createRes.json() as any;
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+
+    // Client 1 can request changes
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/request-changes`, {
+      method: 'PATCH', headers: { 'Authorization': `Bearer ${clientToken1}` }
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json() as any;
+    assert.equal(data.data.status, 'changes_requested');
+
+    // Now create Revision 2
+    const rev2Res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId2))
+    });
+    assert.equal(rev2Res.status, 201);
+    const rev2 = await rev2Res.json() as any;
+    assert.equal(rev2.data.revision, q.revision + 1);
+
+    // Old revision remains changes_requested
+    const oldQ = await Quotation.findById(q._id);
+    assert.equal(oldQ?.status, 'changes_requested');
+  });
 });

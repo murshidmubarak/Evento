@@ -193,4 +193,131 @@ export class QuotationService {
 
     return quotation;
   }
+
+  async sendQuotation(user: { id: string; role: string }, quotationId: string) {
+    if (user.role === 'client' || user.role === 'worker') {
+      throw ApiError.forbidden('You do not have permission to send a quotation.');
+    }
+
+    const quotation = await this.quotationRepository.findById(quotationId);
+    if (!quotation) {
+      throw ApiError.notFound('Quotation not found.');
+    }
+
+    // Resource Auth
+    if (user.role === 'event_manager') {
+      const event = await this.eventRepository.findById(quotation.eventId.toString());
+      if (!event || event.eventManagerId?.toString() !== user.id) {
+        throw ApiError.forbidden('Insufficient permissions to send this quotation.');
+      }
+    }
+
+    if (quotation.status !== 'draft') {
+      throw ApiError.badRequest('Only draft quotations can be sent.');
+    }
+
+    quotation.status = 'sent';
+    return quotation.save();
+  }
+
+  async acceptQuotation(user: { id: string; role: string }, quotationId: string) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only the client can accept a quotation.');
+    }
+
+    const quotation = await this.quotationRepository.findById(quotationId);
+    if (!quotation) {
+      throw ApiError.notFound('Quotation not found.');
+    }
+
+    // Resource Auth
+    if (quotation.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not own this quotation.');
+    }
+
+    if (quotation.status !== 'sent' && quotation.status !== 'awaiting_approval') {
+      throw ApiError.badRequest('Quotation is not in a reviewable state.');
+    }
+
+    if (quotation.validUntil && new Date() > new Date(quotation.validUntil)) {
+      throw ApiError.badRequest('This quotation has expired.');
+    }
+
+    // Verify this is the latest revision? The instructions say "Historical revisions cannot be accepted after they have been superseded".
+    // Let's get the latest revision for this thread to be safe.
+    const latest = await this.quotationRepository.getLatestRevision(quotation.quotationNumber);
+    if (latest && latest.revision !== quotation.revision) {
+      throw ApiError.badRequest('Historical revisions cannot be accepted.');
+    }
+
+    quotation.status = 'accepted';
+    await quotation.save();
+
+    // Update Event status
+    const event = await this.eventRepository.findById(quotation.eventId.toString());
+    if (event) {
+      event.status = 'awaiting_payment';
+      await event.save();
+    }
+
+    return quotation;
+  }
+
+  async rejectQuotation(user: { id: string; role: string }, quotationId: string) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only the client can reject a quotation.');
+    }
+
+    const quotation = await this.quotationRepository.findById(quotationId);
+    if (!quotation) {
+      throw ApiError.notFound('Quotation not found.');
+    }
+
+    if (quotation.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not own this quotation.');
+    }
+
+    if (quotation.status !== 'sent' && quotation.status !== 'awaiting_approval') {
+      throw ApiError.badRequest('Quotation is not in a reviewable state.');
+    }
+
+    const latest = await this.quotationRepository.getLatestRevision(quotation.quotationNumber);
+    if (latest && latest.revision !== quotation.revision) {
+      throw ApiError.badRequest('Historical revisions cannot be modified.');
+    }
+
+    quotation.status = 'rejected';
+    return quotation.save();
+  }
+
+  async requestChangesQuotation(user: { id: string; role: string }, quotationId: string) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only the client can request changes to a quotation.');
+    }
+
+    const quotation = await this.quotationRepository.findById(quotationId);
+    if (!quotation) {
+      throw ApiError.notFound('Quotation not found.');
+    }
+
+    if (quotation.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not own this quotation.');
+    }
+
+    if (quotation.status !== 'sent' && quotation.status !== 'awaiting_approval') {
+      throw ApiError.badRequest('Quotation is not in a reviewable state.');
+    }
+
+    if (quotation.validUntil && new Date() > new Date(quotation.validUntil)) {
+      throw ApiError.badRequest('This quotation has expired and cannot be modified.');
+    }
+
+    const latest = await this.quotationRepository.getLatestRevision(quotation.quotationNumber);
+    if (latest && latest.revision !== quotation.revision) {
+      throw ApiError.badRequest('Historical revisions cannot be modified.');
+    }
+
+    quotation.status = 'changes_requested';
+    return quotation.save();
+  }
 }

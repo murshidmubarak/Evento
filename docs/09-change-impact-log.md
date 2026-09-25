@@ -80,3 +80,15 @@ Change local UI text in one page.
 - Fixed `businessId.test.ts` duplicate email failure: corrected the after() cleanup to delete all test users.
 **Impact:**
 - Low impact on existing systems. The quotation system builds upon the `Event` and `Service` architecture. Financial calculations are backend-owned within the Quotation domain. Full test suite: 116/116 pass, 0 fail, exit code 0. TypeScript: exit code 0.
+
+### [Quotations Part 2]
+**Date:** 2026-09-25
+**Changes:**
+- Implemented quotation lifecycle operations: `send`, `accept`, `reject`, `request-changes`.
+- Integrated strict role-based access control for lifecycle changes.
+- Added expiry validation (checked against `validUntil`).
+- Ensured client can only modify their own Event's latest quotation.
+- On quotation accept, Event status correctly transitions to `awaiting_payment` (not `confirmed`).
+- Implemented immutability logic checking against historical revisions.
+**Impact:**
+- Medium impact. Event status transition depends on quotation acceptance. Added state checks. No architectural shift. Full regression test suite passing.
