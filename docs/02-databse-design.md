@@ -79,13 +79,16 @@ Collection: quotations
 Fields:
 
 - quotationNumber
+- revision
 - eventId
 - clientId
 
-Items:
+Items (price snapshot):
 - serviceId
 - name
 - description
+- pricingType
+- requirements
 - quantity
 - unitPrice
 - amount
@@ -94,7 +97,6 @@ Financial:
 - subtotal
 - discount
 - finalAmount
-- advancePercentage
 - advanceAmount
 - remainingAmount
 

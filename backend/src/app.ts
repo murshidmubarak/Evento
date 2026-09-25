@@ -6,6 +6,7 @@ import authRouter from './modules/auth/routes/auth.routes.js';
 import userRouter from './modules/users/routes/user.routes.js';
 import serviceRouter from './modules/services/routes/service.routes.js';
 import eventRouter from './modules/events/routes/event.routes.js';
+import quotationRouter from './modules/quotations/routes/quotation.routes.js';
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/events', eventRouter);
+app.use('/api/quotations', quotationRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

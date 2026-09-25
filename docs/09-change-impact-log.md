@@ -67,3 +67,16 @@ Change local UI text in one page.
 - Updated database and dev plan documentation to reflect the new architecture.
 **Impact:**
 - Low impact. Refactored independent service module. Test suite adapted successfully. No consumer breakage because Quotations/Payments are not yet implemented.
+
+### [Quotations Part 1]
+**Date:** 2026-09-25
+**Changes:**
+- Implemented Multi-Revision Quotation Foundation (`Quotation` schema, repository, service, controller, and routes).
+- Refined `IQuotationItem` schema to include `requirements` and `pricingType` snapshotting.
+- Integrated quotation generation with sequence generation for thread-based identification and multiple revisions (`quotationNumber` + `revision`).
+- Added robust access control preventing clients and workers from creating quotations while allowing clients to view their own event's quotes.
+- Fixed non-atomic revision generation (BUG-002): replaced find-then-increment with atomic `getNextRevision()` via `SequenceRepository`.
+- Fixed full test suite hang (BUG-001): added `mongoose.disconnect()` to `events.test.ts` and `quotations.test.ts` after() hooks.
+- Fixed `businessId.test.ts` duplicate email failure: corrected the after() cleanup to delete all test users.
+**Impact:**
+- Low impact on existing systems. The quotation system builds upon the `Event` and `Service` architecture. Financial calculations are backend-owned within the Quotation domain. Full test suite: 116/116 pass, 0 fail, exit code 0. TypeScript: exit code 0.

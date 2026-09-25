@@ -41,7 +41,7 @@ describe('Business ID Generation & Assignment', () => {
   });
 
   after(async () => {
-    await User.deleteMany({ email: { $ne: 'admin.businessid@example.com' } });
+    await User.deleteMany({});
     await Sequence.deleteMany({});
     server.close();
     await mongoose.disconnect();

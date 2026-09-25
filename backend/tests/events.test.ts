@@ -67,6 +67,7 @@ describe('Event Requests API', () => {
 
   after(async () => {
     server.close();
+    await mongoose.disconnect();
   });
 
   beforeEach(async () => {

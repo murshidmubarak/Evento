@@ -64,9 +64,10 @@ Services are global records managed by Admin.
 
 ## 3. Event → Quotations
 
-One Event can have multiple Quotations.
+One Event can have multiple Quotations, representing quotation revisions.
 
-This allows quotation revisions.
+This allows maintaining a full quotation history. A new quotation revision is created when commercial changes are needed, without modifying historical quotations.
+The `quotationNumber` identifies the quotation thread, while the `revision` number distinguishes the specific version.
 
 Relationship:
 

@@ -236,13 +236,14 @@ Longitude
 Guest count
 Budget
 Selected Services
-9. Phase 7 - Quotation System
+10. Phase 7 - Quotation System
 
 Implement:
 
-Quotation creation
+Quotation creation (new and revisions)
 Quotation calculation
-Quotation list
+Quotation snapshotting (prices, requirements)
+Quotation list (thread history)
 Quotation details
 Send quotation
 Request changes

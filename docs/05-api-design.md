@@ -362,10 +362,23 @@ Base:
 POST /api/quotations
 
 Access:
-Admin / authorized staff
+Admin / authorized staff (Event Manager)
 
 Purpose:
-Create a quotation for an Event.
+Create a quotation (new or revision) for an Event. If a quotation thread already exists for the event, a new revision is safely generated.
+
+Request Body:
+{
+  eventId,
+  items: [
+    { serviceId, quantity, unitPrice, requirements }
+  ],
+  discount,
+  advanceAmount,
+  validUntil,
+  notes,
+  terms
+}
 
 Backend calculates:
 
@@ -374,6 +387,7 @@ Backend calculates:
 - finalAmount
 - advanceAmount
 - remainingAmount
+- revision number
 
 
 ## Get Quotations
