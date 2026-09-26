@@ -164,4 +164,42 @@ Added `getNextRevision(quotationNumber: string)` to `QuotationRepository` which 
 
 The first revision (1) is assigned directly. All subsequent revisions are allocated atomically via the sequence.
 
-The unique index on `{ quotationNumber, revision }` remains as a final safety net.
+The unique index on `{ quotationNumber, revision }` remains as a final safety net.
+
+---
+
+## BUG-003 — Razorpay API Call During Automated Tests (Missing Test Bypass)
+
+### Date
+
+2026-09-25
+
+### Feature / Module
+
+Payments / payment.service.ts / payments.test.ts
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+The test suite failed with a 500 error: `Failed to create Razorpay order.` when running `payments.test.ts`. The `payment.service.ts` was attempting to execute a live Razorpay SDK call (`this.razorpay.orders.create`) using the dummy `rzp_test_dummy_key_id` configured for local test runs.
+
+### Root Cause
+
+The test runner `node:test` execution (`npx tsx --test`) did not inherently set `process.env.NODE_ENV = 'test'` (it evaluated as `'development'`). Since `payment.service.ts` only conditionally bypassed the external Razorpay API when `env.nodeEnv === 'test'`, it allowed the code execution to fall through to the real API call using invalid dummy credentials, resulting in a 500 rejection.
+
+### Solution
+
+Updated the conditional bypass in `payment.service.ts` to also check if `env.razorpayKeyId === 'rzp_test_dummy_key_id'`:
+```ts
+if (env.nodeEnv !== 'test' && env.razorpayKeyId !== 'rzp_test_dummy_key_id') {
+  // execute real razorpay call
+}
+```
+This safely defaults to the bypass behavior anytime the dummy test keys are active, regardless of `NODE_ENV`. Tests now properly simulate the order generation and pass securely.

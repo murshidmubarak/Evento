@@ -7,6 +7,7 @@ import userRouter from './modules/users/routes/user.routes.js';
 import serviceRouter from './modules/services/routes/service.routes.js';
 import eventRouter from './modules/events/routes/event.routes.js';
 import quotationRouter from './modules/quotations/routes/quotation.routes.js';
+import paymentRouter from './modules/payments/routes/payment.routes.js';
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use('/api/users', userRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/events', eventRouter);
 app.use('/api/quotations', quotationRouter);
+app.use('/api/payments', paymentRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

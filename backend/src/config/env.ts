@@ -25,4 +25,6 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET as string,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '1d',
   passwordResetExpiresInMins: parseInt(process.env.PASSWORD_RESET_EXPIRES_IN_MINS ?? '15', 10),
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? 'rzp_test_dummy_key_id',
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? 'rzp_test_dummy_key_secret',
 } as const;

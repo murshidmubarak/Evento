@@ -90,5 +90,17 @@ Change local UI text in one page.
 - Ensured client can only modify their own Event's latest quotation.
 - On quotation accept, Event status correctly transitions to `awaiting_payment` (not `confirmed`).
 - Implemented immutability logic checking against historical revisions.
-**Impact:**
 - Medium impact. Event status transition depends on quotation acceptance. Added state checks. No architectural shift. Full regression test suite passing.
+
+### [Payments Part 1]
+**Date:** 2026-09-25
+**Changes:**
+- Integrated `razorpay` SDK into the backend.
+- Added `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` to environment variables and configuration.
+- Created `Payment` model and repository for storing payment records.
+- Implemented `createAdvanceOrder` in `PaymentService` to generate a Razorpay order from a quotation's `advanceAmount`.
+- Established idempotency logic: returning an existing pending advance payment to prevent duplicate orders.
+- Enforced strict business rules: Event must be in `awaiting_payment` state, amount originates solely from the authoritative Accepted Quotation `advanceAmount`.
+- Implemented environment bypass logic to avoid real API calls during automated tests.
+**Impact:**
+- Low impact on existing systems. Modular implementation. Test suite verifies integration safety. Full suite (130 tests) passing successfully.

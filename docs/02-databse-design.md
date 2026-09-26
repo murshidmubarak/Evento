@@ -116,15 +116,17 @@ Collection: payments
 Fields:
 
 - eventId
-- clientId
 - quotationId
+- clientId
+- paymentType
 - amount
+- currency
+- status
 - razorpayOrderId
 - razorpayPaymentId
-- razorpaySignature
-- status
-- paymentDate
+- receiptReference
 - createdAt
+- updatedAt
 
 
 ## 6. Work Requirements
