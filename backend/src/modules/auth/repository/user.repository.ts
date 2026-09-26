@@ -78,4 +78,15 @@ export class UserRepository {
       { new: true, runValidators: true }
     );
   }
+
+  /**
+   * Find active event managers, optionally excluding specific IDs (e.g. busy managers).
+   */
+  async findActiveEventManagers(excludeIds: string[] = []): Promise<IUser[]> {
+    const query: any = { role: 'event_manager', isActive: true };
+    if (excludeIds.length > 0) {
+      query._id = { $nin: excludeIds };
+    }
+    return User.find(query).select('_id businessId name email status isActive'); // Exclude password/sensitive fields
+  }
 }

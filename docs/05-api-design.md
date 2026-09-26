@@ -573,6 +573,15 @@ Base:
 
 /api/admin/events
 
+## Get Available Managers
+
+GET /api/admin/events/:id/available-managers
+
+Access:
+Admin
+
+Purpose:
+Get a list of active Event Managers who are available (no overlapping event assignments) for the requested event time.
 
 ## Assign Event Manager
 

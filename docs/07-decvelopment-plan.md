@@ -320,7 +320,7 @@ Event status
 Client information
 Quotation information
 Payment information
-Event Manager assignment
+[DONE] Event Manager assignment (Part 1 - Eligibility & Assignment API)
 
 Assignment flow:
 

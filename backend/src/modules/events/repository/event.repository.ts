@@ -13,4 +13,12 @@ export class EventRepository {
   async findByClientId(clientId: string): Promise<IEvent[]> {
     return Event.find({ clientId }).sort({ createdAt: -1 }).populate('selectedServices') as unknown as Promise<IEvent[]>;
   }
+
+  async findActiveAssignedEventsForDateRange(startDate: Date, endDate: Date): Promise<IEvent[]> {
+    return Event.find({
+      eventManagerId: { $exists: true, $ne: null },
+      status: { $nin: ['completed', 'cancelled'] },
+      date: { $gte: startDate, $lte: endDate }
+    }).select('eventManagerId startTime endTime').exec() as unknown as Promise<IEvent[]>;
+  }
 }
