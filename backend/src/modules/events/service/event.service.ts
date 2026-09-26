@@ -49,16 +49,21 @@ export class EventService {
     return this.eventRepository.findByClientId(clientId);
   }
 
-  async getClientEventById(clientId: string, eventId: string): Promise<IEvent> {
+  async getEventById(userId: string, role: string, eventId: string): Promise<IEvent> {
     const event = await this.eventRepository.findById(eventId);
     if (!event) {
       throw ApiError.notFound('Event not found');
     }
 
-    if (event.clientId.toString() !== clientId) {
+    if (role === 'client' && event.clientId.toString() !== userId) {
       throw ApiError.forbidden('You do not have permission to access this event');
     }
 
+    if (role === 'event_manager' && event.eventManagerId?.toString() !== userId) {
+      throw ApiError.forbidden('You do not have permission to access this event');
+    }
+
+    // Admins have full access to all events
     return event;
   }
 }

@@ -149,4 +149,16 @@ Change local UI text in one page.
 - Extended `EventRepository` with `findActiveAssignedEventsForDateRange` to identify potential scheduling conflicts.
 - Verified test suite containing 163 passing tests verifying eligibility logic, status boundaries, time overlap detection, and RBAC security.
 **Impact:**
-- Low impact on existing functionality. The assignment logic is encapsulated under a new set of admin-only routes and explicitly integrates with existing status constraints. No modifications to existing user profiles or unrelated schemas. Full regression suite passing and TypeScript type checks succeed.
+- Low impact on existing functionality. The assignment logic is encapsulated under a new set of admin-only routes and explicitly integrates with existing status constraints. No modifications to existing user profiles or unrelated schemas. Full regression suite passing and TypeScript type checks succeed.
+
+### [Manager Dashboard and My Events]
+**Date:** 2026-09-26
+**Changes:**
+- Implemented `ManagerEventService`, `ManagerEventController`, and `ManagerEventRoutes`.
+- Added `GET /api/manager/dashboard` for displaying event summary metrics to the Event Manager.
+- Added `GET /api/manager/events` to list assigned events with status and date filtering.
+- Re-architected Event Repository to support targeted Event Manager queries (`findByManagerId`, `getManagerDashboardStats`).
+- Updated `GET /api/events/:id` to securely grant authorized Event Managers access, ensuring strict ownership validation.
+- Validated via 7 specialized integration tests for dashboard access, metrics generation, strict ownership filters, and RBAC blockades.
+**Impact:**
+- Isolated, modular feature additions resolving previously missing manager functionality. Access bounds carefully crafted to strictly prevent manager-to-manager data leaking. Unaffected other core domains. Comprehensive type checking and 170/170 regression tests cleanly passed.

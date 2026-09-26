@@ -9,6 +9,7 @@ import eventRouter from './modules/events/routes/event.routes.js';
 import quotationRouter from './modules/quotations/routes/quotation.routes.js';
 import paymentRouter from './modules/payments/routes/payment.routes.js';
 import adminEventRouter from './modules/events/routes/admin-event.routes.js';
+import managerEventRouter from './modules/events/routes/manager-event.routes.js';
 
 const app = express();
 
@@ -34,10 +35,12 @@ app.use('/api/users', userRouter);
 app.use('/api/services', serviceRouter);
 app.use('/api/events', eventRouter);
 app.use('/api/admin/events', adminEventRouter);
+app.use('/api/manager', managerEventRouter);
 app.use('/api/quotations', quotationRouter);
 app.use('/api/payments', paymentRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
+
 
 app.use((_req: Request, _res: Response, next): void => {
   next(ApiError.notFound(`Route not found: ${_req.method} ${_req.originalUrl}`));

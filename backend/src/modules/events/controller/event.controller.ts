@@ -34,11 +34,12 @@ export class EventController {
     }
   };
 
-  getClientEventById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  getEventById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const clientId = req.user!.id;
+      const userId = req.user!.id;
+      const role = req.user!.role;
       const { id } = req.params;
-      const event = await this.eventService.getClientEventById(clientId, id);
+      const event = await this.eventService.getEventById(userId, role, id);
       res.status(200).json({
         success: true,
         data: { event },

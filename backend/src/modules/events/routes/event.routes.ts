@@ -34,14 +34,14 @@ router.get(
 
 /**
  * @route   GET /api/events/:id
- * @desc    Get a single Event belonging to the authenticated Client
- * @access  Private (Client only)
+ * @desc    Get a single Event belonging to the authenticated User
+ * @access  Private (Client, Event Manager, Admin)
  */
 router.get(
   '/:id',
   authenticate,
-  authorize('client'),
-  eventController.getClientEventById
+  authorize('client', 'event_manager', 'admin'),
+  eventController.getEventById
 );
 
 export default router;
