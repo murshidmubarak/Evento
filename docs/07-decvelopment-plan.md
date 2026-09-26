@@ -263,14 +263,16 @@ expired
 
 Backend calculates:
 
-Subtotal
+Subtotal = sum(line amounts)
 - Discount
+= Taxable Amount
++ Tax (configurable, CGST/SGST/IGST breakdown)
 = Final Amount
 
 And:
 
 Advance Amount
-Remaining Amount
+Remaining Amount = Final Amount - Advance Amount
 10. Phase 8 - Client Payment
 
 Implement Razorpay integration.

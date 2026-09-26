@@ -104,3 +104,16 @@ Change local UI text in one page.
 - Implemented environment bypass logic to avoid real API calls during automated tests.
 **Impact:**
 - Low impact on existing systems. Modular implementation. Test suite verifies integration safety. Full suite (130 tests) passing successfully.
+
+### [Quotations Part 3 — GST / Tax-Aware Commercial Structure]
+**Date:** 2026-09-26
+**Changes:**
+- Designed and implemented a deterministic, backend-controlled tax structure for Quotations (`taxableAmount`, `ITaxDetails` with `taxType`, `taxRate`, `gstTreatment`, `taxAmount`, `cgst`, `sgst`, `igst`, `placeOfSupply`, `customerGstin`).
+- Updated commercial calculation flow: Line Items → Subtotal → Discount → Taxable Amount → Tax → Final Amount → Advance Amount → Remaining Amount.
+- Built reusable money precision utility (`round2`) using `Number.EPSILON` to enforce 2-decimal precision.
+- Stored tax configuration and calculated tax amounts as an immutable snapshot within each Quotation revision document.
+- Verified historical revisions remain completely immutable upon creation of subsequent revisions.
+- Ensured clients cannot manipulate or override taxableAmount, taxAmount, cgst, sgst, igst, or finalAmount.
+- Maintained strict compatibility with Payments Part 1 (authoritative `advanceAmount` retrieved from accepted quotation).
+**Impact:**
+- Medium impact within Quotation domain. Zero breaking changes to existing payment order creation or event workflows. Full regression test suite: 147/147 pass across 17 suites, 0 failures, exit code 0. TypeScript compile: clean, exit code 0.

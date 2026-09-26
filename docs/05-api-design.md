@@ -374,6 +374,13 @@ Request Body:
     { serviceId, quantity, unitPrice, requirements }
   ],
   discount,
+  tax: {
+    taxType,         // 'none' | 'gst' | 'vat' | 'custom'
+    taxRate,         // e.g. 18, 5, 12, 0
+    gstTreatment,    // 'intra_state' | 'inter_state' | 'exempt' | 'none'
+    placeOfSupply,   // optional string
+    customerGstin    // optional string
+  },
   advanceAmount,
   validUntil,
   notes,
@@ -382,11 +389,23 @@ Request Body:
 
 Backend calculates:
 
-- subtotal
-- discount
-- finalAmount
-- advanceAmount
-- remainingAmount
+- subtotal (sum of item amounts)
+- discount (validated)
+- taxableAmount (subtotal - discount)
+- tax details:
+  - taxType
+  - taxRate
+  - gstTreatment
+  - taxableAmount
+  - taxAmount
+  - cgst
+  - sgst
+  - igst
+  - placeOfSupply
+  - customerGstin
+- finalAmount (taxableAmount + taxAmount)
+- advanceAmount (validated <= finalAmount)
+- remainingAmount (finalAmount - advanceAmount)
 - revision number
 
 

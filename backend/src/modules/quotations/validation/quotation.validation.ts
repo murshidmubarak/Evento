@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../../../utils/ApiError.js';
 
 export const validateCreateQuotation = (req: Request, _res: Response, next: NextFunction): void => {
-  const { eventId, items, discount, advanceAmount, validUntil, notes, terms } = req.body;
+  const { eventId, items, discount, advanceAmount, tax, validUntil, notes, terms } = req.body;
   const errors: string[] = [];
 
   if (!eventId || typeof eventId !== 'string' || eventId.trim().length === 0) {
@@ -37,6 +37,40 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
   if (advanceAmount !== undefined && advanceAmount !== null) {
     if (typeof advanceAmount !== 'number' || advanceAmount < 0) {
       errors.push('advanceAmount must be a non-negative number');
+    }
+  }
+
+  if (tax !== undefined && tax !== null) {
+    if (typeof tax !== 'object' || Array.isArray(tax)) {
+      errors.push('tax must be an object');
+    } else {
+      const allowedTaxTypes = ['none', 'gst', 'vat', 'custom'];
+      if (tax.taxType !== undefined && tax.taxType !== null) {
+        if (typeof tax.taxType !== 'string' || !allowedTaxTypes.includes(tax.taxType)) {
+          errors.push(`tax.taxType must be one of: ${allowedTaxTypes.join(', ')}`);
+        }
+      }
+
+      if (tax.taxRate !== undefined && tax.taxRate !== null) {
+        if (typeof tax.taxRate !== 'number' || isNaN(tax.taxRate) || tax.taxRate < 0) {
+          errors.push('tax.taxRate must be a non-negative number');
+        }
+      }
+
+      const allowedGstTreatments = ['intra_state', 'inter_state', 'exempt', 'none'];
+      if (tax.gstTreatment !== undefined && tax.gstTreatment !== null) {
+        if (typeof tax.gstTreatment !== 'string' || !allowedGstTreatments.includes(tax.gstTreatment)) {
+          errors.push(`tax.gstTreatment must be one of: ${allowedGstTreatments.join(', ')}`);
+        }
+      }
+
+      if (tax.placeOfSupply !== undefined && tax.placeOfSupply !== null && typeof tax.placeOfSupply !== 'string') {
+        errors.push('tax.placeOfSupply must be a string');
+      }
+
+      if (tax.customerGstin !== undefined && tax.customerGstin !== null && typeof tax.customerGstin !== 'string') {
+        errors.push('tax.customerGstin must be a string');
+      }
     }
   }
 

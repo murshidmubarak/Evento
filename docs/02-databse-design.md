@@ -93,12 +93,24 @@ Items (price snapshot):
 - unitPrice
 - amount
 
-Financial:
+Financial & Tax Snapshot:
 - subtotal
 - discount
-- finalAmount
-- advanceAmount
-- remainingAmount
+- taxableAmount
+- tax (tax snapshot object):
+  - taxType (none | gst | vat | custom)
+  - taxRate (percentage, configurable)
+  - gstTreatment (intra_state | inter_state | exempt | none)
+  - taxableAmount (subtotal - discount)
+  - taxAmount (backend-calculated tax total)
+  - cgst (for intra-state GST)
+  - sgst (for intra-state GST)
+  - igst (for inter-state GST)
+  - placeOfSupply (place of supply / state reference)
+  - customerGstin (optional customer tax identity)
+- finalAmount (taxableAmount + taxAmount)
+- advanceAmount (authoritative for payment order)
+- remainingAmount (finalAmount - advanceAmount)
 
 - validUntil
 - notes

@@ -228,16 +228,33 @@ Quotation validity period has ended.
 
 Expired quotations cannot be accepted.
 
-6. Quotation Rules
-Client cannot modify quotation prices.
-Client cannot modify subtotal, discount, final amount or advance amount.
-Quotation totals are calculated on the backend.
-Client can request changes instead of directly changing pricing.
-Only authorized users can create or revise quotations.
-A quotation must belong to the correct Event and Client.
-Only the Client who owns the Event can accept, reject or request changes.
-Expired quotations cannot be accepted.
-A quotation revision must preserve the correct Event and Client relationship.
+6. Quotation & Tax Rules
+- Client cannot modify quotation prices.
+- Client cannot modify subtotal, discount, taxable amount, tax amounts, final amount or advance amount.
+- All financial and commercial values are calculated and validated strictly on the backend.
+- Commercial calculation flow:
+  1. Line items → subtotal = sum(quantity * unitPrice)
+  2. discount = validated non-negative discount (discount <= subtotal)
+  3. taxableAmount = subtotal - discount
+  4. taxAmount = calculated based on quotation tax configuration (taxRate, taxType, gstTreatment)
+  5. finalAmount = taxableAmount + taxAmount
+  6. advanceAmount = validated non-negative advance (advanceAmount <= finalAmount)
+  7. remainingAmount = finalAmount - advanceAmount
+- Money precision: All calculations use deterministic 2-decimal precision.
+- GST Treatment:
+  - Intra-state supply: splits taxAmount evenly into CGST (50%) and SGST (50%).
+  - Inter-state supply: allocates taxAmount to IGST (100%) with 0 CGST and SGST.
+  - Exempt or non-tax: zero tax values.
+- Tax Snapshot: Every quotation revision permanently stores its own tax configuration and computed tax breakdown as a snapshot. Historical revisions remain immutable and are never recalculated.
+- Tax rates are configurable and not hardcoded to a fixed universal rate.
+- Place of supply (state/location) and customer GSTIN are optional context captured in the quotation snapshot when applicable.
+- Quotation is a commercial offer, not an accounting tax invoice.
+- Client can request changes instead of directly changing pricing.
+- Only authorized users (Admin, assigned Event Manager) can create or revise quotations.
+- A quotation must belong to the correct Event and Client.
+- Only the Client who owns the Event can accept, reject or request changes.
+- Expired quotations cannot be accepted.
+- A quotation revision must preserve the correct Event and Client relationship.
 7. Payment Status
 
 Payment statuses:

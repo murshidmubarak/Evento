@@ -101,7 +101,7 @@ describe('Payments API', () => {
     await Quotation.create({
       quotationNumber: 'QTN-P1', revision: 1, eventId: eventId1, clientId: clientId1, status: 'accepted', createdBy: adminId,
       items: [{ serviceId, quantity: 1, unitPrice: 5000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 5000 }],
-      subtotal: 5000, discount: 0, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
+      subtotal: 5000, discount: 0, taxableAmount: 5000, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
       validUntil: new Date(Date.now() + 86400000)
     });
 
@@ -109,7 +109,7 @@ describe('Payments API', () => {
     await Quotation.create({
       quotationNumber: 'QTN-P2', revision: 1, eventId: eventId2, clientId: clientId1, status: 'draft', createdBy: adminId,
       items: [{ serviceId, quantity: 1, unitPrice: 5000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 5000 }],
-      subtotal: 5000, discount: 0, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
+      subtotal: 5000, discount: 0, taxableAmount: 5000, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
       validUntil: new Date(Date.now() + 86400000)
     });
 
@@ -117,7 +117,7 @@ describe('Payments API', () => {
     await Quotation.create({
       quotationNumber: 'QTN-P3', revision: 1, eventId: eventId3, clientId: clientId2, status: 'accepted', createdBy: adminId,
       items: [{ serviceId, quantity: 1, unitPrice: 5000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 5000 }],
-      subtotal: 5000, discount: 0, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
+      subtotal: 5000, discount: 0, taxableAmount: 5000, finalAmount: 5000, advanceAmount: 2000, remainingAmount: 3000,
       validUntil: new Date(Date.now() + 86400000)
     });
   });
@@ -273,5 +273,72 @@ describe('Payments API', () => {
     
     // @ts-ignore
     env.nodeEnv = originalNodeEnv;
+  });
+
+  it('28. Payment Order creation correctly uses advanceAmount from a tax-inclusive accepted quotation', async () => {
+    // Create new event & accepted quotation with GST (18%)
+    const evTax = await Event.create({
+      clientId: clientId1,
+      title: 'Tax Event',
+      eventType: 'Wedding',
+      date: new Date(),
+      startTime: '10:00',
+      endTime: '18:00',
+      location: { address: 'Tax Venue' },
+      guestCount: 150,
+      status: 'awaiting_payment',
+    });
+
+    // Subtotal = 10,000, Tax = 1,800, Final = 11,800, Advance = 4,000
+    await Quotation.create({
+      quotationNumber: 'QTN-TAX-1',
+      revision: 1,
+      eventId: evTax.id,
+      clientId: clientId1,
+      status: 'accepted',
+      createdBy: adminId,
+      items: [
+        {
+          serviceId,
+          quantity: 2,
+          unitPrice: 5000,
+          name: 'DJ',
+          description: 'DJ Package',
+          pricingType: 'package',
+          amount: 10000,
+        },
+      ],
+      subtotal: 10000,
+      discount: 0,
+      taxableAmount: 10000,
+      tax: {
+        taxType: 'gst',
+        taxRate: 18,
+        gstTreatment: 'intra_state',
+        taxableAmount: 10000,
+        taxAmount: 1800,
+        cgst: 900,
+        sgst: 900,
+        igst: 0,
+      },
+      finalAmount: 11800,
+      advanceAmount: 4000,
+      remainingAmount: 7800,
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+      method: 'POST',
+      body: JSON.stringify({ eventId: evTax.id }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+    assert.equal(data.data.amount, 4000, 'Must obtain advanceAmount 4000 from accepted tax-inclusive quotation');
+    assert.equal(data.data.currency, 'INR');
+
+    const payment = await Payment.findById(data.data.paymentId);
+    assert.ok(payment);
+    assert.equal(payment.amount, 4000);
+    assert.equal(payment.status, 'pending');
   });
 });

@@ -227,14 +227,16 @@ describe('Quotations API', () => {
     assert.equal(res2.status, 400);
   });
 
-  it('11 - 15. Backend calculates line-item amount, subtotal, discount, finalAmount, remainingAmount', async () => {
+  it('11 - 15. Backend calculates line-item amount, subtotal, discount, taxableAmount, finalAmount, remainingAmount without tax', async () => {
     const payload = validPayload(eventId1, activeServiceId1);
     // Quantity 100 * 500 = 50,000 amount/subtotal
-    // Discount = 5,000 -> final = 45,000
+    // Discount = 5,000 -> taxableAmount = 45,000
+    // Tax = 0 -> finalAmount = 45,000
     // Advance = 10,000 -> remaining = 35,000
     
     // Attempting to override values
     (payload as any).subtotal = 999999;
+    (payload as any).taxableAmount = 1;
     (payload as any).finalAmount = 1;
     (payload as any).remainingAmount = 0;
 
@@ -248,6 +250,14 @@ describe('Quotations API', () => {
     
     assert.equal(data.data.items[0].amount, 50000);
     assert.equal(data.data.subtotal, 50000);
+    assert.equal(data.data.discount, 5000);
+    assert.equal(data.data.taxableAmount, 45000);
+    assert.equal(data.data.tax.taxType, 'none');
+    assert.equal(data.data.tax.taxRate, 0);
+    assert.equal(data.data.tax.taxAmount, 0);
+    assert.equal(data.data.tax.cgst, 0);
+    assert.equal(data.data.tax.sgst, 0);
+    assert.equal(data.data.tax.igst, 0);
     assert.equal(data.data.finalAmount, 45000);
     assert.equal(data.data.remainingAmount, 35000);
   });
@@ -532,5 +542,421 @@ describe('Quotations API', () => {
     // Old revision remains changes_requested
     const oldQ = await Quotation.findById(q._id);
     assert.equal(oldQ?.status, 'changes_requested');
+  });
+
+  /* =======================================================================
+   * Quotations Part 3: GST & Tax-Aware Commercial Structure Tests
+   * ======================================================================= */
+
+  it('38. Intra-state GST (18%) calculates CGST (9%) and SGST (9%) correctly on taxableAmount', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal = 100 * 500 = 50,000
+    // Discount = 5,000 -> Taxable = 45,000
+    // GST 18% intra-state:
+    // Tax = 45,000 * 0.18 = 8,100
+    // CGST = 4,050, SGST = 4,050, IGST = 0
+    // FinalAmount = 45,000 + 8,100 = 53,100
+    // Advance = 10,000 -> Remaining = 43,100
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+      placeOfSupply: 'Kerala',
+      customerGstin: '32ABCDE1234F1Z5',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.subtotal, 50000);
+    assert.equal(data.data.discount, 5000);
+    assert.equal(data.data.taxableAmount, 45000);
+    assert.equal(data.data.tax.taxType, 'gst');
+    assert.equal(data.data.tax.taxRate, 18);
+    assert.equal(data.data.tax.gstTreatment, 'intra_state');
+    assert.equal(data.data.tax.taxAmount, 8100);
+    assert.equal(data.data.tax.cgst, 4050);
+    assert.equal(data.data.tax.sgst, 4050);
+    assert.equal(data.data.tax.igst, 0);
+    assert.equal(data.data.tax.placeOfSupply, 'Kerala');
+    assert.equal(data.data.tax.customerGstin, '32ABCDE1234F1Z5');
+    assert.equal(data.data.finalAmount, 53100);
+    assert.equal(data.data.advanceAmount, 10000);
+    assert.equal(data.data.remainingAmount, 43100);
+  });
+
+  it('39. Inter-state GST (18%) calculates IGST (18%) with zero CGST/SGST', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal = 50,000, Discount = 5,000 -> Taxable = 45,000
+    // IGST 18% = 8,100
+    // CGST = 0, SGST = 0, IGST = 8,100
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'inter_state',
+      placeOfSupply: 'Karnataka',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.taxableAmount, 45000);
+    assert.equal(data.data.tax.taxType, 'gst');
+    assert.equal(data.data.tax.taxRate, 18);
+    assert.equal(data.data.tax.gstTreatment, 'inter_state');
+    assert.equal(data.data.tax.taxAmount, 8100);
+    assert.equal(data.data.tax.cgst, 0);
+    assert.equal(data.data.tax.sgst, 0);
+    assert.equal(data.data.tax.igst, 8100);
+    assert.equal(data.data.tax.placeOfSupply, 'Karnataka');
+    assert.equal(data.data.finalAmount, 53100);
+    assert.equal(data.data.remainingAmount, 43100);
+  });
+
+  it('40. Configurable tax rates (5%, 12%, 28%) and non-18% rates are supported', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal = 50,000, Discount = 10,000 -> Taxable = 40,000
+    // 5% GST intra-state: Tax = 2,000 -> CGST = 1,000, SGST = 1,000
+    payload.discount = 10000;
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 5,
+      gstTreatment: 'intra_state',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.taxableAmount, 40000);
+    assert.equal(data.data.tax.taxRate, 5);
+    assert.equal(data.data.tax.taxAmount, 2000);
+    assert.equal(data.data.tax.cgst, 1000);
+    assert.equal(data.data.tax.sgst, 1000);
+    assert.equal(data.data.tax.igst, 0);
+    assert.equal(data.data.finalAmount, 42000);
+  });
+
+  it('41. Custom / VAT tax types calculate total tax without GST splits', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal = 50,000, Discount = 5,000 -> Taxable = 45,000
+    // VAT 10% = 4,500
+    payload.tax = {
+      taxType: 'vat',
+      taxRate: 10,
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.taxableAmount, 45000);
+    assert.equal(data.data.tax.taxType, 'vat');
+    assert.equal(data.data.tax.taxRate, 10);
+    assert.equal(data.data.tax.taxAmount, 4500);
+    assert.equal(data.data.tax.cgst, 0);
+    assert.equal(data.data.tax.sgst, 0);
+    assert.equal(data.data.tax.igst, 0);
+    assert.equal(data.data.finalAmount, 49500);
+  });
+
+  it('42. Exempt GST treatment produces zero tax amounts', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'exempt',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.tax.taxAmount, 0);
+    assert.equal(data.data.tax.cgst, 0);
+    assert.equal(data.data.tax.sgst, 0);
+    assert.equal(data.data.tax.igst, 0);
+    assert.equal(data.data.finalAmount, data.data.taxableAmount);
+  });
+
+  it('43. Discount is applied before tax calculation', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal = 50,000, Discount = 20,000 -> Taxable = 30,000
+    // 18% Tax = 30,000 * 0.18 = 5,400 (NOT 50,000 * 0.18 = 9,000)
+    payload.discount = 20000;
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.taxableAmount, 30000);
+    assert.equal(data.data.tax.taxAmount, 5400);
+    assert.equal(data.data.finalAmount, 35400);
+  });
+
+  it('44. 2-decimal precision prevents floating point inconsistency on odd splits', async () => {
+    // 3 items with fractional subtotal
+    const payload: any = {
+      eventId: eventId1,
+      items: [
+        {
+          serviceId: activeServiceId1,
+          quantity: 3,
+          unitPrice: 33.33, // 99.99
+        }
+      ],
+      discount: 0,
+      advanceAmount: 10,
+      tax: {
+        taxType: 'gst',
+        taxRate: 5, // 99.99 * 0.05 = 4.9995 -> 5.00
+        gstTreatment: 'intra_state',
+      },
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    assert.equal(data.data.subtotal, 99.99);
+    assert.equal(data.data.taxableAmount, 99.99);
+    assert.equal(data.data.tax.taxAmount, 5);
+    assert.equal(data.data.tax.cgst, 2.5);
+    assert.equal(data.data.tax.sgst, 2.5);
+    assert.equal(data.data.tax.cgst + data.data.tax.sgst, data.data.tax.taxAmount);
+    assert.equal(data.data.finalAmount, 104.99);
+    assert.equal(data.data.remainingAmount, 94.99);
+  });
+
+  it('45. Negative tax rate is rejected with 400', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: -18,
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 400);
+    const data = (await res.json()) as any;
+    assert.match(data.message, /Validation failed/);
+  });
+
+  it('46. Invalid tax type is rejected with 400', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.tax = {
+      taxType: 'alien_tax',
+      taxRate: 18,
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('47. Invalid GST treatment is rejected with 400', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'international_space_station',
+    };
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('48. Advance amount exceeding final amount (tax-inclusive) is rejected', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    // Subtotal 50,000, Taxable 45,000, Tax 8,100 -> Final 53,100
+    // Advance = 60,000 > 53,100 -> Reject
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+    };
+    payload.advanceAmount = 60000;
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 400);
+    const data = (await res.json()) as any;
+    assert.match(data.message, /Advance amount cannot exceed the final amount/);
+  });
+
+  it('49. Client cannot override taxAmount, cgst, sgst, igst, taxableAmount, finalAmount', async () => {
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+      taxAmount: 0, // Attacker attempts to bypass tax
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      taxableAmount: 1,
+    };
+    payload.taxableAmount = 1;
+    payload.finalAmount = 1;
+    payload.remainingAmount = 0;
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+
+    // Backend calculation overrides all client-sent numbers
+    assert.equal(data.data.taxableAmount, 45000);
+    assert.equal(data.data.tax.taxAmount, 8100);
+    assert.equal(data.data.tax.cgst, 4050);
+    assert.equal(data.data.tax.sgst, 4050);
+    assert.equal(data.data.finalAmount, 53100);
+  });
+
+  it('50. Historical quotation preserves its tax snapshot when subsequent revision changes tax configuration', async () => {
+    // Rev 1 with 18% intra-state GST
+    const p1: any = validPayload(eventId1, activeServiceId1);
+    p1.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+      placeOfSupply: 'Kerala',
+    };
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p1),
+    });
+    assert.equal(res1.status, 201);
+    const q1 = (await res1.json()) as any;
+    assert.equal(q1.data.revision, 1);
+    assert.equal(q1.data.tax.taxRate, 18);
+    assert.equal(q1.data.tax.taxAmount, 8100);
+    assert.equal(q1.data.finalAmount, 53100);
+
+    // Rev 2 with 5% inter-state GST
+    const p2: any = validPayload(eventId1, activeServiceId1);
+    p2.tax = {
+      taxType: 'gst',
+      taxRate: 5,
+      gstTreatment: 'inter_state',
+      placeOfSupply: 'Tamil Nadu',
+    };
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p2),
+    });
+    assert.equal(res2.status, 201);
+    const q2 = (await res2.json()) as any;
+    assert.equal(q2.data.revision, 2);
+    assert.equal(q2.data.tax.taxRate, 5);
+    assert.equal(q2.data.tax.taxAmount, 2250);
+    assert.equal(q2.data.tax.igst, 2250);
+    assert.equal(q2.data.tax.placeOfSupply, 'Tamil Nadu');
+    assert.equal(q2.data.finalAmount, 47250);
+
+    // Fetch Rev 1 by ID and verify its snapshot is untouched
+    const getRev1 = await fetch(`http://127.0.0.1:${port}/api/quotations/${q1.data._id}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    const fetchedQ1 = (await getRev1.json()) as any;
+    assert.equal(fetchedQ1.data.revision, 1);
+    assert.equal(fetchedQ1.data.tax.taxRate, 18);
+    assert.equal(fetchedQ1.data.tax.gstTreatment, 'intra_state');
+    assert.equal(fetchedQ1.data.tax.taxAmount, 8100);
+    assert.equal(fetchedQ1.data.tax.cgst, 4050);
+    assert.equal(fetchedQ1.data.tax.sgst, 4050);
+    assert.equal(fetchedQ1.data.tax.placeOfSupply, 'Kerala');
+    assert.equal(fetchedQ1.data.finalAmount, 53100);
+  });
+
+  it('51. Accepted tax-inclusive quotation preserves advanceAmount and transitions Event to awaiting_payment', async () => {
+    // Create & Send Rev 1 with tax
+    const payload: any = validPayload(eventId1, activeServiceId1);
+    payload.advanceAmount = 15000;
+    payload.tax = {
+      taxType: 'gst',
+      taxRate: 18,
+      gstTreatment: 'intra_state',
+    };
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    const { data: q } = (await createRes.json()) as any;
+
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    // Client accepts
+    const acceptRes = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/accept`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${clientToken1}` },
+    });
+    assert.equal(acceptRes.status, 200);
+    const acceptedData = (await acceptRes.json()) as any;
+
+    assert.equal(acceptedData.data.status, 'accepted');
+    assert.equal(acceptedData.data.advanceAmount, 15000);
+    assert.equal(acceptedData.data.finalAmount, 53100);
+    assert.equal(acceptedData.data.remainingAmount, 38100);
+
+    const event = await Event.findById(eventId1);
+    assert.equal(event?.status, 'awaiting_payment');
   });
 });

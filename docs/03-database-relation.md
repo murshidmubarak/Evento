@@ -69,6 +69,9 @@ One Event can have multiple Quotations, representing quotation revisions.
 This allows maintaining a full quotation history. A new quotation revision is created when commercial changes are needed, without modifying historical quotations.
 The `quotationNumber` identifies the quotation thread, while the `revision` number distinguishes the specific version.
 
+Every revision captures a self-contained tax snapshot (tax type, rate, GST treatment, taxable amount, calculated tax amounts including CGST/SGST/IGST, place of supply, and customer GSTIN).
+A quotation represents a commercial offer and is not a tax invoice.
+
 Relationship:
 
 Event (1) → Quotations (N)
@@ -89,6 +92,11 @@ The Client must be the owner of the related Event.
 ## 4. Quotation → Payments
 
 One Quotation can have multiple Payments.
+
+Commercial Workflow:
+Service Catalog → Event Request + Preferences → Quotation (Tax Snapshot) → Client Accepts → Event (awaiting_payment) → Advance Order Creation → Razorpay Payment
+
+The Payment creation resolves the authoritative `advanceAmount` and `finalAmount` directly from the accepted Quotation stored in the database.
 
 Examples:
 

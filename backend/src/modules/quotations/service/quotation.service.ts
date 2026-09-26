@@ -4,7 +4,16 @@ import { EventRepository } from '../../events/repository/event.repository.js';
 import { ServiceRepository } from '../../services/repository/service.repository.js';
 import { ApiError } from '../../../utils/ApiError.js';
 import { authorizeResourceAccess } from '../../../utils/resourceAuthorization.js';
-import { IQuotationItem } from '../model/quotation.model.js';
+import { IQuotationItem, TaxType, GstTreatment, ITaxDetails } from '../model/quotation.model.js';
+import { round2 } from '../../../utils/money.js';
+
+export interface CreateQuotationTaxInput {
+  taxType?: TaxType;
+  taxRate?: number;
+  gstTreatment?: GstTreatment;
+  placeOfSupply?: string;
+  customerGstin?: string;
+}
 
 export interface CreateQuotationInput {
   eventId: string;
@@ -14,8 +23,9 @@ export interface CreateQuotationInput {
     unitPrice: number;
     requirements?: string;
   }[];
-  discount: number;
-  advanceAmount: number;
+  discount?: number;
+  advanceAmount?: number;
+  tax?: CreateQuotationTaxInput;
   validUntil?: Date;
   notes?: string;
   terms?: string;
@@ -68,8 +78,8 @@ export class QuotationService {
         throw ApiError.badRequest(`Service ${service.name} is currently inactive and cannot be quoted.`);
       }
 
-      const amount = reqItem.quantity * reqItem.unitPrice;
-      subtotal += amount;
+      const amount = round2(reqItem.quantity * reqItem.unitPrice);
+      subtotal = round2(subtotal + amount);
 
       quotationItems.push({
         serviceId: service._id as Types.ObjectId,
@@ -83,8 +93,8 @@ export class QuotationService {
       });
     }
 
-    // 5. Financial validations
-    const discount = input.discount || 0;
+    // 5. Financial validations & Tax-aware Commercial Calculation
+    const discount = input.discount !== undefined && input.discount !== null ? round2(input.discount) : 0;
     if (discount < 0) {
       throw ApiError.badRequest('Discount cannot be negative.');
     }
@@ -92,8 +102,92 @@ export class QuotationService {
       throw ApiError.badRequest('Discount cannot exceed the subtotal.');
     }
 
-    const finalAmount = subtotal - discount;
-    const advanceAmount = input.advanceAmount || 0;
+    const taxableAmount = round2(subtotal - discount);
+
+    // Tax processing
+    const taxInput = input.tax || {};
+    const taxType: TaxType = taxInput.taxType || 'none';
+    const rawTaxRate = taxInput.taxRate !== undefined && taxInput.taxRate !== null ? Number(taxInput.taxRate) : 0;
+
+    if (isNaN(rawTaxRate) || rawTaxRate < 0) {
+      throw ApiError.badRequest('Tax rate must be a non-negative number.');
+    }
+
+    const allowedTaxTypes: TaxType[] = ['none', 'gst', 'vat', 'custom'];
+    if (!allowedTaxTypes.includes(taxType)) {
+      throw ApiError.badRequest(`Invalid tax type: ${taxType}. Allowed: ${allowedTaxTypes.join(', ')}`);
+    }
+
+    let gstTreatment: GstTreatment = taxInput.gstTreatment || 'none';
+    let taxRate = rawTaxRate;
+    let taxAmount = 0;
+    let cgst = 0;
+    let sgst = 0;
+    let igst = 0;
+
+    if (taxType === 'gst') {
+      if (!taxInput.gstTreatment || taxInput.gstTreatment === 'none') {
+        gstTreatment = 'intra_state';
+      } else {
+        gstTreatment = taxInput.gstTreatment;
+      }
+
+      const allowedGstTreatments: GstTreatment[] = ['intra_state', 'inter_state', 'exempt', 'none'];
+      if (!allowedGstTreatments.includes(gstTreatment)) {
+        throw ApiError.badRequest(`Invalid GST treatment: ${gstTreatment}. Allowed: ${allowedGstTreatments.join(', ')}`);
+      }
+
+      if (gstTreatment === 'exempt' || taxRate === 0) {
+        taxAmount = 0;
+        cgst = 0;
+        sgst = 0;
+        igst = 0;
+      } else if (gstTreatment === 'intra_state') {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+        cgst = round2(taxAmount / 2);
+        sgst = round2(taxAmount - cgst);
+        igst = 0;
+      } else if (gstTreatment === 'inter_state') {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+        cgst = 0;
+        sgst = 0;
+        igst = taxAmount;
+      }
+    } else if (taxType === 'vat' || taxType === 'custom') {
+      gstTreatment = 'none';
+      if (taxRate === 0) {
+        taxAmount = 0;
+      } else {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+      }
+      cgst = 0;
+      sgst = 0;
+      igst = 0;
+    } else {
+      // 'none'
+      taxRate = 0;
+      gstTreatment = 'none';
+      taxAmount = 0;
+      cgst = 0;
+      sgst = 0;
+      igst = 0;
+    }
+
+    const taxDetails: ITaxDetails = {
+      taxType,
+      taxRate,
+      gstTreatment,
+      taxableAmount,
+      taxAmount,
+      cgst,
+      sgst,
+      igst,
+      placeOfSupply: taxInput.placeOfSupply,
+      customerGstin: taxInput.customerGstin,
+    };
+
+    const finalAmount = round2(taxableAmount + taxAmount);
+    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null ? round2(input.advanceAmount) : 0;
 
     if (advanceAmount < 0) {
       throw ApiError.badRequest('Advance amount cannot be negative.');
@@ -102,7 +196,7 @@ export class QuotationService {
       throw ApiError.badRequest('Advance amount cannot exceed the final amount.');
     }
 
-    const remainingAmount = finalAmount - advanceAmount;
+    const remainingAmount = round2(finalAmount - advanceAmount);
 
     // 6. Generate Quotation Number & Revision
     let quotationNumber: string;
@@ -122,11 +216,9 @@ export class QuotationService {
       // First quotation for this event: allocate a new thread number
       quotationNumber = await this.quotationRepository.getNextQuotationNumber();
       revision = 1;
-      // Pre-seed the revision sequence at 1 so subsequent calls correctly start at 2
-      // (getNextRevision uses startValue=2, so the first call after seeding returns 2)
     }
 
-    // 7. Save Quotation
+    // 7. Save Quotation with full historical Tax Snapshot
     const quotation = await this.quotationRepository.create({
       quotationNumber,
       revision,
@@ -135,6 +227,8 @@ export class QuotationService {
       items: quotationItems,
       subtotal,
       discount,
+      taxableAmount,
+      tax: taxDetails,
       finalAmount,
       advanceAmount,
       remainingAmount,
@@ -179,11 +273,8 @@ export class QuotationService {
 
     authorizeResourceAccess(user, [
       quotation.clientId.toString(),
-      // We also need eventManager check. Quotation doesn't have eventManagerId, so we get it via Event.
     ]);
     
-    // Wait, the client is checked by clientId. But what about Event Manager?
-    // If the user is an event manager, we need to verify they own the Event.
     if (user.role === 'event_manager') {
       const event = await this.eventRepository.findById(quotation.eventId.toString());
       if (!event || event.eventManagerId?.toString() !== user.id) {
@@ -243,8 +334,6 @@ export class QuotationService {
       throw ApiError.badRequest('This quotation has expired.');
     }
 
-    // Verify this is the latest revision? The instructions say "Historical revisions cannot be accepted after they have been superseded".
-    // Let's get the latest revision for this thread to be safe.
     const latest = await this.quotationRepository.getLatestRevision(quotation.quotationNumber);
     if (latest && latest.revision !== quotation.revision) {
       throw ApiError.badRequest('Historical revisions cannot be accepted.');
