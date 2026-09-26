@@ -16,3 +16,16 @@ export const createOrder = catchAsync(async (req: Request, res: Response) => {
 
   new ApiResponse(201, 'Payment order created successfully', orderData).send(res);
 });
+
+export const verifyOrder = catchAsync(async (req: Request, res: Response) => {
+  const user = {
+    id: req.user!.id,
+    role: req.user!.role,
+  };
+  
+  const payload = req.body;
+
+  const result = await paymentService.verifyPayment(user, payload);
+
+  new ApiResponse(200, 'Payment verified successfully', result).send(res);
+});

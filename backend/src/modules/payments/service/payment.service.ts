@@ -133,4 +133,104 @@ export class PaymentService {
       throw ApiError.internal('Failed to create Razorpay order.');
     }
   }
+
+  async verifyPayment(user: { id: string; role: string }, payload: { razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string }) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only clients can verify payments.');
+    }
+
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payload;
+
+    // Lookup the local payment record by Razorpay order ID
+    const payment = await this.paymentRepository.findByRazorpayOrderId(razorpay_order_id);
+    if (!payment) {
+      throw ApiError.notFound('Payment order not found.');
+    }
+
+    // Verify the calling client owns this payment record
+    if (payment.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not have permission to verify this payment.');
+    }
+
+    // Idempotency: if already paid, return success without re-processing
+    if (payment.status === 'paid') {
+      return { paymentId: payment.id, status: payment.status };
+    }
+
+    // Cross-check: verify payment.quotationId still matches the current accepted quotation
+    // for this event. Guards against stale-revision payments if a newer accepted revision
+    // superseded the one this payment was created against.
+    const quotations = await this.quotationRepository.findByEventId(payment.eventId.toString());
+    const acceptedQuotation = quotations.find(q => q.status === 'accepted');
+    if (!acceptedQuotation) {
+      payment.status = 'failed';
+      await payment.save();
+      throw ApiError.badRequest('No accepted quotation found for this event.');
+    }
+    if (acceptedQuotation.id.toString() !== payment.quotationId.toString()) {
+      payment.status = 'failed';
+      await payment.save();
+      throw ApiError.badRequest('Payment quotation mismatch: payment references a superseded quotation revision.');
+    }
+
+    // Verify Razorpay signature via HMAC-SHA256.
+    // Razorpay's signature = HMAC_SHA256(key_secret, "<order_id>|<payment_id>")
+    const expectedSignature = crypto.createHmac('sha256', env.razorpayKeySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      payment.status = 'failed';
+      await payment.save();
+      throw ApiError.badRequest('Invalid payment signature.');
+    }
+
+    // In production (real Razorpay keys), fetch the actual payment from Razorpay
+    // and verify the amount and currency match our authoritative local record.
+    // This ensures the gateway was not tampered with between order creation and capture.
+    const isTestOrDev = env.nodeEnv === 'test' || env.nodeEnv === 'development';
+    const isDummyKey = env.razorpayKeyId === 'rzp_test_dummy_key_id';
+    const shouldBypass = isTestOrDev && isDummyKey;
+
+    if (!shouldBypass) {
+      try {
+        const gatewayPayment = await (this.razorpay.payments as any).fetch(razorpay_payment_id);
+        // Razorpay stores amounts in paise (smallest INR unit)
+        const expectedAmountPaise = Math.round(payment.amount * 100);
+        if (gatewayPayment.amount !== expectedAmountPaise) {
+          payment.status = 'failed';
+          await payment.save();
+          throw ApiError.badRequest('Payment amount mismatch: gateway amount does not match authoritative order amount.');
+        }
+        if (gatewayPayment.currency !== payment.currency) {
+          payment.status = 'failed';
+          await payment.save();
+          throw ApiError.badRequest('Payment currency mismatch.');
+        }
+      } catch (err: any) {
+        // Re-throw our own ApiErrors without wrapping
+        if (err.statusCode) throw err;
+        payment.status = 'failed';
+        await payment.save();
+        throw ApiError.internal('Failed to fetch payment details from Razorpay.');
+      }
+    }
+
+    // All checks passed — persist razorpayPaymentId and mark as paid
+    payment.razorpayPaymentId = razorpay_payment_id;
+    payment.status = 'paid';
+    await payment.save();
+
+    // Transition event: awaiting_payment → confirmed
+    const event = (await this.eventRepository.findById(payment.eventId.toString())) as any;
+    if (!event) {
+      throw ApiError.notFound('Event not found.');
+    }
+    if (event.status === 'awaiting_payment') {
+      event.status = 'confirmed';
+      await event.save();
+    }
+
+    return { paymentId: payment.id, status: payment.status };
+  }
 }

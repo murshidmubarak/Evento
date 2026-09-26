@@ -519,11 +519,18 @@ Authenticated payment request
 Purpose:
 Verify Razorpay payment on backend.
 
+Request Body:
+{
+  razorpay_order_id,
+  razorpay_payment_id,
+  razorpay_signature
+}
+
 Backend verifies:
 
-- Razorpay order
-- Razorpay payment
-- Razorpay signature
+- Payment Order existence and ownership
+- Razorpay signature via HMAC-SHA256
+- Idempotency (if already paid, return success)
 
 After successful verification:
 

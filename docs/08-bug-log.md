@@ -202,4 +202,48 @@ if (env.nodeEnv !== 'test' && env.razorpayKeyId !== 'rzp_test_dummy_key_id') {
   // execute real razorpay call
 }
 ```
-This safely defaults to the bypass behavior anytime the dummy test keys are active, regardless of `NODE_ENV`. Tests now properly simulate the order generation and pass securely.
+This safely defaults to the bypass behavior anytime the dummy test keys are active, regardless of `NODE_ENV`. Tests now properly simulate the order generation and pass securely.
+
+---
+
+## BUG-004 — `crypto.createHmac is not a function` in Payment Verification Test Suite
+
+### Date
+
+2026-09-26
+
+### Feature / Module
+
+Payments / tests/payments.test.ts
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+The `Payment Verification` describe block failed entirely during `npm test` with:
+
+```text
+error: 'crypto.createHmac is not a function'
+failureType: 'hookFailed'
+```
+
+All 6 sub-tests inside `Payment Verification` were cancelled by their parent.
+
+### Root Cause
+
+`payments.test.ts` called `crypto.createHmac(...)` inside a `before()` hook to generate a test HMAC-SHA256 signature, but the `crypto` module was never imported in that file. The bare name `crypto` resolved to `undefined` at runtime.
+
+### Solution
+
+Added `import crypto from 'node:crypto';` at the top of `tests/payments.test.ts`.
+
+### Rule
+
+Never rely on ambient globals in TypeScript test files. Always import Node.js built-in modules explicitly using the `node:` protocol prefix.
+

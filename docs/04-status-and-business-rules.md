@@ -290,9 +290,10 @@ Creating a Razorpay order does not mean payment is successful.
 Idempotency: If a pending payment order already exists for an Event and Quotation, it is reused to prevent duplicate gateways orders.
 Frontend payment success must not be treated as final confirmation.
 Backend verifies the payment.
-Backend verifies the required Razorpay information.
+Backend verifies the Razorpay signature using HMAC-SHA256 securely.
 Only successful backend verification can mark a payment as paid.
 Payment must belong to the correct Event, Client and Quotation.
+Idempotency: If a payment is already marked 'paid', subsequent verification requests return success without re-processing.
 Amount must come strictly from the authoritative accepted Quotation.
 Event becomes confirmed only when the required advance payment has been successfully verified.
 8. Event Manager Assignment Rules

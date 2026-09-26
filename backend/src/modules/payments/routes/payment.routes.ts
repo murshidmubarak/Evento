@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { createOrder } from '../controller/payment.controller.js';
+import { createOrder, verifyOrder } from '../controller/payment.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
-import { validateCreateOrder } from '../validation/payment.validation.js';
+import { validateCreateOrder, validateVerifyOrder } from '../validation/payment.validation.js';
 
 const router = Router();
 
@@ -17,6 +17,19 @@ router.post(
   authorize('client'), // Only clients can create their orders
   validateCreateOrder,
   createOrder
+);
+
+/**
+ * @route   POST /api/payments/verify
+ * @desc    Verify a payment signature and confirm event
+ * @access  Private (Client)
+ */
+router.post(
+  '/verify',
+  authenticate,
+  authorize('client'),
+  validateVerifyOrder,
+  verifyOrder
 );
 
 export default router;

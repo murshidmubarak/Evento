@@ -299,14 +299,14 @@ Event = confirmed
 
 Implement:
 
-Create payment order
-Razorpay checkout
-Payment verification
-Signature verification
-Payment record
-Payment history
-Payment details
-Remaining balance
+[DONE] Create payment order (Payments Part 1)
+Razorpay checkout (frontend - pending)
+[DONE] Payment verification - HMAC-SHA256 + quotation cross-check + production amount/currency fetch (Payments Part 2)
+[DONE] Signature verification (Payments Part 2)
+[DONE] Payment record - model, repository, status lifecycle (Payments Part 1)
+Payment history (future)
+Payment details (future)
+Remaining balance (future)
 
 Never trust frontend payment success alone.
 

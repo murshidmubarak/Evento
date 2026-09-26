@@ -117,3 +117,24 @@ Change local UI text in one page.
 - Maintained strict compatibility with Payments Part 1 (authoritative `advanceAmount` retrieved from accepted quotation).
 **Impact:**
 - Medium impact within Quotation domain. Zero breaking changes to existing payment order creation or event workflows. Full regression test suite: 147/147 pass across 17 suites, 0 failures, exit code 0. TypeScript compile: clean, exit code 0.
+
+### [Payments Part 2 — Razorpay Payment Verification + Event Confirmation]
+**Date:** 2026-09-26
+**Changes:**
+- Implemented `POST /api/payments/verify` endpoint (controller, route, validation).
+- Implemented `PaymentService.verifyPayment` with the full compliant verification chain:
+  1. Role guard: client only.
+  2. Payment record lookup by `razorpayOrderId`.
+  3. Client ownership check (`payment.clientId` === calling user).
+  4. Idempotency: if already `paid`, return 200 immediately.
+  5. Quotation cross-check: `payment.quotationId` must match the current `accepted` quotation for the event — guards against stale-revision payments.
+  6. HMAC-SHA256 signature verification using `RAZORPAY_KEY_SECRET`.
+  7. Production-only: `razorpay.payments.fetch` to verify gateway amount (in paise) and currency match the authoritative local record.
+  8. On success: `Payment.status = 'paid'`, `Event.status = 'confirmed'`.
+- Extended `PaymentRepository` with `findByRazorpayOrderId` and `findById`.
+- Added `validateVerifyOrder` middleware.
+- Added 7 tests covering: auth, payload validation, tampered signature, non-owner 403, valid flow, idempotency, and stale-revision rejection.
+- Fixed BUG-004: missing `import crypto from 'node:crypto'` in test file.
+- Updated docs: 04-status-and-business-rules.md, 05-api-design.md, 08-bug-log.md, 09-change-impact-log.md.
+**Impact:**
+- Low impact on existing systems. Modular addition to Payments module. Event status transition (awaiting_payment → confirmed) now only triggered by verified payment. No changes to Quotation, Auth, or other modules. Full regression test suite: 154/154 pass, 0 fail, exit code 0. TypeScript compile: clean, exit code 0.

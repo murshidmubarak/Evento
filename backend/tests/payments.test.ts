@@ -12,6 +12,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { env } from '../src/config/env.js';
 import { Sequence } from '../src/modules/users/model/sequence.model.js';
+import crypto from 'node:crypto';
 
 describe('Payments API', () => {
   let adminToken: string;
@@ -340,5 +341,153 @@ describe('Payments API', () => {
     assert.ok(payment);
     assert.equal(payment.amount, 4000);
     assert.equal(payment.status, 'pending');
+  });
+  describe('Payment Verification', () => {
+    let orderId: string;
+    let paymentId: string;
+    let signature: string;
+    const paymentIdStr = 'pay_fake123';
+
+    before(async () => {
+      // Retrieve the real accepted quotation for Event 1
+      const acceptedQ = await Quotation.findOne({ eventId: eventId1, status: 'accepted' });
+      assert.ok(acceptedQ, 'Setup: accepted quotation for eventId1 must exist');
+
+      // Create a pending payment that correctly references the accepted quotation
+      const p = await Payment.create({
+        eventId: eventId1,
+        quotationId: acceptedQ._id, // real accepted quotation ID — required by quotationId cross-check
+        clientId: clientId1,
+        paymentType: 'advance',
+        amount: 2000,
+        currency: 'INR',
+        status: 'pending',
+        razorpayOrderId: 'order_test123',
+        receiptReference: 'rcpt_123',
+      });
+      paymentId = p.id;
+      orderId = 'order_test123';
+
+      // Generate a valid HMAC-SHA256 signature matching what Razorpay would produce
+      signature = crypto.createHmac('sha256', env.razorpayKeySecret)
+        .update(`${orderId}|${paymentIdStr}`)
+        .digest('hex');
+    });
+
+    it('29. Unauthenticated verify request -> 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId, razorpay_payment_id: paymentIdStr, razorpay_signature: signature }), headers: { 'Content-Type': 'application/json' }
+      });
+      assert.equal(res.status, 401);
+    });
+
+    it('30. Invalid payload -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId }), // missing fields
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` }
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('31. Tampered signature -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId, razorpay_payment_id: paymentIdStr, razorpay_signature: 'invalid_sig' }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` }
+      });
+      assert.equal(res.status, 400);
+      const payment = await Payment.findById(paymentId);
+      assert.equal(payment?.status, 'failed', 'Payment should be marked as failed on bad signature');
+
+      // Reset to pending for next tests
+      if (payment) {
+        payment.status = 'pending';
+        await payment.save();
+      }
+    });
+
+    it('32. Non-owner client cannot verify -> 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId, razorpay_payment_id: paymentIdStr, razorpay_signature: signature }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken2}` }
+      });
+      assert.equal(res.status, 403);
+    });
+
+    it('33. Valid signature updates payment to paid and event to confirmed', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId, razorpay_payment_id: paymentIdStr, razorpay_signature: signature }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` }
+      });
+      assert.equal(res.status, 200);
+
+      const p = await Payment.findById(paymentId);
+      assert.equal(p?.status, 'paid');
+      assert.equal(p?.razorpayPaymentId, paymentIdStr);
+
+      const ev = await Event.findById(eventId1);
+      assert.equal(ev?.status, 'confirmed');
+    });
+
+    it('34. Idempotency: Duplicate verify request returns success', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST', body: JSON.stringify({ razorpay_order_id: orderId, razorpay_payment_id: paymentIdStr, razorpay_signature: signature }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` }
+      });
+      assert.equal(res.status, 200);
+    });
+
+    it('35. Stale quotation revision: payment referencing superseded quotation is rejected', async () => {
+      // Create a new event with an accepted quotation
+      const evStale = await Event.create({
+        clientId: clientId1, title: 'Stale Q Event', eventType: 'Corporate',
+        date: new Date(), startTime: '09:00', endTime: '13:00',
+        location: { address: 'Stale Venue' },
+        guestCount: 50, status: 'awaiting_payment'
+      });
+
+      // First accepted quotation (rev 1)
+      const q1 = await Quotation.create({
+        quotationNumber: 'QTN-STALE-1', revision: 1, eventId: evStale.id, clientId: clientId1,
+        status: 'accepted', createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 3000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 3000 }],
+        subtotal: 3000, discount: 0, taxableAmount: 3000, finalAmount: 3000, advanceAmount: 1500, remainingAmount: 1500,
+        validUntil: new Date(Date.now() + 86400000)
+      });
+
+      // Payment created against the first revision
+      const staleOrderId = `order_stale_${Date.now()}`;
+      const staleReceiptRef = `rcpt_stale_${Date.now()}`;
+      await Payment.create({
+        eventId: evStale.id, quotationId: q1._id, clientId: clientId1,
+        paymentType: 'advance', amount: 1500, currency: 'INR',
+        status: 'pending', razorpayOrderId: staleOrderId,
+        receiptReference: staleReceiptRef,
+      });
+
+      // Supersede: mark first as changes_requested and create a new accepted revision
+      await Quotation.findByIdAndUpdate(q1._id, { status: 'changes_requested' });
+      await Quotation.create({
+        quotationNumber: 'QTN-STALE-1', revision: 2, eventId: evStale.id, clientId: clientId1,
+        status: 'accepted', createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 4000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 4000 }],
+        subtotal: 4000, discount: 0, taxableAmount: 4000, finalAmount: 4000, advanceAmount: 2000, remainingAmount: 2000,
+        validUntil: new Date(Date.now() + 86400000)
+      });
+
+      // Attempt to verify using the old payment (which references q1, now superseded)
+      const staleSig = crypto.createHmac('sha256', env.razorpayKeySecret)
+        .update(`${staleOrderId}|pay_stale_fake`)
+        .digest('hex');
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ razorpay_order_id: staleOrderId, razorpay_payment_id: 'pay_stale_fake', razorpay_signature: staleSig }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` }
+      });
+
+      assert.equal(res.status, 400);
+      const data = await res.json() as any;
+      assert.ok(data.message.includes('superseded'), `Expected superseded rejection, got: ${data.message}`);
+    });
   });
 });

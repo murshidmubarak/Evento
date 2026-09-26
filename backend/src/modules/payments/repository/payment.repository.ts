@@ -14,4 +14,12 @@ export class PaymentRepository {
       status: { $in: ['created', 'pending'] }
     });
   }
+
+  async findByRazorpayOrderId(razorpayOrderId: string): Promise<IPayment | null> {
+    return Payment.findOne({ razorpayOrderId });
+  }
+
+  async findById(paymentId: string): Promise<IPayment | null> {
+    return Payment.findById(paymentId);
+  }
 }
