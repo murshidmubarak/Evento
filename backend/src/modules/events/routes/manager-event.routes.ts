@@ -6,6 +6,12 @@ import { authorize } from '../../../middlewares/role.middleware.js';
 const router = Router();
 const managerEventController = new ManagerEventController();
 
+import workRequirementRoutes from '../../work-requirements/routes/work-requirement.routes.js';
+import workRequirementRootRoutes from '../../work-requirements/routes/work-requirement-root.routes.js';
+
+router.use('/events/:eventId/work-requirements', workRequirementRoutes);
+router.use('/work-requirements', workRequirementRootRoutes);
+
 /**
  * @route   GET /api/manager/dashboard
  * @desc    Get dashboard stats for the authenticated Event Manager

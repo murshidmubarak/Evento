@@ -911,7 +911,7 @@ Manager Dashboard
 Manager Events
 [DONE] Event Control Center
 Week 6 - Recruitment and Workers
-Work Requirements
+[DONE] Work Requirements
 Recruitment
 Worker opportunities
 Interested / Not Interested

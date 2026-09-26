@@ -1312,6 +1312,26 @@ GET /api/manager/events/:id
 Access: Event Manager
 Purpose: Get detailed event information for the Event Control Center (must be assigned to the event).
 
+## Create Work Requirement
+POST /api/manager/events/:eventId/work-requirements
+Access: Event Manager
+Purpose: Create a work requirement for a specific event.
+
+## List Work Requirements
+GET /api/manager/events/:eventId/work-requirements
+Access: Event Manager
+Purpose: Get all work requirements for an event.
+
+## Get Single Work Requirement
+GET /api/manager/work-requirements/:id
+Access: Event Manager
+Purpose: Get a specific work requirement by ID.
+
+## Update Work Requirement
+PATCH /api/manager/work-requirements/:id
+Access: Event Manager
+Purpose: Update a work requirement's count, description, etc.
+
 # 28. Resource Ownership Rules
 
 ## Client

@@ -171,4 +171,17 @@ Change local UI text in one page.
 - Created `getManagerEventById` in `ManagerEventService` that strictly enforces manager ownership on the populated event document.
 - Added comprehensive unit tests in `managerControlCenter.test.ts` to ensure unauthenticated users, clients, admins, and unassigned managers are met with proper HTTP status errors (401/403).
 **Impact:**
-- No impact on existing Client or Admin APIs. The custom repository method avoids modifying the generic `findById`, ensuring zero side-effects to existing quotation and payment checks. Safely retrieves client information for Event Managers. Regression tests pass (178/178). Type-checking passes.
+- No impact on existing Client or Admin APIs. The custom repository method avoids modifying the generic `findById`, ensuring zero side-effects to existing quotation and payment checks. Safely retrieves client information for Event Managers. Regression tests pass (178/178). Type-checking passes.
+
+### [Work Requirement API]
+**Date:** 2026-09-26
+**Changes:**
+- Created `WorkRequirement` model (`workerType`, `requiredCount`, `reportingTime`, `description`, `status`) reusing existing User workerTypes.
+- Created `WorkRequirementRepository` and `WorkRequirementService` to encapsulate creation, reading, and updates.
+- Added `POST /api/manager/events/:eventId/work-requirements` to create a requirement (checks that the event is confirmed and manager owns it).
+- Added `GET /api/manager/events/:eventId/work-requirements` to list requirements.
+- Added `GET /api/manager/work-requirements/:id` to fetch a single requirement.
+- Added `PATCH /api/manager/work-requirements/:id` to update requirements that are still in `draft`.
+- Added 15 specialized tests in `workRequirements.test.ts` for RBAC, input validation (e.g. requiredCount <= 0 rejection), and strict manager ownership isolation.
+**Impact:**
+- Isolated addition for the new requirement functionality. The controller returns `filled: 0, pending: requiredCount` synthetically for UI integration before actual selection engines are built. No impact on generic Event flows, 193/193 regression tests passed. TypeScript type checking is clean.
