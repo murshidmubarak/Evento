@@ -1,5 +1,6 @@
 import { EventRepository } from '../repository/event.repository.js';
 import type { IEvent } from '../model/event.model.js';
+import { ApiError } from '../../../utils/ApiError.js';
 
 export class ManagerEventService {
   private eventRepository: EventRepository;
@@ -28,5 +29,18 @@ export class ManagerEventService {
     }
 
     return this.eventRepository.findByManagerId(managerId, filters);
+  }
+  async getManagerEventById(managerId: string, eventId: string): Promise<IEvent> {
+    const event = await this.eventRepository.findByIdWithDetails(eventId);
+    if (!event) {
+      throw ApiError.notFound('Event not found');
+    }
+
+    const assignedManagerId = (event.eventManagerId as any)?._id?.toString() || event.eventManagerId?.toString();
+    if (assignedManagerId !== managerId) {
+      throw ApiError.forbidden('You do not have permission to access this event');
+    }
+
+    return event;
   }
 }

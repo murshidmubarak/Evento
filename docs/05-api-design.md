@@ -1297,6 +1297,21 @@ Authentication
 → Database Operation
 
 
+# 27.5 Event Manager APIs
+
+## Manager Dashboard
+GET /api/manager/dashboard
+Access: Event Manager
+
+## Manager Events List
+GET /api/manager/events
+Access: Event Manager
+
+## Manager Event Control Center (Details)
+GET /api/manager/events/:id
+Access: Event Manager
+Purpose: Get detailed event information for the Event Control Center (must be assigned to the event).
+
 # 28. Resource Ownership Rules
 
 ## Client

@@ -30,4 +30,16 @@ router.get(
   managerEventController.getManagerEvents
 );
 
+/**
+ * @route   GET /api/manager/events/:id
+ * @desc    Get detailed Event information for the Event Control Center
+ * @access  Private (Event Manager only)
+ */
+router.get(
+  '/events/:id',
+  authenticate,
+  authorize('event_manager'),
+  managerEventController.getEventById
+);
+
 export default router;

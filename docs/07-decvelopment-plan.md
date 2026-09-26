@@ -909,7 +909,7 @@ Admin Events
 Event Manager assignment
 Manager Dashboard
 Manager Events
-Event Control Center
+[DONE] Event Control Center
 Week 6 - Recruitment and Workers
 Work Requirements
 Recruitment

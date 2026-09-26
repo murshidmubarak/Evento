@@ -33,4 +33,18 @@ export class ManagerEventController {
       next(error);
     }
   };
+
+  getEventById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const managerId = req.user!.id;
+      const { id } = req.params;
+      const event = await this.managerEventService.getManagerEventById(managerId, id);
+      res.status(200).json({
+        success: true,
+        data: { event },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

@@ -161,4 +161,14 @@ Change local UI text in one page.
 - Updated `GET /api/events/:id` to securely grant authorized Event Managers access, ensuring strict ownership validation.
 - Validated via 7 specialized integration tests for dashboard access, metrics generation, strict ownership filters, and RBAC blockades.
 **Impact:**
-- Isolated, modular feature additions resolving previously missing manager functionality. Access bounds carefully crafted to strictly prevent manager-to-manager data leaking. Unaffected other core domains. Comprehensive type checking and 170/170 regression tests cleanly passed.
+- Isolated, modular feature additions resolving previously missing manager functionality. Access bounds carefully crafted to strictly prevent manager-to-manager data leaking. Unaffected other core domains. Comprehensive type checking and 170/170 regression tests cleanly passed.
+
+### [Event Manager Control Center Backend]
+**Date:** 2026-09-26
+**Changes:**
+- Implemented `GET /api/manager/events/:id` for the Event Manager Control Center.
+- Added `findByIdWithDetails` in `EventRepository` to safely populate `clientId` (returning only safe info: `name`, `email`, `phone`) and `eventManagerId`.
+- Created `getManagerEventById` in `ManagerEventService` that strictly enforces manager ownership on the populated event document.
+- Added comprehensive unit tests in `managerControlCenter.test.ts` to ensure unauthenticated users, clients, admins, and unassigned managers are met with proper HTTP status errors (401/403).
+**Impact:**
+- No impact on existing Client or Admin APIs. The custom repository method avoids modifying the generic `findById`, ensuring zero side-effects to existing quotation and payment checks. Safely retrieves client information for Event Managers. Regression tests pass (178/178). Type-checking passes.

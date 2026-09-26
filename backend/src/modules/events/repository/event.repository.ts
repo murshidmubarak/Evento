@@ -10,6 +10,13 @@ export class EventRepository {
     return Event.findById(id).populate('selectedServices') as unknown as Promise<IEvent | null>;
   }
 
+  async findByIdWithDetails(id: string): Promise<IEvent | null> {
+    return Event.findById(id)
+      .populate('selectedServices')
+      .populate('clientId', 'name email phone')
+      .populate('eventManagerId', 'name email phone') as unknown as Promise<IEvent | null>;
+  }
+
   async findByClientId(clientId: string): Promise<IEvent[]> {
     return Event.find({ clientId }).sort({ createdAt: -1 }).populate('selectedServices') as unknown as Promise<IEvent[]>;
   }
