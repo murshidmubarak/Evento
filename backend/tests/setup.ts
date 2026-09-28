@@ -11,7 +11,7 @@ dotenv.config();
 
 // Provide fallback values if environment variables are not set in the running shell
 if (!process.env.MONGODB_URI) {
-  process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/eventops_test';
+  throw new Error('MONGODB_URI is not set. Please check your .env file.');
 }
 
 if (!process.env.JWT_SECRET) {

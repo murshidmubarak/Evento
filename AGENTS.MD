@@ -369,6 +369,8 @@ ClientLayout
 ManagerLayout
 WorkerLayout
 
+- Configuration: Do not hardcode API base URLs or provide local fallbacks (e.g., `|| 'http://localhost:5000/api'`). Always strictly rely on environment variables (`import.meta.env.VITE_API_URL`) to prevent accidental localhost references in production deployments.
+
 
 ## 23. Development Workflow
 
@@ -451,3 +453,39 @@ The following are fixed unless explicitly approved:
 - Use `import` and `export`.
 - Do not use `require()` or `module.exports`.
 - Backend package.json must contain `"type": "module"`.
+
+
+
+
+```md
+### Bug and Change Impact Management
+
+Before investigating any bug or error:
+
+1. Read `docs/08-bug-log.md`.
+2. Search for the exact error message, keyword, affected module, or similar symptom.
+3. If the bug already exists, review the documented solution before starting a new investigation.
+4. If the bug occurs again, append a recurrence record to the existing Bug ID instead of creating a duplicate entry.
+5. Record every verified important bug and its solution in `docs/08-bug-log.md`.
+
+Before making a significant change to an existing file, shared utility, shared type, API contract, database model, business rule, authentication system, authorization system, financial logic, or architectural component:
+
+1. Read `docs/09-change-impact-log.md`.
+2. Identify directly and indirectly affected files/modules.
+3. Determine the impact level.
+4. For High or Critical/Serious changes, STOP before implementation.
+5. Show the developer:
+   - requested change
+   - impact level
+   - affected files
+   - affected modules
+   - affected APIs
+   - affected database structures
+   - affected frontend areas
+   - affected tests
+   - business rules affected
+   - architecture impact
+6. Proceed only after explicit approval for High/Critical changes.
+7. Record significant cross-file changes in `docs/09-change-impact-log.md`.
+
+Do not silently modify dependent files when a change has High or Critical impact.
