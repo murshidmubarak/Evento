@@ -44,4 +44,19 @@ router.get(
   eventController.getEventById
 );
 
+/**
+ * @route   POST /api/events/:id/service-reference-images
+ * @desc    Upload reference images for a specific selected service
+ * @access  Private (Client only)
+ */
+import { uploadMiddleware } from '../../../middlewares/upload.middleware.js';
+
+router.post(
+  '/:id/service-reference-images',
+  authenticate,
+  authorize('client'),
+  uploadMiddleware.array('images', 5),
+  eventController.uploadReferenceImages
+);
+
 export default router;

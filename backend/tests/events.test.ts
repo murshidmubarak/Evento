@@ -246,6 +246,56 @@ describe('Event Requests API', () => {
     assert.equal(res.status, 400);
   });
 
+  it('18. Valid structured preferences accepted', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({
+        ...validPayload,
+        selectedServices: [
+          { serviceId: activeServiceId, preferences: { style: 'traditional', items: ['A', 'B'] } }
+        ]
+      }),
+    });
+    assert.equal(res.status, 201);
+    const data = await res.json() as any;
+    assert.equal(data.data.event.selectedServices[0].preferences.style, 'traditional');
+    assert.equal(data.data.event.selectedServices[0].preferences.items[0], 'A');
+  });
+
+  it('19. Invalid primitive preferences rejected', async () => {
+    const payloads = [
+      { serviceId: activeServiceId, preferences: "string" },
+      { serviceId: activeServiceId, preferences: 123 },
+      { serviceId: activeServiceId, preferences: true },
+      { serviceId: activeServiceId, preferences: ["wrong"] }
+    ];
+    for (const p of payloads) {
+      const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+        body: JSON.stringify({ ...validPayload, selectedServices: [p] }),
+      });
+      assert.equal(res.status, 400);
+    }
+  });
+
+  it('19b. Protected/pricing fields in preferences rejected', async () => {
+    const payloads = [
+      { serviceId: activeServiceId, preferences: { price: 100 } },
+      { serviceId: activeServiceId, preferences: { status: 'confirmed' } },
+      { serviceId: activeServiceId, preferences: { clientId: clientId2 } },
+    ];
+    for (const p of payloads) {
+      const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+        body: JSON.stringify({ ...validPayload, selectedServices: [p] }),
+      });
+      assert.equal(res.status, 400);
+    }
+  });
+
   it('20 & 21. Client can retrieve only own events, Client cannot retrieve another client\'s event', async () => {
     // Create event for client 1
     const res1 = await fetch(`http://127.0.0.1:${port}/api/events`, {
@@ -275,5 +325,36 @@ describe('Event Requests API', () => {
       headers: { 'Authorization': `Bearer ${clientToken2}` },
     });
     assert.equal(singleRes.status, 403);
+  });
+
+  it('22. Location validation tests', async () => {
+    const payloads = [
+      { ...validPayload, location: { address: 'Valid', lat: -100, lng: 0 } }, // lat too small
+      { ...validPayload, location: { address: 'Valid', lat: 100, lng: 0 } }, // lat too large
+      { ...validPayload, location: { address: 'Valid', lat: 0, lng: -200 } }, // lng too small
+      { ...validPayload, location: { address: 'Valid', lat: 0, lng: 200 } }, // lng too large
+      { ...validPayload, location: { address: 'Valid', lat: NaN, lng: 0 } }, // NaN lat
+      { ...validPayload, location: { address: 'Valid', lat: 0, lng: Infinity } }, // Infinity lng
+      { ...validPayload, location: { address: 'Valid', lat: 10 } }, // Missing lng
+      { ...validPayload, location: { address: 'Valid', lng: 10 } }, // Missing lat
+    ];
+
+    for (const p of payloads) {
+      const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+        body: JSON.stringify(p),
+      });
+      assert.equal(res.status, 400);
+    }
+  });
+
+  it('23. Valid location coordinates accepted', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ ...validPayload, location: { address: 'Somewhere', lat: 10.9, lng: 75.9 } }),
+    });
+    assert.equal(res.status, 201);
   });
 });

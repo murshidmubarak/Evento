@@ -19,7 +19,7 @@ export interface IEvent extends Document {
   };
   guestCount: number;
   budget?: number;
-  selectedServices: Types.ObjectId[];
+  selectedServices: Array<{ serviceId: Types.ObjectId; preferences?: Record<string, unknown> }>;
   status: EventStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -46,7 +46,12 @@ const eventSchema = new Schema<IEvent>(
     },
     guestCount: { type: Number, required: true, min: 1 },
     budget: { type: Number, min: 0 },
-    selectedServices: [{ type: Schema.Types.ObjectId, ref: 'Service' }],
+    selectedServices: [
+      {
+        serviceId: { type: Schema.Types.ObjectId, ref: 'Service', required: true },
+        preferences: { type: Schema.Types.Mixed, default: {} },
+      },
+    ],
     status: {
       type: String,
       enum: ['requested', 'quoted', 'awaiting_payment', 'confirmed', 'in_progress', 'completed', 'cancelled'],

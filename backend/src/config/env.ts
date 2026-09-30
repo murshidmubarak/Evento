@@ -16,7 +16,10 @@ const requiredEnvVars = [
   'JWT_EXPIRES_IN', 
   'PASSWORD_RESET_EXPIRES_IN_MINS',
   'RAZORPAY_KEY_ID',
-  'RAZORPAY_KEY_SECRET'
+  'RAZORPAY_KEY_SECRET',
+  'CLOUDINARY_CLOUD_NAME',
+  'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET'
 ] as const;
 
 for (const key of requiredEnvVars) {
@@ -36,4 +39,7 @@ export const env = {
   passwordResetExpiresInMins: parseInt(process.env.PASSWORD_RESET_EXPIRES_IN_MINS as string, 10),
   razorpayKeyId: process.env.RAZORPAY_KEY_ID as string,
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET as string,
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME as string,
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY as string,
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET as string,
 } as const;

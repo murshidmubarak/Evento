@@ -16,6 +16,13 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
 
   if (!date || isNaN(Date.parse(date))) {
     errors.push('A valid date is required');
+  } else {
+    const eventDate = new Date(date);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (eventDate < today) {
+      errors.push('Event date cannot be in the past');
+    }
   }
 
   if (!startTime || typeof startTime !== 'string' || startTime.trim().length === 0) {
@@ -36,11 +43,31 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
   if (!location || !location.address || typeof location.address !== 'string' || location.address.trim().length === 0) {
     errors.push('location.address is required');
   } else {
-    if (location.lat !== undefined && typeof location.lat !== 'number') {
-      errors.push('location.lat must be a number');
+    const hasLat = location.lat !== undefined && location.lat !== null;
+    const hasLng = location.lng !== undefined && location.lng !== null;
+
+    if (hasLat && !hasLng) {
+      errors.push('location.lng is required when location.lat is provided');
     }
-    if (location.lng !== undefined && typeof location.lng !== 'number') {
-      errors.push('location.lng must be a number');
+    if (hasLng && !hasLat) {
+      errors.push('location.lat is required when location.lng is provided');
+    }
+
+    if (hasLat && hasLng) {
+      const lat = location.lat;
+      const lng = location.lng;
+
+      if (typeof lat !== 'number' || isNaN(lat) || !isFinite(lat)) {
+        errors.push('location.lat must be a valid number');
+      } else if (lat < -90 || lat > 90) {
+        errors.push('location.lat must be between -90 and 90');
+      }
+
+      if (typeof lng !== 'number' || isNaN(lng) || !isFinite(lng)) {
+        errors.push('location.lng must be a valid number');
+      } else if (lng < -180 || lng > 180) {
+        errors.push('location.lng must be between -180 and 180');
+      }
     }
   }
 
@@ -56,12 +83,34 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
 
   if (selectedServices !== undefined && selectedServices !== null) {
     if (!Array.isArray(selectedServices)) {
-      errors.push('selectedServices must be an array of service IDs');
+      errors.push('selectedServices must be an array');
     } else {
-      for (const svcId of selectedServices) {
-        if (typeof svcId !== 'string' || svcId.trim().length !== 24) { // Basic ObjectId length check
-          errors.push('selectedServices must contain valid MongoDB ObjectIds');
-          break;
+      for (let i = 0; i < selectedServices.length; i++) {
+        const item = selectedServices[i];
+        if (typeof item === 'string') {
+          if (item.trim().length !== 24) errors.push('selectedServices must contain valid MongoDB ObjectIds');
+          selectedServices[i] = { serviceId: item }; // Normalize for downstream
+        } else if (typeof item === 'object' && item !== null) {
+          if (!item.serviceId || typeof item.serviceId !== 'string' || item.serviceId.trim().length !== 24) {
+            errors.push('selectedServices item must contain a valid serviceId ObjectId');
+          }
+          if (item.preferences !== undefined && item.preferences !== null) {
+            if (typeof item.preferences !== 'object' || Array.isArray(item.preferences)) {
+              errors.push('preferences must be an object');
+            } else {
+              const forbiddenKeys = [
+                'price', 'unitPrice', 'amount', 'basePrice', 'quotationAmount', 'discount', 'tax',
+                'eventManagerId', 'status', 'clientId', '_id', 'id'
+              ];
+              for (const key of Object.keys(item.preferences)) {
+                if (forbiddenKeys.includes(key)) {
+                  errors.push(`preferences cannot contain protected or pricing field: ${key}`);
+                }
+              }
+            }
+          }
+        } else {
+          errors.push('selectedServices must contain valid ObjectIds or objects with serviceId');
         }
       }
     }

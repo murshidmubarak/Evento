@@ -48,4 +48,29 @@ export class EventController {
       next(error);
     }
   };
+
+  uploadReferenceImages = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user!.id;
+      const { id } = req.params;
+      const { serviceId } = req.body;
+      const files = req.files as Express.Multer.File[];
+
+      const EventMediaService = (await import('../service/event-media.service.js')).EventMediaService;
+      const eventMediaService = new EventMediaService();
+
+      const uploadedImages = await eventMediaService.uploadReferenceImages(userId, id, serviceId, files);
+
+      res.status(200).json({
+        success: true,
+        data: { 
+          eventId: id,
+          serviceId,
+          referenceImages: uploadedImages 
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

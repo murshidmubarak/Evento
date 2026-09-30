@@ -184,4 +184,30 @@ Change local UI text in one page.
 - Added `PATCH /api/manager/work-requirements/:id` to update requirements that are still in `draft`.
 - Added 15 specialized tests in `workRequirements.test.ts` for RBAC, input validation (e.g. requiredCount <= 0 rejection), and strict manager ownership isolation.
 **Impact:**
-- Isolated addition for the new requirement functionality. The controller returns `filled: 0, pending: requiredCount` synthetically for UI integration before actual selection engines are built. No impact on generic Event flows, 193/193 regression tests passed. TypeScript type checking is clean.
+- Isolated addition for the new requirement functionality. The controller returns `filled: 0, pending: requiredCount` synthetically for UI integration before actual selection engines are built. No impact on generic Event flows, 193/193 regression tests passed. TypeScript type checking is clean.
+
+### [Event Preferences Backend Contract Update]
+**Date:** 2026-09-28
+**Changes:**
+- Converted `selectedServices.preferences` in the Event model from `String` to structured object (`Schema.Types.Mixed`).
+- Added strict backend validation to reject primitive strings/numbers/arrays in preferences.
+- Ensured protected Event fields (like `clientId`, `status`, `eventManagerId`) and pricing fields cannot be passed via the `preferences` object (mass assignment prevention).
+- Updated frontend types to `Record<string, unknown>` and modified `CreateEventWizard` to wrap existing string notes into a `{ notes: string }` object during submission to maintain current UI compatibility.
+- Added comprehensive backend tests for valid and invalid structured preferences.
+**Impact:**
+- Medium impact. Altered the Event schema data structure. Handled backward compatibility gracefully by normalizing frontend payloads. Event ownership and quotation logic remain completely unaffected. Tests pass, TypeScript is clean.
+
+### [Event Service Reference Images]
+**Date:** 2026-09-29
+**Changes:**
+- Installed `cloudinary` and `multer` for external media storage integration.
+- Configured Cloudinary required environment variables in `env.ts` and `.env.example`.
+- Created `MediaService` adapter to encapsulate all Cloudinary interactions.
+- Created `upload.middleware.ts` using Multer (memory storage, max 5 files, 5MB limit, JPEG/PNG/WebP validation).
+- Implemented `EventMediaService` to handle business logic for reference image uploads, including validation of ownership, service selection, and cleanup on failure.
+- Updated `EventRepository` with an `updateById` method.
+- Added `POST /api/events/:id/service-reference-images` endpoint in `event.routes.ts` and `event.controller.ts`.
+- Structured metadata stored inside `selectedServices[...].preferences.referenceImages` array.
+- Added test coverage in `eventMedia.test.ts` to verify authorization (401/403), validation (400/404), and successful storage, with mocked Cloudinary API.
+**Impact:**
+- Low impact on existing systems. Isolated feature addition mapped safely into existing `preferences` contract without schema mutations. All existing event/manager APIs untouched. Regression suite passed successfully. TypeScript compile clean. No arbitrary file execution or binary storage in MongoDB.

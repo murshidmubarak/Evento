@@ -246,4 +246,71 @@ Added `import crypto from 'node:crypto';` at the top of `tests/payments.test.ts`
 ### Rule
 
 Never rely on ambient globals in TypeScript test files. Always import Node.js built-in modules explicitly using the `node:` protocol prefix.
+
+---
+
+## BUG-005 — Reference Image Upload Silently Fails (Stale Server Process + Silent catch)
+
+### Date
+
+2026-09-30
+
+### Feature / Module
+
+Event Reference Images / CreateEventWizard.tsx / EventMediaService / .env
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+Client selects Decoration, uploads a reference image, submits the event. Event is created successfully and the wizard shows "Event Created Successfully." However, when opening Event Details, the Decoration section shows "No reference images uploaded." — even though `selectedServices` and `preferences` are persisted correctly.
+
+### Root Cause (Multi-layer)
+
+**Layer 1 — Broken CLOUDINARY_API_KEY in .env (Primary)**
+
+The `.env` file had a malformed `CLOUDINARY_API_KEY` value. Instead of the numeric key, it contained the literal string `CLOUDINARY_URL=cloudinary://<your_api_key>:...`. This caused every Cloudinary upload attempt to fail with a 401 from Cloudinary's API.
+
+**Layer 2 — Stale Running Server Process**
+
+After the `.env` was corrected, the running backend (`npm run dev`) was NOT restarted. The server process kept the old broken credentials in memory. All upload requests continued to return HTTP 500 because Cloudinary still received the invalid API key.
+
+**Layer 3 — Silent Upload Failure in Frontend Wizard**
+
+`CreateEventWizard.tsx` wrapped the upload in a try-catch that only called `console.error()` on failure and then called `setSuccessData(created)` unconditionally. The user was told "Success!" even when the upload failed with a 500. No visible error was shown, no retry was offered. This masked both Layer 1 and Layer 2 completely.
+
+**Layer 4 — Diagnostic Collection Name Error**
+
+Audit scripts queried MongoDB collection `medias` (Mongoose default pluralization of `Media`), but the actual Mongoose model `Media` maps to collection `media` (singular). This caused false "0 media docs" results in early diagnostics, masking that the backend pipeline was actually working once credentials were fixed.
+
+### Solution
+
+1. **Fixed `.env`**: Replaced `CLOUDINARY_API_KEY=CLOUDINARY_URL=...` with the actual numeric Cloudinary API key.
+2. **Restarted backend**: Hot-reload via `tsx` dev server picked up the corrected credentials.
+3. **Fixed `CreateEventWizard.tsx`**: Replaced silent `console.error` catch with truthful `setUploadError(msg)` state. Success screen now shows an amber warning if upload failed, with the exact error message and a Retry Upload button. Upload success shows a green confirmation.
+4. **Added `retryUpload` function**: Allows re-attempting the upload for an already-created event without losing the event or re-entering the wizard.
+
+### Verification
+
+- Direct Cloudinary auth: `cloudinary.api.ping()` → ✅ ok, Plan: Free
+- Direct service-layer test: `EventMediaService.uploadReferenceImages()` → ✅ Cloudinary URL returned, Media document created
+- End-to-end HTTP diagnostic: `POST /api/events/:id/service-reference-images` → HTTP 200, `referenceImages[0].url = https://res.cloudinary.com/...`
+- MongoDB `media` collection: 2 docs with correct `eventId`, `serviceId`, `url`, `publicId`
+- `GET /api/events/:id` → `referenceImages` array populated, correct service grouping
+- Backend TypeScript: clean (exit 0)
+- Frontend TypeScript: clean (exit 0)
+- Frontend build: clean (exit 0)
+- Backend tests: 206/206 pass, 0 fail
+
+### Rule
+
+1. NEVER silently swallow upload errors after a successful primary operation. Always set visible error state.
+2. Always restart the backend server after changing `.env` — hot-reload does NOT pick up `.env` changes automatically in all environments.
+3. When querying MongoDB collections by name in diagnostic scripts, use the exact collection name (`media` not `medias`) or query via the Mongoose model which resolves the name automatically.
 

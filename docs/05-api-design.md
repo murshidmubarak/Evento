@@ -239,6 +239,29 @@ Client
 Purpose:
 Create a new Event request.
 
+Request:
+
+```json
+{
+  "title": "My Wedding",
+  "eventType": "Wedding",
+  "date": "2026-12-01",
+  "startTime": "10:00",
+  "endTime": "18:00",
+  "location": { "address": "123 Main St" },
+  "guestCount": 200,
+  "selectedServices": [
+    {
+      "serviceId": "651a...cde",
+      "preferences": {
+        "style": "traditional",
+        "items": ["A", "B"]
+      }
+    }
+  ]
+}
+```
+
 Initial status:
 
 requested
@@ -290,6 +313,40 @@ PATCH /api/events/:id/cancel
 Access:
 Authorized users according to business rules
 
+
+## Upload Service Reference Images
+
+POST /api/events/:id/service-reference-images
+
+Access:
+Client who owns the Event
+
+Purpose:
+Upload reference images for a specific selected service (e.g., Decoration).
+
+Request:
+multipart/form-data
+- serviceId: (string) The ID of the selected service.
+- images: (file[]) Up to 5 image files (JPEG, PNG, WebP). Max 5MB per file.
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "eventId": "...",
+    "serviceId": "...",
+    "referenceImages": [
+      {
+        "url": "https://...",
+        "publicId": "...",
+        "fileName": "stage.jpg",
+        "mimeType": "image/jpeg"
+      }
+    ]
+  }
+}
+```
 
 ## Update Event Status
 
