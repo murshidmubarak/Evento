@@ -114,6 +114,41 @@ export class UserService {
   }
 
   /**
+   * Creates an initial administrator.
+   *
+   * Business Rules:
+   * 1. Normalizes email.
+   * 2. Checks if email exists.
+   * 3. Hashes password.
+   * 4. Creates user with role='admin', isActive=true, emailVerified=true.
+   */
+  async createAdmin(dto: RegisterUserDto): Promise<SafeUser> {
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+    if (existingUser) {
+      throw ApiError.conflict('Email is already registered');
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+
+    const userData: Partial<IUser> = {
+      name: dto.name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      phone: dto.phone?.trim(),
+      profileImage: dto.profileImage?.trim(),
+      role: 'admin',
+      isActive: true,
+      emailVerified: true
+    };
+
+    const createdUser = await this.userRepository.create(userData);
+    return this.toSafeUser(createdUser);
+  }
+
+  /**
    * Authenticates a user with email and password, returning safe user data and a JWT token.
    *
    * Business Rules:

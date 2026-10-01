@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 tests/**/*.test.ts",
-    "seed": "tsx seed.ts"
+    "seed": "tsx seed.ts",
+    "admin:create": "tsx src/scripts/createAdmin.ts"
   },
   "keywords": [],
   "author": "",
