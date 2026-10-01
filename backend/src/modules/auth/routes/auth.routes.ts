@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { UserController } from '../controller/user.controller.js';
-import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword, validateProfileUpdate } from '../validation/user.validation.js';
+import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword, validateProfileUpdate, validateVerifyEmailOtp, validateResendVerificationOtp } from '../validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -54,5 +54,19 @@ router.post('/reset-password', validateResetPassword, userController.resetPasswo
  * @access  Private
  */
 router.post('/logout', authenticate, userController.logout);
+
+/**
+ * @route   POST /api/auth/verify-email-otp
+ * @desc    Verify email OTP
+ * @access  Public
+ */
+router.post('/verify-email-otp', validateVerifyEmailOtp, userController.verifyEmailOtp);
+
+/**
+ * @route   POST /api/auth/resend-verification-otp
+ * @desc    Resend email OTP
+ * @access  Public
+ */
+router.post('/resend-verification-otp', validateResendVerificationOtp, userController.resendVerificationOtp);
 
 export default router;

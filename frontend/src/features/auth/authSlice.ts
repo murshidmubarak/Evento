@@ -13,6 +13,43 @@ const initialState: AuthState = {
 };
 
 // Async Thunks
+export const registerUser = createAsyncThunk<User, any, { rejectValue: string }>(
+  'auth/register',
+  async (credentials, { rejectWithValue }) => {
+    try {
+      const response = await apiClient.post<AuthResponse>('/auth/register', credentials);
+      return response.data.data.user!;
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      return rejectWithValue(error.response?.data?.message || 'Registration failed');
+    }
+  }
+);
+
+export const verifyEmailOtp = createAsyncThunk<void, { email: string; otp: string }, { rejectValue: string }>(
+  'auth/verifyEmailOtp',
+  async (credentials, { rejectWithValue }) => {
+    try {
+      await apiClient.post('/auth/verify-email-otp', credentials);
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      return rejectWithValue(error.response?.data?.message || 'Verification failed');
+    }
+  }
+);
+
+export const resendVerificationOtp = createAsyncThunk<void, { email: string }, { rejectValue: string }>(
+  'auth/resendVerificationOtp',
+  async (data, { rejectWithValue }) => {
+    try {
+      await apiClient.post('/auth/resend-verification-otp', data);
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      return rejectWithValue(error.response?.data?.message || 'Failed to resend OTP');
+    }
+  }
+);
+
 export const login = createAsyncThunk<AuthResponse['data'], any, { rejectValue: string }>(
   'auth/login',
   async (credentials, { rejectWithValue }) => {
@@ -69,6 +106,46 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // Register
+      .addCase(registerUser.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(registerUser.fulfilled, (state) => {
+        state.isLoading = false;
+        // Don't auto-login or store user here per requirements
+      })
+      .addCase(registerUser.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload || 'Registration failed';
+      })
+
+      // Verify OTP
+      .addCase(verifyEmailOtp.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(verifyEmailOtp.fulfilled, (state) => {
+        state.isLoading = false;
+      })
+      .addCase(verifyEmailOtp.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload || 'Verification failed';
+      })
+
+      // Resend OTP
+      .addCase(resendVerificationOtp.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(resendVerificationOtp.fulfilled, (state) => {
+        state.isLoading = false;
+      })
+      .addCase(resendVerificationOtp.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload || 'Resend failed';
+      })
+
       // Login
       .addCase(login.pending, (state) => {
         state.isLoading = true;

@@ -525,7 +525,7 @@ describe('User Management Endpoints', () => {
         const token = generateToken(adminId, 'admin');
 
         const passwordHash = await bcrypt.hash('password123', 10);
-        const targetUser = new User({ name: 'Target', email: 'target_act@example.com', password: passwordHash, role: 'client', isActive: false });
+        const targetUser = new User({ name: 'Target', email: 'target_act@example.com', password: passwordHash, role: 'client', isActive: false, emailVerified: true });
         await targetUser.save();
 
         // Ensure inactive user cannot login

@@ -94,4 +94,26 @@ export class UserController {
 
     new ApiResponse(200, 'Password reset successfully', {}).send(res);
   });
+
+  /**
+   * POST /api/auth/verify-email-otp
+   * Verifies the email OTP.
+   */
+  verifyEmailOtp = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { email, otp } = req.body;
+    await this.userService.verifyEmailOtp(email, otp);
+
+    new ApiResponse(200, 'Email verified successfully', {}).send(res);
+  });
+
+  /**
+   * POST /api/auth/resend-verification-otp
+   * Resends the verification OTP.
+   */
+  resendVerificationOtp = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { email } = req.body;
+    await this.userService.resendVerificationOtp(email);
+
+    new ApiResponse(200, 'If the account is eligible for verification, a new code has been sent.', {}).send(res);
+  });
 }

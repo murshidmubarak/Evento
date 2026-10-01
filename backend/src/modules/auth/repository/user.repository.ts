@@ -89,4 +89,47 @@ export class UserRepository {
     }
     return User.find(query).select('_id businessId name email status isActive'); // Exclude password/sensitive fields
   }
+
+  /**
+   * Find a user by email, including OTP verification fields.
+   */
+  async findByEmailWithOtpFields(email: string): Promise<IUser | null> {
+    return User.findOne({ email }).select('+emailVerificationOtpHash +emailVerificationOtpExpiresAt +emailVerificationOtpAttempts +emailVerificationOtpLastSentAt');
+  }
+
+  /**
+   * Increment the OTP attempts for a user.
+   */
+  async incrementOtpAttempts(id: string): Promise<void> {
+    await User.findByIdAndUpdate(id, {
+      $inc: { emailVerificationOtpAttempts: 1 }
+    });
+  }
+
+  /**
+   * Mark user's email as verified and clear OTP fields.
+   */
+  async verifyEmail(id: string): Promise<void> {
+    await User.findByIdAndUpdate(id, {
+      emailVerified: true,
+      $unset: {
+        emailVerificationOtpHash: 1,
+        emailVerificationOtpExpiresAt: 1,
+        emailVerificationOtpAttempts: 1,
+        emailVerificationOtpLastSentAt: 1
+      }
+    });
+  }
+
+  /**
+   * Update the user's OTP fields for resend.
+   */
+  async updateOtp(id: string, hash: string, expiresAt: Date): Promise<void> {
+    await User.findByIdAndUpdate(id, {
+      emailVerificationOtpHash: hash,
+      emailVerificationOtpExpiresAt: expiresAt,
+      emailVerificationOtpAttempts: 0,
+      emailVerificationOtpLastSentAt: new Date(),
+    });
+  }
 }

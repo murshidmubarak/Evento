@@ -6,6 +6,7 @@ import { ApiError } from '../../../utils/ApiError.js';
 import { env } from '../../../config/env.js';
 import type { IUser } from '../model/user.model.js';
 import { BusinessIdService } from '../../users/service/business-id.service.js';
+import { emailService } from '../../email/service/email.service.js';
 
 export interface RegisterUserDto {
   name: string;
@@ -37,6 +38,7 @@ export interface SafeUser {
   workerType?: string;
   businessId?: string;
   isActive: boolean;
+  emailVerified?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,7 +78,12 @@ export class UserService {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
 
-    // 3. Prepare payload with forced role 'client'
+    // 3. Generate OTP
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expiresAt = new Date(Date.now() + env.emailVerificationOtpTtlMinutes * 60 * 1000);
+
+    // 4. Prepare payload with forced role 'client'
     const userData: Partial<IUser> = {
       name: dto.name.trim(),
       email: normalizedEmail,
@@ -85,10 +92,27 @@ export class UserService {
       profileImage: dto.profileImage?.trim(),
       role: 'client', // Backend is source of truth — force role to 'client'
       isActive: true,
+      emailVerified: false,
+      emailVerificationOtpHash: otpHash,
+      emailVerificationOtpExpiresAt: expiresAt,
+      emailVerificationOtpAttempts: 0,
+      emailVerificationOtpLastSentAt: new Date(),
     };
 
-    // 4. Save via repository
+    // 5. Save via repository
     const createdUser = await this.userRepository.create(userData);
+
+    // 6. Send Email (do not fail registration if email fails)
+    try {
+      await emailService.sendVerificationOtp({
+        to: createdUser.email,
+        name: createdUser.name,
+        otp,
+      });
+    } catch (error) {
+      console.error('[UserService] Failed to send verification OTP on register:', error);
+      // Registration succeeds, user will have to request resend
+    }
 
     // 5. Return safe user data
     return this.toSafeUser(createdUser);
@@ -126,6 +150,10 @@ export class UserService {
       throw ApiError.unauthorized('Account is inactive. Please contact support.');
     }
 
+    if (user.role === 'client' && user.emailVerified === false) {
+      throw ApiError.unauthorized('Please verify your email before signing in.');
+    }
+
     // 4. Generate JWT with minimal payload (userId & role derived exclusively from database)
     const payload = {
       userId: user._id.toString(),
@@ -134,7 +162,7 @@ export class UserService {
 
     const secret: Secret = env.jwtSecret;
     const options: SignOptions = {
-      expiresIn: env.jwtExpiresIn as unknown as SignOptions['expiresIn'],
+      expiresIn: env.jwtExpiresIn,
     };
 
     const token = jwt.sign(payload, secret, options);
@@ -192,6 +220,84 @@ export class UserService {
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
     await this.userRepository.updatePasswordAndClearResetToken(user._id.toString(), hashedPassword);
+  }
+
+  /**
+   * Verifies the email OTP.
+   */
+  async verifyEmailOtp(email: string, otp: string): Promise<void> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.userRepository.findByEmailWithOtpFields(normalizedEmail);
+    
+    if (!user) {
+      throw ApiError.badRequest('Invalid verification request');
+    }
+
+    if (user.emailVerified) {
+      throw ApiError.badRequest('Email is already verified');
+    }
+
+    if (!user.emailVerificationOtpHash || !user.emailVerificationOtpExpiresAt) {
+      throw ApiError.badRequest('No pending verification found');
+    }
+
+    if (user.emailVerificationOtpAttempts >= env.emailVerificationOtpMaxAttempts) {
+      throw ApiError.badRequest('Too many attempts. Please request a new code.');
+    }
+
+    if (user.emailVerificationOtpExpiresAt.getTime() < Date.now()) {
+      throw ApiError.badRequest('Verification code has expired. Please request a new one.');
+    }
+
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (otpHash !== user.emailVerificationOtpHash) {
+      await this.userRepository.incrementOtpAttempts(user._id.toString());
+      throw ApiError.badRequest('Invalid verification code');
+    }
+
+    await this.userRepository.verifyEmail(user._id.toString());
+  }
+
+  /**
+   * Resends the email verification OTP.
+   */
+  async resendVerificationOtp(email: string): Promise<void> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.userRepository.findByEmailWithOtpFields(normalizedEmail);
+
+    if (!user) {
+      // Safe response for account enumeration protection
+      return;
+    }
+
+    if (user.emailVerified) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      user.emailVerificationOtpLastSentAt && 
+      now - user.emailVerificationOtpLastSentAt.getTime() < env.emailVerificationOtpResendCooldownSeconds * 1000
+    ) {
+      throw ApiError.badRequest(`Please wait before requesting a new code.`);
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expiresAt = new Date(now + env.emailVerificationOtpTtlMinutes * 60 * 1000);
+
+    await this.userRepository.updateOtp(user._id.toString(), otpHash, expiresAt);
+
+    try {
+      await emailService.sendVerificationOtp({
+        to: user.email,
+        name: user.name,
+        otp,
+      });
+    } catch (error) {
+      console.error('[UserService] Failed to resend verification OTP:', error);
+      throw ApiError.internal('Failed to send verification email. Please try again later.');
+    }
   }
 
   /**
@@ -382,6 +488,7 @@ export class UserService {
       workerType: user.workerType,
       businessId: user.businessId,
       isActive: user.isActive,
+      emailVerified: user.emailVerified,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

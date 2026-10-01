@@ -14,6 +14,11 @@ export interface IUser extends Document {
   businessId?: string;
   isActive: boolean;
   googleId?: string;
+  emailVerified: boolean;
+  emailVerificationOtpHash?: string;
+  emailVerificationOtpExpiresAt?: Date;
+  emailVerificationOtpAttempts: number;
+  emailVerificationOtpLastSentAt?: Date;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date;
   createdAt: Date;
@@ -85,6 +90,27 @@ const userSchema = new Schema<IUser>(
     },
     googleId: {
       type: String,
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationOtpHash: {
+      type: String,
+      select: false,
+    },
+    emailVerificationOtpExpiresAt: {
+      type: Date,
+      select: false,
+    },
+    emailVerificationOtpAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+    emailVerificationOtpLastSentAt: {
+      type: Date,
+      select: false,
     },
     passwordResetTokenHash: {
       type: String,

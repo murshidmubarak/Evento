@@ -184,3 +184,39 @@ export const validateProfileUpdate = (req: Request, _res: Response, next: NextFu
 
   next();
 };
+
+export const validateVerifyEmailOtp = (req: Request, _res: Response, next: NextFunction): void => {
+  const { email, otp } = req.body;
+  const errors: string[] = [];
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
+    errors.push('A valid email address is required');
+  }
+
+  if (!otp || typeof otp !== 'string' || !/^\d{6}$/.test(otp)) {
+    errors.push('OTP is required and must be exactly 6 digits');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+export const validateResendVerificationOtp = (req: Request, _res: Response, next: NextFunction): void => {
+  const { email } = req.body;
+  const errors: string[] = [];
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
+    errors.push('A valid email address is required');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
