@@ -1,4 +1,5 @@
 import { User, type IUser } from '../model/user.model.js';
+import { PendingUser, type IPendingUser } from '../model/pending-user.model.js';
 
 export class UserRepository {
   /**
@@ -131,5 +132,38 @@ export class UserRepository {
       emailVerificationOtpAttempts: 0,
       emailVerificationOtpLastSentAt: new Date(),
     });
+  }
+
+  // Pending User Methods
+
+  async findPendingByEmail(email: string): Promise<IPendingUser | null> {
+    return PendingUser.findOne({ email });
+  }
+
+  async upsertPendingUser(email: string, userData: Partial<IPendingUser>): Promise<IPendingUser> {
+    return PendingUser.findOneAndUpdate(
+      { email },
+      userData,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  }
+
+  async updatePendingOtp(id: string, hash: string, expiresAt: Date): Promise<void> {
+    await PendingUser.findByIdAndUpdate(id, {
+      emailVerificationOtpHash: hash,
+      emailVerificationOtpExpiresAt: expiresAt,
+      emailVerificationOtpAttempts: 0,
+      emailVerificationOtpLastSentAt: new Date(),
+    });
+  }
+
+  async incrementPendingOtpAttempts(id: string): Promise<void> {
+    await PendingUser.findByIdAndUpdate(id, {
+      $inc: { emailVerificationOtpAttempts: 1 }
+    });
+  }
+
+  async deletePendingById(id: string): Promise<void> {
+    await PendingUser.findByIdAndDelete(id);
   }
 }

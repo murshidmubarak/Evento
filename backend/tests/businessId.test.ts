@@ -3,6 +3,7 @@ import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../src/app.js';
 import { User } from '../src/modules/auth/model/user.model.js';
+import { PendingUser } from '../src/modules/auth/model/pending-user.model.js';
 import { Sequence } from '../src/modules/users/model/sequence.model.js';
 import { BusinessIdService } from '../src/modules/users/service/business-id.service.js';
 import { connectDB } from '../src/config/db.js';
@@ -152,9 +153,10 @@ describe('Business ID Generation & Assignment', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Client One', email: 'client1.businessid_test@example.com', password: 'password123' }),
     });
-    assert.equal(res.status, 201);
-    const data = await res.json() as any;
-    assert.equal(data.data.user.businessId, undefined);
+    assert.equal(res.status, 200);
+    const pendingUser = await PendingUser.findOne({ email: 'client1.businessid_test@example.com' }).lean() as any;
+    assert.ok(pendingUser);
+    assert.equal(pendingUser.businessId, undefined);
   });
 
   it('8. Caller-supplied businessId is ignored', async () => {

@@ -42,9 +42,9 @@ export const VerifyEmail: React.FC = () => {
 
     try {
       await dispatch(verifyEmailOtp({ email, otp })).unwrap();
-      setMessage('Email verified successfully! Redirecting to login...');
+      setMessage('Email verified successfully! Redirecting to dashboard...');
       setTimeout(() => {
-        navigate('/login');
+        navigate('/client');
       }, 2000);
     } catch (err) {
       // Error handled by redux

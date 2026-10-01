@@ -5,20 +5,23 @@ import mongoose from 'mongoose';
 import app from '../src/app.js';
 import { connectDB } from '../src/config/db.js';
 import { User } from '../src/modules/auth/model/user.model.js';
+import { PendingUser } from '../src/modules/auth/model/pending-user.model.js';
 import { emailService } from '../src/modules/email/service/email.service.js';
 
 describe('Public Signup & OTP Verification', () => {
   before(async () => {
     await connectDB();
     await User.deleteMany({ email: /@test\.com$/ });
+    await PendingUser.deleteMany({ email: /@test\.com$/ });
   });
 
   after(async () => {
     await User.deleteMany({ email: /@test\.com$/ });
+    await PendingUser.deleteMany({ email: /@test\.com$/ });
     await mongoose.disconnect();
   });
 
-  it('1. Valid public signup creates client with emailVerified=false', async () => {
+  it('1. Valid public signup creates pending client', async () => {
     mock.method(emailService, 'sendVerificationOtp', async () => {}); // Mock email service
     
     const res = await request(app)
@@ -29,16 +32,15 @@ describe('Public Signup & OTP Verification', () => {
         password: 'Password123!',
       });
 
-    assert.strictEqual(res.status, 201);
-    assert.strictEqual(res.body.data.user.role, 'client');
-    assert.strictEqual(res.body.data.user.emailVerified, false);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.data.user, undefined);
     
     // Check DB
-    const dbUser = await User.findOne({ email: 'client_otp1@test.com' }).select('+emailVerificationOtpHash +emailVerificationOtpExpiresAt');
-    assert.ok(dbUser);
-    assert.strictEqual(dbUser.emailVerified, false);
-    assert.ok(dbUser.emailVerificationOtpHash); // Stored as hash
-    assert.ok(dbUser.emailVerificationOtpExpiresAt);
+    const dbPendingUser = await PendingUser.findOne({ email: 'client_otp1@test.com' });
+    assert.ok(dbPendingUser);
+    assert.strictEqual(dbPendingUser.role, 'client');
+    assert.ok(dbPendingUser.emailVerificationOtpHash); // Stored as hash
+    assert.ok(dbPendingUser.emailVerificationOtpExpiresAt);
 
     mock.restoreAll();
   });
@@ -55,25 +57,36 @@ describe('Public Signup & OTP Verification', () => {
         role: 'admin',
       });
 
-    assert.strictEqual(res.status, 201);
-    assert.strictEqual(res.body.data.user.role, 'client', 'Role must remain client');
+    assert.strictEqual(res.status, 200);
+    
+    const dbPendingUser = await PendingUser.findOne({ email: 'hacker@test.com' });
+    assert.strictEqual(dbPendingUser!.role, 'client', 'Role must remain client');
     
     mock.restoreAll();
   });
 
-  it('3. Duplicate email rejected', async () => {
+  it('3. Duplicate email rejected for existing user', async () => {
+    await User.create({
+      name: 'Duplicate',
+      email: 'existing_user@test.com',
+      password: 'hash',
+      role: 'client',
+      isActive: true,
+      emailVerified: true
+    });
+
     const res = await request(app)
       .post('/api/auth/register')
       .send({
         name: 'Duplicate',
-        email: 'client_otp1@test.com', // Already created
+        email: 'existing_user@test.com',
         password: 'Password123!',
       });
 
     assert.strictEqual(res.status, 409);
   });
 
-  it('4. Unverified clients cannot login', async () => {
+  it('4. Unverified pending clients cannot login', async () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({
@@ -82,7 +95,7 @@ describe('Public Signup & OTP Verification', () => {
       });
 
     assert.strictEqual(res.status, 401);
-    assert.match(res.body.message, /verify your email/);
+    assert.match(res.body.message, /Invalid email or password/);
   });
 
   it('5. Invalid OTP format rejected', async () => {
@@ -108,7 +121,7 @@ describe('Public Signup & OTP Verification', () => {
     assert.strictEqual(res.status, 400);
     assert.match(res.body.message, /Invalid verification code/);
 
-    const dbUser = await User.findOne({ email: 'client_otp1@test.com' }).select('+emailVerificationOtpAttempts');
+    const dbUser = await PendingUser.findOne({ email: 'client_otp1@test.com' });
     assert.strictEqual(dbUser!.emailVerificationOtpAttempts, 1);
   });
 });

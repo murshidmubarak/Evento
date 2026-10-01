@@ -12,11 +12,9 @@ export class UserController {
    * Registers a new client user.
    */
   register = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const safeUser = await this.userService.registerUser(req.body);
+    await this.userService.registerUser(req.body);
 
-    new ApiResponse(201, 'User registered successfully', {
-      user: safeUser,
-    }).send(res);
+    new ApiResponse(200, 'Verification email sent. Please check your inbox.', {}).send(res);
   });
 
   /**
@@ -101,9 +99,12 @@ export class UserController {
    */
   verifyEmailOtp = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const { email, otp } = req.body;
-    await this.userService.verifyEmailOtp(email, otp);
+    const { user, token } = await this.userService.verifyEmailOtp(email, otp);
 
-    new ApiResponse(200, 'Email verified successfully', {}).send(res);
+    new ApiResponse(200, 'Email verified and user created successfully', {
+      user,
+      token
+    }).send(res);
   });
 
   /**

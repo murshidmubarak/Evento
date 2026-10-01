@@ -13,12 +13,11 @@ const initialState: AuthState = {
 };
 
 // Async Thunks
-export const registerUser = createAsyncThunk<User, any, { rejectValue: string }>(
+export const registerUser = createAsyncThunk<void, any, { rejectValue: string }>(
   'auth/register',
   async (credentials, { rejectWithValue }) => {
     try {
-      const response = await apiClient.post<AuthResponse>('/auth/register', credentials);
-      return response.data.data.user!;
+      await apiClient.post<AuthResponse>('/auth/register', credentials);
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
       return rejectWithValue(error.response?.data?.message || 'Registration failed');
@@ -26,11 +25,12 @@ export const registerUser = createAsyncThunk<User, any, { rejectValue: string }>
   }
 );
 
-export const verifyEmailOtp = createAsyncThunk<void, { email: string; otp: string }, { rejectValue: string }>(
+export const verifyEmailOtp = createAsyncThunk<AuthResponse['data'], { email: string; otp: string }, { rejectValue: string }>(
   'auth/verifyEmailOtp',
   async (credentials, { rejectWithValue }) => {
     try {
-      await apiClient.post('/auth/verify-email-otp', credentials);
+      const response = await apiClient.post<AuthResponse>('/auth/verify-email-otp', credentials);
+      return response.data.data;
     } catch (err) {
       const error = err as AxiosError<ApiErrorResponse>;
       return rejectWithValue(error.response?.data?.message || 'Verification failed');
@@ -125,8 +125,14 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(verifyEmailOtp.fulfilled, (state) => {
+      .addCase(verifyEmailOtp.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.isAuthenticated = true;
+        state.user = action.payload.user;
+        if (action.payload.token) {
+          state.token = action.payload.token;
+          setStoredToken(action.payload.token);
+        }
       })
       .addCase(verifyEmailOtp.rejected, (state, action) => {
         state.isLoading = false;

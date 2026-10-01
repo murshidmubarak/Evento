@@ -52,7 +52,7 @@ export class UserService {
   constructor(
     private readonly userRepository: UserRepository = new UserRepository(),
     private readonly businessIdService: BusinessIdService = new BusinessIdService()
-  ) {}
+  ) { }
 
   /**
    * Registers a new client user.
@@ -65,7 +65,7 @@ export class UserService {
    * 5. Saves user via UserRepository.
    * 6. Returns sanitized user data omitting password.
    */
-  async registerUser(dto: RegisterUserDto): Promise<SafeUser> {
+  async registerUser(dto: RegisterUserDto): Promise<void> {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
     // 1. Check duplicate email
@@ -84,15 +84,13 @@ export class UserService {
     const expiresAt = new Date(Date.now() + env.emailVerificationOtpTtlMinutes * 60 * 1000);
 
     // 4. Prepare payload with forced role 'client'
-    const userData: Partial<IUser> = {
+    const pendingUserData = {
       name: dto.name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
       phone: dto.phone?.trim(),
       profileImage: dto.profileImage?.trim(),
-      role: 'client', // Backend is source of truth — force role to 'client'
-      isActive: true,
-      emailVerified: false,
+      role: 'client',
       emailVerificationOtpHash: otpHash,
       emailVerificationOtpExpiresAt: expiresAt,
       emailVerificationOtpAttempts: 0,
@@ -100,22 +98,19 @@ export class UserService {
     };
 
     // 5. Save via repository
-    const createdUser = await this.userRepository.create(userData);
+    await this.userRepository.upsertPendingUser(normalizedEmail, pendingUserData);
 
     // 6. Send Email (do not fail registration if email fails)
     try {
       await emailService.sendVerificationOtp({
-        to: createdUser.email,
-        name: createdUser.name,
+        to: normalizedEmail,
+        name: dto.name.trim(),
         otp,
       });
     } catch (error) {
       console.error('[UserService] Failed to send verification OTP on register:', error);
       // Registration succeeds, user will have to request resend
     }
-
-    // 5. Return safe user data
-    return this.toSafeUser(createdUser);
   }
 
   /**
@@ -225,37 +220,65 @@ export class UserService {
   /**
    * Verifies the email OTP.
    */
-  async verifyEmailOtp(email: string, otp: string): Promise<void> {
+  async verifyEmailOtp(email: string, otp: string): Promise<LoginResult> {
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await this.userRepository.findByEmailWithOtpFields(normalizedEmail);
-    
-    if (!user) {
+    const pendingUser = await this.userRepository.findPendingByEmail(normalizedEmail);
+
+    if (!pendingUser) {
+      // Also check if the user is already verified and exists in main User collection
+      const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+      if (existingUser) {
+        throw ApiError.badRequest('Email is already verified');
+      }
       throw ApiError.badRequest('Invalid verification request');
     }
 
-    if (user.emailVerified) {
-      throw ApiError.badRequest('Email is already verified');
-    }
-
-    if (!user.emailVerificationOtpHash || !user.emailVerificationOtpExpiresAt) {
-      throw ApiError.badRequest('No pending verification found');
-    }
-
-    if (user.emailVerificationOtpAttempts >= env.emailVerificationOtpMaxAttempts) {
+    if (pendingUser.emailVerificationOtpAttempts >= env.emailVerificationOtpMaxAttempts) {
       throw ApiError.badRequest('Too many attempts. Please request a new code.');
     }
 
-    if (user.emailVerificationOtpExpiresAt.getTime() < Date.now()) {
+    if (pendingUser.emailVerificationOtpExpiresAt.getTime() < Date.now()) {
       throw ApiError.badRequest('Verification code has expired. Please request a new one.');
     }
 
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
-    if (otpHash !== user.emailVerificationOtpHash) {
-      await this.userRepository.incrementOtpAttempts(user._id.toString());
+    if (otpHash !== pendingUser.emailVerificationOtpHash) {
+      await this.userRepository.incrementPendingOtpAttempts(pendingUser._id.toString());
       throw ApiError.badRequest('Invalid verification code');
     }
 
-    await this.userRepository.verifyEmail(user._id.toString());
+    // Create the actual user
+    const userData: Partial<IUser> = {
+      name: pendingUser.name,
+      email: pendingUser.email,
+      password: pendingUser.password,
+      phone: pendingUser.phone,
+      profileImage: pendingUser.profileImage,
+      role: pendingUser.role as any,
+      isActive: true,
+      emailVerified: true
+    };
+
+    const createdUser = await this.userRepository.create(userData);
+    await this.userRepository.deletePendingById(pendingUser._id.toString());
+
+    // Generate JWT
+    const payload = {
+      userId: createdUser._id.toString(),
+      role: createdUser.role,
+    };
+
+    const secret: Secret = env.jwtSecret;
+    const options: SignOptions = {
+      expiresIn: env.jwtExpiresIn,
+    };
+
+    const token = jwt.sign(payload, secret, options);
+
+    return {
+      user: this.toSafeUser(createdUser),
+      token,
+    };
   }
 
   /**
@@ -263,21 +286,21 @@ export class UserService {
    */
   async resendVerificationOtp(email: string): Promise<void> {
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await this.userRepository.findByEmailWithOtpFields(normalizedEmail);
+    const pendingUser = await this.userRepository.findPendingByEmail(normalizedEmail);
 
-    if (!user) {
-      // Safe response for account enumeration protection
-      return;
-    }
-
-    if (user.emailVerified) {
-      return;
+    if (!pendingUser) {
+      // Check if user is already verified
+      const existingUser = await this.userRepository.findByEmail(normalizedEmail);
+      if (existingUser) {
+        return; // Already verified, safe response
+      }
+      return; // Not found, safe response
     }
 
     const now = Date.now();
     if (
-      user.emailVerificationOtpLastSentAt && 
-      now - user.emailVerificationOtpLastSentAt.getTime() < env.emailVerificationOtpResendCooldownSeconds * 1000
+      pendingUser.emailVerificationOtpLastSentAt &&
+      now - pendingUser.emailVerificationOtpLastSentAt.getTime() < env.emailVerificationOtpResendCooldownSeconds * 1000
     ) {
       throw ApiError.badRequest(`Please wait before requesting a new code.`);
     }
@@ -286,12 +309,12 @@ export class UserService {
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
     const expiresAt = new Date(now + env.emailVerificationOtpTtlMinutes * 60 * 1000);
 
-    await this.userRepository.updateOtp(user._id.toString(), otpHash, expiresAt);
+    await this.userRepository.updatePendingOtp(pendingUser._id.toString(), otpHash, expiresAt);
 
     try {
       await emailService.sendVerificationOtp({
-        to: user.email,
-        name: user.name,
+        to: pendingUser.email,
+        name: pendingUser.name,
         otp,
       });
     } catch (error) {
@@ -466,7 +489,7 @@ export class UserService {
     }
 
     const updatedUser = await this.userRepository.updateProfile(userId, updateData);
-    
+
     if (!updatedUser) {
       throw ApiError.internal('Failed to update profile');
     }

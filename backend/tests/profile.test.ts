@@ -48,12 +48,14 @@ describe('Profile Management Endpoints', () => {
     adminToken = adminData.data.token;
 
     // Create Client
-    await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Client Profile', email: 'client.profile@example.com', password: 'password123' })
+    await User.create({
+      name: 'Client Profile',
+      email: 'client.profile@example.com',
+      password: hashedPassword,
+      role: 'client',
+      isActive: true,
+      emailVerified: true
     });
-    await User.updateOne({ email: 'client.profile@example.com' }, { emailVerified: true });
     const clientLoginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
