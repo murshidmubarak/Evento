@@ -15,7 +15,7 @@ describe('Event Requests API', () => {
   let clientToken2: string;
   let managerToken: string;
   let workerToken: string;
-  
+
   let clientId1: string;
   let clientId2: string;
 
@@ -227,7 +227,7 @@ describe('Event Requests API', () => {
       body: JSON.stringify({ ...validPayload, selectedServices: ['invalid_id'] }),
     });
     assert.equal(res.status, 400);
-    
+
     const fakeId = new mongoose.Types.ObjectId().toString();
     const res2 = await fetch(`http://127.0.0.1:${port}/api/events`, {
       method: 'POST',

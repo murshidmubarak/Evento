@@ -135,19 +135,42 @@ export const CreateEventWizard = () => {
   const getSelectedServicesList = () => {
     const list: Array<{ serviceId: string, preferences: any, name: string, basePrice: number }> = [];
     
+    // Catering
     const catService = availableServices.find(s => s.name.toLowerCase().match(/catering|food|dining/));
-    if (catService && (cateringPrefs.serviceMode?.length > 0 || cateringPrefs.mainDishes?.length > 0 || cateringPrefs.juices?.length > 0 || cateringPrefs.desserts?.length > 0)) {
-      list.push({ serviceId: catService._id, preferences: cateringPrefs, name: catService.name, basePrice: catService.basePrice || 0 });
+    const hasCateringData = cateringPrefs.serviceMode?.length > 0 || 
+                            cateringPrefs.mainDishes?.length > 0 || 
+                            cateringPrefs.juices?.length > 0 || 
+                            cateringPrefs.desserts?.length > 0;
+                            
+    if (catService && hasCateringData) {
+      list.push({ 
+        serviceId: catService._id || (catService as any).id, 
+        preferences: { ...cateringPrefs }, 
+        name: catService.name, 
+        basePrice: catService.basePrice || 0 
+      });
     }
 
+    // Decoration
     const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
-    if (decService && decorationPrefs.style) {
-      list.push({ serviceId: decService._id, preferences: decorationPrefs, name: decService.name, basePrice: decService.basePrice || 0 });
+    if (decService && (decorationPrefs.style || decorationPrefs.notes)) {
+      list.push({ 
+        serviceId: decService._id || (decService as any).id, 
+        preferences: { ...decorationPrefs }, 
+        name: decService.name, 
+        basePrice: decService.basePrice || 0 
+      });
     }
 
+    // Photography
     const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/));
     if (photoService && photoPrefs.package) {
-      list.push({ serviceId: photoService._id, preferences: photoPrefs, name: photoService.name, basePrice: photoService.basePrice || 0 });
+      list.push({ 
+        serviceId: photoService._id || (photoService as any).id, 
+        preferences: { ...photoPrefs }, 
+        name: photoService.name, 
+        basePrice: photoService.basePrice || 0 
+      });
     }
     
     return list;
@@ -540,13 +563,11 @@ export const CreateEventWizard = () => {
                 <div className="flex justify-center py-12">
                   <Loader2 className="w-8 h-8 animate-spin text-[#0051e5]" />
                 </div>
-              ) : availableServices.length === 0 ? (
-                <div className="p-4 bg-gray-50 rounded-lg text-gray-500 border border-gray-200">No services currently available. You can skip this step.</div>
               ) : (
                 <div className="space-y-6">
                   
                   {/* Catering Configuration */}
-                  {hasCatService && (
+
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Utensils className="w-5 h-5 text-blue-600" />
@@ -580,10 +601,10 @@ export const CreateEventWizard = () => {
                       })}
                     </div>
                   </div>
-                  )}
 
                   {/* Food & Bev Selection */}
-                  {hasCatService && (
+
+
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <BookOpen className="w-5 h-5 text-blue-600" />
@@ -613,10 +634,10 @@ export const CreateEventWizard = () => {
                       />
                     </div>
                   </div>
-                  )}
 
                   {/* Stage Decoration */}
-                  {hasDecService && (
+
+
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Sparkles className="w-5 h-5 text-blue-600" />
@@ -677,10 +698,10 @@ export const CreateEventWizard = () => {
                       )}
                     </div>
                   </div>
-                  )}
 
                   {/* Photo & Video */}
-                  {hasPhotoService && (
+
+
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Camera className="w-5 h-5 text-blue-600" />
@@ -716,7 +737,6 @@ export const CreateEventWizard = () => {
                       </label>
                     </div>
                   </div>
-                  )}
 
                   {/* Other Requests */}
                   <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">

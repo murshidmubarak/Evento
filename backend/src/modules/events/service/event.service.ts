@@ -42,7 +42,10 @@ export class EventService {
       location: data.location,
       guestCount: data.guestCount,
       budget: data.budget,
-      selectedServices: data.selectedServices || [],
+      selectedServices: (data.selectedServices || []).map((s: any) => ({
+        serviceId: s.serviceId,
+        preferences: s.preferences || {}
+      })),
       status: 'requested',
     };
 
