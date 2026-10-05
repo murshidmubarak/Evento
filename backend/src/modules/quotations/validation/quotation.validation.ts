@@ -88,6 +88,20 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
     errors.push('terms must be a string');
   }
 
+  const { structuredTerms, schedules, paymentPlan, conciergeNotes } = req.body;
+  if (structuredTerms !== undefined && structuredTerms !== null && !Array.isArray(structuredTerms)) {
+    errors.push('structuredTerms must be an array');
+  }
+  if (schedules !== undefined && schedules !== null && !Array.isArray(schedules)) {
+    errors.push('schedules must be an array');
+  }
+  if (paymentPlan !== undefined && paymentPlan !== null && !Array.isArray(paymentPlan)) {
+    errors.push('paymentPlan must be an array');
+  }
+  if (conciergeNotes !== undefined && conciergeNotes !== null && typeof conciergeNotes !== 'string') {
+    errors.push('conciergeNotes must be a string');
+  }
+
   if (errors.length > 0) {
     return next(ApiError.badRequest('Validation failed', errors));
   }

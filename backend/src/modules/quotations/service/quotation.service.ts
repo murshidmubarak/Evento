@@ -22,6 +22,8 @@ export interface CreateQuotationInput {
     quantity: number;
     unitPrice: number;
     requirements?: string;
+    scope?: string;
+    detailedContent?: { sectionName: string; items: string[] }[];
   }[];
   discount?: number;
   advanceAmount?: number;
@@ -29,6 +31,10 @@ export interface CreateQuotationInput {
   validUntil?: Date;
   notes?: string;
   terms?: string;
+  structuredTerms?: { title: string; content: string }[];
+  schedules?: { title: string; time: string }[];
+  paymentPlan?: { title: string; percentage?: number; amount: number; dueDateDescription: string; purpose: string[]; status?: string }[];
+  conciergeNotes?: string;
 }
 
 export class QuotationService {
@@ -87,6 +93,8 @@ export class QuotationService {
         description: service.description,
         pricingType: service.pricingType,
         requirements: reqItem.requirements,
+        scope: reqItem.scope,
+        detailedContent: reqItem.detailedContent,
         quantity: reqItem.quantity,
         unitPrice: reqItem.unitPrice,
         amount,
@@ -218,12 +226,24 @@ export class QuotationService {
       revision = 1;
     }
 
-    // 7. Save Quotation with full historical Tax Snapshot
+    const client = await (await import('../../auth/repository/user.repository.js')).UserRepository.prototype.findById(event.clientId.toString());
+
+    // 7. Save Quotation with full historical Tax Snapshot and Event Snapshot
     const quotation = await this.quotationRepository.create({
       quotationNumber,
       revision,
       eventId: event._id as Types.ObjectId,
       clientId: event.clientId,
+      eventSnapshot: {
+        title: event.title,
+        eventType: event.eventType,
+        date: event.date,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        location: event.location,
+        guestCount: event.guestCount,
+        clientName: client ? client.name : 'Unknown Client',
+      },
       items: quotationItems,
       subtotal,
       discount,
@@ -235,6 +255,10 @@ export class QuotationService {
       validUntil: input.validUntil,
       notes: input.notes,
       terms: input.terms,
+      structuredTerms: input.structuredTerms || [],
+      schedules: input.schedules || [],
+      paymentPlan: input.paymentPlan || [],
+      conciergeNotes: input.conciergeNotes,
       status: 'draft',
       createdBy: new Types.ObjectId(user.id),
     });

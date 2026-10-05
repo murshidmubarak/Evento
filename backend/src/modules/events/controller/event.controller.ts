@@ -34,6 +34,20 @@ export class EventController {
     }
   };
 
+  getAllEvents = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const role = req.user!.role;
+      const filters = req.query; // Allow passing status, type, etc via query params
+      const events = await this.eventService.getAllEvents(role, filters);
+      res.status(200).json({
+        success: true,
+        data: { events },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getEventById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const userId = req.user!.id;

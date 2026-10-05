@@ -56,6 +56,13 @@ export class EventService {
     return this.eventRepository.findByClientId(clientId);
   }
 
+  async getAllEvents(role: string, filters: any = {}): Promise<IEvent[]> {
+    if (role !== 'admin') {
+      throw ApiError.forbidden('Only admins can view all events');
+    }
+    return this.eventRepository.findAll(filters);
+  }
+
   async getEventById(userId: string, role: string, eventId: string): Promise<IEvent> {
     const event = await this.eventRepository.findById(eventId);
     if (!event) {

@@ -8,6 +8,9 @@ import { RoleRoute } from './RoleRoute';
 
 import { AdminLayout } from '../layouts/AdminLayout';
 import { AdminDashboard } from '../pages/admin/AdminDashboard';
+import { AdminRequestedEvents } from '../pages/admin/AdminRequestedEvents';
+import { AdminEventDetails } from '../pages/admin/AdminEventDetails';
+import { AdminCreateQuotation } from '../pages/admin/AdminCreateQuotation';
 
 import { ClientLayout } from '../layouts/ClientLayout';
 import { ClientDashboard } from '../pages/client/ClientDashboard';
@@ -35,6 +38,9 @@ export const AppRoutes = () => {
         <Route element={<RoleRoute allowedRole="admin" />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
+            <Route path="events" element={<AdminRequestedEvents />} />
+            <Route path="events/:id" element={<AdminEventDetails />} />
+            <Route path="events/:id/quotation/create" element={<AdminCreateQuotation />} />
           </Route>
         </Route>
 

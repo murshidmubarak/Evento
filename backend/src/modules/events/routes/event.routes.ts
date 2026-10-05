@@ -21,6 +21,18 @@ router.post(
 );
 
 /**
+ * @route   GET /api/events/all
+ * @desc    Get all Events for Admin
+ * @access  Private (Admin only)
+ */
+router.get(
+  '/all',
+  authenticate,
+  authorize('admin'),
+  eventController.getAllEvents
+);
+
+/**
  * @route   GET /api/events
  * @desc    Get all Events belonging to the authenticated Client
  * @access  Private (Client only)

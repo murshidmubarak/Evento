@@ -28,6 +28,10 @@ export const createQuotation = catchAsync(async (req: Request, res: Response) =>
     validUntil: req.body.validUntil,
     notes: req.body.notes,
     terms: req.body.terms,
+    structuredTerms: req.body.structuredTerms,
+    schedules: req.body.schedules,
+    paymentPlan: req.body.paymentPlan,
+    conciergeNotes: req.body.conciergeNotes,
   };
 
   const quotation = await quotationService.createQuotation(user, input);

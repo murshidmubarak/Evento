@@ -4,15 +4,52 @@ export type QuotationStatus = 'draft' | 'sent' | 'awaiting_approval' | 'changes_
 export type TaxType = 'none' | 'gst' | 'vat' | 'custom';
 export type GstTreatment = 'intra_state' | 'inter_state' | 'exempt' | 'none';
 
+export interface IEventSnapshot {
+  title?: string;
+  eventType?: string;
+  date?: Date;
+  startTime?: string;
+  endTime?: string;
+  location?: any;
+  guestCount?: number;
+  clientName?: string;
+}
+
+export interface IQuotationItemContent {
+  sectionName: string;
+  items: string[];
+}
+
 export interface IQuotationItem {
   serviceId: Types.ObjectId;
   name: string;
   description: string;
   pricingType: string;
   requirements?: string;
+  scope?: string;
+  detailedContent?: IQuotationItemContent[];
   quantity: number;
   unitPrice: number;
   amount: number;
+}
+
+export interface IPaymentInstallment {
+  title: string;
+  percentage?: number;
+  amount: number;
+  dueDateDescription: string;
+  purpose: string[];
+  status?: string;
+}
+
+export interface IQuotationSchedule {
+  title: string;
+  time: string;
+}
+
+export interface IStructuredTerm {
+  title: string;
+  content: string;
 }
 
 export interface ITaxDetails {
@@ -33,6 +70,7 @@ export interface IQuotation extends Document {
   revision: number;
   eventId: Types.ObjectId;
   clientId: Types.ObjectId;
+  eventSnapshot?: IEventSnapshot;
   items: IQuotationItem[];
   subtotal: number;
   discount: number;
@@ -44,11 +82,37 @@ export interface IQuotation extends Document {
   validUntil?: Date;
   notes?: string;
   terms?: string;
+  structuredTerms?: IStructuredTerm[];
+  schedules?: IQuotationSchedule[];
+  paymentPlan?: IPaymentInstallment[];
+  conciergeNotes?: string;
   status: QuotationStatus;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const eventSnapshotSchema = new Schema<IEventSnapshot>(
+  {
+    title: { type: String },
+    eventType: { type: String },
+    date: { type: Date },
+    startTime: { type: String },
+    endTime: { type: String },
+    location: { type: Schema.Types.Mixed },
+    guestCount: { type: Number },
+    clientName: { type: String },
+  },
+  { _id: false }
+);
+
+const quotationItemContentSchema = new Schema<IQuotationItemContent>(
+  {
+    sectionName: { type: String, required: true },
+    items: { type: [String], default: [] },
+  },
+  { _id: false }
+);
 
 const quotationItemSchema = new Schema<IQuotationItem>(
   {
@@ -57,9 +121,39 @@ const quotationItemSchema = new Schema<IQuotationItem>(
     description: { type: String, required: true },
     pricingType: { type: String, required: true },
     requirements: { type: String },
+    scope: { type: String },
+    detailedContent: { type: [quotationItemContentSchema], default: [] },
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: Number, required: true, min: 0 },
     amount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
+const paymentInstallmentSchema = new Schema<IPaymentInstallment>(
+  {
+    title: { type: String, required: true },
+    percentage: { type: Number },
+    amount: { type: Number, required: true, min: 0 },
+    dueDateDescription: { type: String, required: true },
+    purpose: { type: [String], default: [] },
+    status: { type: String, default: 'Pending' },
+  },
+  { _id: false }
+);
+
+const quotationScheduleSchema = new Schema<IQuotationSchedule>(
+  {
+    title: { type: String, required: true },
+    time: { type: String, required: true },
+  },
+  { _id: false }
+);
+
+const structuredTermSchema = new Schema<IStructuredTerm>(
+  {
+    title: { type: String, required: true },
+    content: { type: String, required: true },
   },
   { _id: false }
 );
@@ -95,6 +189,7 @@ const quotationSchema = new Schema<IQuotation>(
     revision: { type: Number, required: true, min: 1 },
     eventId: { type: Schema.Types.ObjectId, ref: 'Event', required: true },
     clientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    eventSnapshot: { type: eventSnapshotSchema },
     items: {
       type: [quotationItemSchema],
       required: true,
@@ -123,6 +218,10 @@ const quotationSchema = new Schema<IQuotation>(
     validUntil: { type: Date },
     notes: { type: String },
     terms: { type: String },
+    structuredTerms: { type: [structuredTermSchema], default: [] },
+    schedules: { type: [quotationScheduleSchema], default: [] },
+    paymentPlan: { type: [paymentInstallmentSchema], default: [] },
+    conciergeNotes: { type: String },
     status: {
       type: String,
       enum: ['draft', 'sent', 'awaiting_approval', 'changes_requested', 'accepted', 'rejected', 'expired'],

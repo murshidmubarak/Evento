@@ -25,6 +25,19 @@ export class EventRepository {
     return Event.find({ clientId }).sort({ createdAt: -1 }).populate('selectedServices.serviceId') as unknown as Promise<IEvent[]>;
   }
 
+  async findAll(filters: any = {}): Promise<IEvent[]> {
+    const query: any = {};
+    if (filters.status) {
+      query.status = filters.status;
+    }
+    // Note: Can add more filters like type, date range, etc.
+    return Event.find(query)
+      .sort({ createdAt: -1 })
+      .populate('selectedServices.serviceId')
+      .populate('clientId', 'name email phone')
+      .populate('eventManagerId', 'name email phone') as unknown as Promise<IEvent[]>;
+  }
+
   async findActiveAssignedEventsForDateRange(startDate: Date, endDate: Date): Promise<IEvent[]> {
     return Event.find({
       eventManagerId: { $exists: true, $ne: null },

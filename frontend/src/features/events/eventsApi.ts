@@ -6,6 +6,12 @@ export const getMyEvents = async (): Promise<ClientEvent[]> => {
   return response.data.data.events;
 };
 
+export const getAllEvents = async (params?: Record<string, string>): Promise<ClientEvent[]> => {
+  const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+  const response = await apiClient.get<{ data: { events: ClientEvent[] } }>(`/events/all${query}`);
+  return response.data.data.events;
+};
+
 export const getEventById = async (eventId: string): Promise<ClientEvent> => {
   const response = await apiClient.get<{ data: { event: ClientEvent } }>(`/events/${eventId}`);
   return response.data.data.event;
