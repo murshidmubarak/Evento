@@ -249,8 +249,8 @@ export const CreateEventWizard = () => {
       const created = await createEvent(payload);
 
       // Use the exact same serviceId that was saved in the event payload
-      const savedDecService = formattedServices.find(s =>
-        s.preferences && (s.preferences as any).style !== undefined
+      const savedDecService = getSelectedServicesList().find(s =>
+        s.name.toLowerCase().match(/decoration|stage|decor/)
       );
 
       if (savedDecService && referenceImages.length > 0) {
@@ -275,11 +275,23 @@ export const CreateEventWizard = () => {
   // Retry upload of reference images for an already-created event
   const retryUpload = async () => {
     if (!successData || referenceImages.length === 0) return;
-    const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
-    if (!decService) return;
+    
+    // Find the decoration service safely from the persisted event data
+    // We match it against availableServices to identify which serviceId corresponds to decoration
+    const decServiceTemplate = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
+    if (!decServiceTemplate) return;
+    const targetDecId = decServiceTemplate._id || (decServiceTemplate as any).id;
+    
+    // Ensure the event actually has this service selected
+    const persistedDecService = successData.selectedServices.find((s: any) => 
+      s.serviceId === targetDecId || (s.serviceId && s.serviceId.toString() === targetDecId?.toString())
+    );
+    
+    if (!persistedDecService) return;
+
     setIsRetryingUpload(true);
     try {
-      await uploadServiceReferenceImages(successData._id, decService._id, referenceImages);
+      await uploadServiceReferenceImages(successData._id, targetDecId, referenceImages);
       setUploadError('');
     } catch (retryErr: any) {
       const msg = retryErr?.response?.data?.message || retryErr?.message || 'Retry failed';
@@ -568,6 +580,7 @@ export const CreateEventWizard = () => {
                   
                   {/* Catering Configuration */}
 
+                  {hasCatService && (
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Utensils className="w-5 h-5 text-blue-600" />
@@ -601,10 +614,12 @@ export const CreateEventWizard = () => {
                       })}
                     </div>
                   </div>
+                  )}
 
                   {/* Food & Bev Selection */}
 
 
+                  {hasCatService && (
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <BookOpen className="w-5 h-5 text-blue-600" />
@@ -614,7 +629,7 @@ export const CreateEventWizard = () => {
                       <CustomList 
                         title="Main Dishes" 
                         items={cateringPrefs.mainDishes || []} 
-                        predefined={['Malabar Chicken Biryani', 'Mutton Biryani']} 
+                        predefined={['Malaber Chicken Biryani', 'Mutton Biryani']} 
                         onChange={(val) => setCateringPrefs({...cateringPrefs, mainDishes: val})} 
                         placeholder="Add custom main dish..."
                       />
@@ -634,10 +649,12 @@ export const CreateEventWizard = () => {
                       />
                     </div>
                   </div>
+                  )}
 
                   {/* Stage Decoration */}
 
 
+                  {hasDecService && (
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Sparkles className="w-5 h-5 text-blue-600" />
@@ -698,10 +715,12 @@ export const CreateEventWizard = () => {
                       )}
                     </div>
                   </div>
+                  )}
 
                   {/* Photo & Video */}
 
 
+                  {hasPhotoService && (
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
                       <Camera className="w-5 h-5 text-blue-600" />
@@ -737,6 +756,7 @@ export const CreateEventWizard = () => {
                       </label>
                     </div>
                   </div>
+                  )}
 
                   {/* Other Requests */}
                   <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
