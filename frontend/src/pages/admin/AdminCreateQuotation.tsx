@@ -3,8 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
 import { createQuotation, sendQuotation } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
-import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment } from '../../features/quotations/quotation.types';
+import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment } from '../../features/quotations/quotation.types';
 import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X } from 'lucide-react';
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const AdminCreateQuotation = () => {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +25,13 @@ export const AdminCreateQuotation = () => {
   
   const [discount, setDiscount] = useState(0);
   const [advanceAmount, setAdvanceAmount] = useState(0);
+
+  // Tax State
+  const [taxType, setTaxType] = useState<TaxType>('none');
+  const [taxRate, setTaxRate] = useState(0);
+  const [gstTreatment, setGstTreatment] = useState<GstTreatment>('intra_state');
+  const [placeOfSupply, setPlaceOfSupply] = useState('');
+  const [customerGstin, setCustomerGstin] = useState('');
   
   const [items, setItems] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<IQuotationSchedule[]>([]);
@@ -64,10 +73,33 @@ export const AdminCreateQuotation = () => {
     fetchEvent();
   }, [id]);
 
-  // Derived calculations
-  const subtotal = items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-  const finalAmount = Math.max(0, subtotal - discount);
-  const remainingAmount = Math.max(0, finalAmount - advanceAmount);
+  // Derived calculations — mirrors backend logic
+  const subtotal = round2(items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0));
+  const discountSafe = round2(Math.max(0, Math.min(discount, subtotal)));
+  const taxableAmount = round2(subtotal - discountSafe);
+
+  let taxAmount = 0;
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
+
+  if (taxType === 'gst') {
+    if (gstTreatment === 'exempt' || taxRate === 0) {
+      taxAmount = 0;
+    } else if (gstTreatment === 'intra_state') {
+      taxAmount = round2(taxableAmount * (taxRate / 100));
+      cgst = round2(taxAmount / 2);
+      sgst = round2(taxAmount - cgst);
+    } else if (gstTreatment === 'inter_state') {
+      taxAmount = round2(taxableAmount * (taxRate / 100));
+      igst = taxAmount;
+    }
+  } else if (taxType === 'vat' || taxType === 'custom') {
+    taxAmount = taxRate > 0 ? round2(taxableAmount * (taxRate / 100)) : 0;
+  }
+
+  const finalAmount = round2(taxableAmount + taxAmount);
+  const remainingAmount = round2(Math.max(0, finalAmount - advanceAmount));
 
   const handleSave = async (issue: boolean = false) => {
     try {
@@ -86,6 +118,15 @@ export const AdminCreateQuotation = () => {
         })),
         discount,
         advanceAmount,
+        tax: taxType === 'none'
+          ? { taxType: 'none', taxRate: 0 }
+          : {
+              taxType,
+              taxRate,
+              ...(taxType === 'gst' ? { gstTreatment } : {}),
+              ...(placeOfSupply ? { placeOfSupply } : {}),
+              ...(customerGstin ? { customerGstin } : {}),
+            },
         validUntil: validUntil || undefined,
         notes,
         terms,
@@ -354,6 +395,131 @@ export const AdminCreateQuotation = () => {
             </div>
           </div>
 
+          {/* Tax Configuration */}
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">Tax Configuration</h2>
+            <div className="space-y-5">
+              {/* Tax Type Pills */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tax Type</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['none', 'gst', 'vat', 'custom'] as TaxType[]).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => { setTaxType(t); setTaxRate(0); }}
+                      className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                        taxType === t
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                      }`}
+                    >
+                      {t === 'none' ? 'No Tax' : t.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {taxType !== 'none' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tax Rate (%)
+                        {taxType === 'gst' && <span className="text-xs text-gray-400 ml-1">— CGST+SGST or IGST</span>}
+                      </label>
+                      <input
+                        type="number" min="0" max="100" step="0.01"
+                        className="w-full border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-semibold"
+                        placeholder="e.g. 18"
+                        value={taxRate}
+                        onChange={e => setTaxRate(Number(e.target.value) || 0)}
+                      />
+                    </div>
+                    {taxType === 'gst' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">GST Treatment</label>
+                        <select
+                          className="w-full border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-medium"
+                          value={gstTreatment}
+                          onChange={e => setGstTreatment(e.target.value as GstTreatment)}
+                        >
+                          <option value="intra_state">Intra-State (CGST + SGST)</option>
+                          <option value="inter_state">Inter-State (IGST)</option>
+                          <option value="exempt">Exempt (0% Tax)</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {taxType === 'gst' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Place of Supply <span className="text-gray-400 font-normal">(optional)</span></label>
+                        <input
+                          type="text"
+                          className="w-full border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                          placeholder="e.g. Kerala, Maharashtra"
+                          value={placeOfSupply}
+                          onChange={e => setPlaceOfSupply(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Customer GSTIN <span className="text-gray-400 font-normal">(optional)</span></label>
+                        <input
+                          type="text"
+                          className="w-full border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 text-sm font-mono"
+                          placeholder="e.g. 29ABCDE1234F1Z5"
+                          value={customerGstin}
+                          onChange={e => setCustomerGstin(e.target.value.toUpperCase())}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {taxRate > 0 && (
+                    <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
+                      <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-3">Tax Preview</p>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex justify-between text-gray-600">
+                          <span>Taxable Amount</span>
+                          <span className="font-semibold text-gray-800">₹{taxableAmount.toLocaleString()}</span>
+                        </div>
+                        {taxType === 'gst' && gstTreatment === 'intra_state' && (
+                          <>
+                            <div className="flex justify-between text-gray-500">
+                              <span>CGST ({(taxRate / 2).toFixed(2)}%)</span>
+                              <span>₹{cgst.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-500">
+                              <span>SGST ({(taxRate / 2).toFixed(2)}%)</span>
+                              <span>₹{sgst.toLocaleString()}</span>
+                            </div>
+                          </>
+                        )}
+                        {taxType === 'gst' && gstTreatment === 'inter_state' && (
+                          <div className="flex justify-between text-gray-500">
+                            <span>IGST ({taxRate}%)</span>
+                            <span>₹{igst.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {(taxType === 'vat' || taxType === 'custom') && (
+                          <div className="flex justify-between text-gray-500">
+                            <span>{taxType.toUpperCase()} ({taxRate}%)</span>
+                            <span>₹{taxAmount.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-indigo-700 pt-1 border-t border-indigo-200">
+                          <span>Total Tax</span>
+                          <span>₹{taxAmount.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
           {/* Schedules */}
           <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
             <div className="flex justify-between items-center mb-6">
@@ -541,7 +707,7 @@ export const AdminCreateQuotation = () => {
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm sticky top-6">
             <h3 className="text-lg font-bold text-gray-900 mb-6">Financial Summary</h3>
             
-            <div className="space-y-4 text-sm mb-6">
+            <div className="space-y-3 text-sm mb-6">
               <div className="flex justify-between items-center text-gray-600">
                 <span>Subtotal</span>
                 <span className="font-semibold text-gray-900">₹{subtotal.toLocaleString()}</span>
@@ -555,11 +721,53 @@ export const AdminCreateQuotation = () => {
                   onChange={e => setDiscount(Number(e.target.value) || 0)}
                 />
               </div>
-              <div className="pt-4 border-t border-gray-100 flex justify-between items-center">
+              <div className="flex justify-between items-center text-gray-500">
+                <span>Taxable Amount</span>
+                <span className="font-medium">₹{taxableAmount.toLocaleString()}</span>
+              </div>
+              {taxType !== 'none' && taxAmount > 0 && (
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100 space-y-1.5">
+                  {taxType === 'gst' && gstTreatment === 'intra_state' && (
+                    <>
+                      <div className="flex justify-between text-amber-700 text-xs">
+                        <span>CGST ({(taxRate / 2).toFixed(2)}%)</span>
+                        <span>₹{cgst.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-amber-700 text-xs">
+                        <span>SGST ({(taxRate / 2).toFixed(2)}%)</span>
+                        <span>₹{sgst.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                  {taxType === 'gst' && gstTreatment === 'inter_state' && (
+                    <div className="flex justify-between text-amber-700 text-xs">
+                      <span>IGST ({taxRate}%)</span>
+                      <span>₹{igst.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {(taxType === 'vat' || taxType === 'custom') && (
+                    <div className="flex justify-between text-amber-700 text-xs">
+                      <span>{taxType.toUpperCase()} ({taxRate}%)</span>
+                      <span>₹{taxAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-amber-800 text-xs font-bold pt-1 border-t border-amber-200">
+                    <span>Total Tax</span>
+                    <span>₹{taxAmount.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+              {taxType !== 'none' && taxAmount === 0 && (
+                <div className="flex justify-between items-center text-gray-400 text-xs italic">
+                  <span>Tax ({taxType.toUpperCase()})</span>
+                  <span>₹0.00 (Exempt / 0%)</span>
+                </div>
+              )}
+              <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
                 <span className="font-bold text-gray-900 text-base">Final Amount</span>
                 <span className="font-extrabold text-indigo-600 text-xl">₹{finalAmount.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between items-center text-gray-600 pt-2">
+              <div className="flex justify-between items-center text-gray-600 pt-1">
                 <span>Remaining</span>
                 <span className="font-semibold text-gray-900">₹{remainingAmount.toLocaleString()}</span>
               </div>
@@ -600,89 +808,267 @@ export const AdminCreateQuotation = () => {
       {showPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
-            <button 
+            <button
               onClick={() => setShowPreview(false)}
-              className="absolute top-6 right-6 p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+              className="sticky top-4 float-right mr-4 z-10 p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
             >
               <X className="w-6 h-6" />
             </button>
 
-            <div className="p-12">
-              <div className="border-b-2 border-indigo-600 pb-6 mb-8 text-center">
-                <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight uppercase">Quotation</h2>
-                <p className="text-gray-500 mt-2 text-lg">EventOps Management</p>
-              </div>
+            <div className="p-12 pt-10">
 
-              <div className="flex justify-between mb-12">
+              {/* Header */}
+              <div className="border-b-2 border-indigo-600 pb-6 mb-8 flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">To</p>
-                  <p className="text-xl font-bold text-gray-900">{(event?.clientId as any)?.name}</p>
-                  <p className="text-gray-600 mt-1">{event?.title}</p>
+                  <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight uppercase">Quotation</h2>
+                  <p className="text-gray-400 mt-1 text-sm">Draft Preview — not yet issued</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">Date Issued</p>
-                  <p className="text-lg font-bold text-gray-900">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p className="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">Date</p>
+                  <p className="text-base font-bold text-gray-900">
+                    {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
                   {validUntil && (
-                    <p className="text-sm text-red-500 mt-1 font-medium">Valid until {new Date(validUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                    <p className="text-sm text-red-500 mt-1 font-medium">
+                      Valid until {new Date(validUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
                   )}
                 </div>
               </div>
 
-              <div className="mb-12">
-                <h3 className="text-lg font-bold text-gray-900 border-b border-gray-200 pb-2 mb-4">Services</h3>
+              {/* Client & Event Info */}
+              <div className="grid grid-cols-2 gap-8 mb-10 p-5 bg-gray-50 rounded-2xl">
+                <div>
+                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Client</p>
+                  <p className="text-lg font-bold text-gray-900">{(event?.clientId as any)?.name || '—'}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">{(event?.clientId as any)?.email || ''}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Event</p>
+                  <p className="text-lg font-bold text-gray-900">{event?.title}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {event?.eventType && <span className="capitalize">{event.eventType}</span>}
+                    {event?.date && <span> · {new Date(event.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+                    {event?.guestCount && <span> · {event.guestCount} guests</span>}
+                  </p>
+                  {(event?.location as any)?.address && (
+                    <p className="text-sm text-gray-400 mt-0.5">{(event.location as any).address}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Services Table */}
+              <div className="mb-10">
+                <h3 className="text-base font-bold text-gray-900 uppercase tracking-wider border-b-2 border-gray-900 pb-2 mb-0">Services &amp; Pricing</h3>
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="text-sm text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                      <th className="pb-3 font-medium">Description</th>
-                      <th className="pb-3 font-medium text-center">Qty</th>
-                      <th className="pb-3 font-medium text-right">Unit Price</th>
-                      <th className="pb-3 font-medium text-right">Amount</th>
+                    <tr className="text-xs text-gray-400 uppercase tracking-wider border-b border-gray-200">
+                      <th className="py-3 font-semibold">Description</th>
+                      <th className="py-3 font-semibold text-center w-16">Qty</th>
+                      <th className="py-3 font-semibold text-right w-28">Unit Price</th>
+                      <th className="py-3 font-semibold text-right w-28">Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {items.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="py-4">
-                          <p className="font-bold text-gray-900">{item.name}</p>
-                          {item.scope && <p className="text-sm text-gray-500 mt-1">{item.scope}</p>}
+                      <tr key={idx} className="border-b border-gray-100">
+                        <td className="py-5 pr-4">
+                          <p className="font-bold text-gray-900 text-base">{item.name}</p>
+                          {item.scope && (
+                            <p className="text-sm text-gray-500 mt-1">
+                              <span className="font-medium text-gray-600">Scope:</span> {item.scope}
+                            </p>
+                          )}
+                          {item.requirements && (
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              <span className="font-medium text-gray-600">Requirements:</span> {item.requirements}
+                            </p>
+                          )}
+                          {/* Detailed sections */}
+                          {item.detailedContent && item.detailedContent.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {item.detailedContent.map((section: any, sIdx: number) => (
+                                section.sectionName || section.items?.some((i: string) => i) ? (
+                                  <div key={sIdx} className="pl-3 border-l-2 border-indigo-200">
+                                    {section.sectionName && (
+                                      <p className="text-xs font-bold text-indigo-700 uppercase tracking-wide mb-1">{section.sectionName}</p>
+                                    )}
+                                    <ul className="space-y-0.5">
+                                      {section.items?.filter((i: string) => i).map((sItem: string, iIdx: number) => (
+                                        <li key={iIdx} className="text-xs text-gray-600 flex items-start gap-1.5">
+                                          <span className="text-indigo-400 mt-0.5">•</span>
+                                          <span>{sItem}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null
+                              ))}
+                            </div>
+                          )}
                         </td>
-                        <td className="py-4 text-center font-medium text-gray-900">{item.quantity}</td>
-                        <td className="py-4 text-right text-gray-600">₹{item.unitPrice.toLocaleString()}</td>
-                        <td className="py-4 text-right font-bold text-gray-900">₹{(item.quantity * item.unitPrice).toLocaleString()}</td>
+                        <td className="py-5 text-center font-semibold text-gray-900">{item.quantity}</td>
+                        <td className="py-5 text-right text-gray-600">₹{item.unitPrice.toLocaleString('en-IN')}</td>
+                        <td className="py-5 text-right font-bold text-gray-900">₹{(item.quantity * item.unitPrice).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="flex justify-end mb-12">
-                <div className="w-64 space-y-3">
-                  <div className="flex justify-between text-gray-600">
+              {/* Financials */}
+              <div className="flex justify-end mb-10">
+                <div className="w-80 space-y-2 border border-gray-200 rounded-2xl p-5">
+                  <div className="flex justify-between text-gray-600 text-sm">
                     <span>Subtotal</span>
-                    <span>₹{subtotal.toLocaleString()}</span>
+                    <span>₹{subtotal.toLocaleString('en-IN')}</span>
                   </div>
-                  {discount > 0 && (
-                    <div className="flex justify-between text-red-500">
+                  {discountSafe > 0 && (
+                    <div className="flex justify-between text-red-500 text-sm">
                       <span>Discount</span>
-                      <span>-₹{discount.toLocaleString()}</span>
+                      <span>− ₹{discountSafe.toLocaleString('en-IN')}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-xl font-bold text-gray-900 pt-4 border-t-2 border-gray-200">
-                    <span>Total</span>
-                    <span>₹{finalAmount.toLocaleString()}</span>
+                  <div className="flex justify-between text-gray-600 text-sm">
+                    <span>Taxable Amount</span>
+                    <span>₹{taxableAmount.toLocaleString('en-IN')}</span>
                   </div>
+
+                  {taxType !== 'none' && (
+                    <div className="border-t border-dashed border-gray-200 pt-2 space-y-1.5">
+                      {taxType === 'gst' && gstTreatment === 'intra_state' && taxAmount > 0 && (
+                        <>
+                          <div className="flex justify-between text-gray-500 text-sm">
+                            <span>CGST ({(taxRate / 2).toFixed(2)}%)</span>
+                            <span>₹{cgst.toLocaleString('en-IN')}</span>
+                          </div>
+                          <div className="flex justify-between text-gray-500 text-sm">
+                            <span>SGST ({(taxRate / 2).toFixed(2)}%)</span>
+                            <span>₹{sgst.toLocaleString('en-IN')}</span>
+                          </div>
+                        </>
+                      )}
+                      {taxType === 'gst' && gstTreatment === 'inter_state' && taxAmount > 0 && (
+                        <div className="flex justify-between text-gray-500 text-sm">
+                          <span>IGST ({taxRate}%)</span>
+                          <span>₹{igst.toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
+                      {taxType === 'gst' && (gstTreatment === 'exempt' || taxAmount === 0) && (
+                        <div className="flex justify-between text-gray-400 text-sm italic">
+                          <span>GST (Exempt)</span>
+                          <span>₹0</span>
+                        </div>
+                      )}
+                      {(taxType === 'vat' || taxType === 'custom') && (
+                        <div className="flex justify-between text-gray-500 text-sm">
+                          <span>{taxType.toUpperCase()} ({taxRate}%)</span>
+                          <span>₹{taxAmount.toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex justify-between text-xl font-extrabold text-gray-900 pt-3 border-t-2 border-gray-900">
+                    <span>Total</span>
+                    <span>₹{finalAmount.toLocaleString('en-IN')}</span>
+                  </div>
+
                   {advanceAmount > 0 && (
-                    <div className="flex justify-between text-sm text-gray-600 mt-2">
-                      <span>Advance Required</span>
-                      <span className="font-semibold text-indigo-600">₹{advanceAmount.toLocaleString()}</span>
+                    <>
+                      <div className="flex justify-between text-sm text-indigo-600 font-semibold mt-1">
+                        <span>Advance Required</span>
+                        <span>₹{advanceAmount.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>Remaining Balance</span>
+                        <span>₹{remainingAmount.toLocaleString('en-IN')}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {(placeOfSupply || customerGstin) && (
+                    <div className="border-t border-gray-100 pt-2 space-y-1 mt-1">
+                      {placeOfSupply && <p className="text-xs text-gray-400">Place of Supply: {placeOfSupply}</p>}
+                      {customerGstin && <p className="text-xs text-gray-400 font-mono">GSTIN: {customerGstin}</p>}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="mt-12 text-sm text-gray-500 italic text-center">
-                This is a preview. Final quotation document is generated by the server upon issuance.
+              {/* Schedules */}
+              {schedules.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-base font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">Event Schedule</h3>
+                  <div className="space-y-2">
+                    {schedules.map((sch, idx) => (
+                      <div key={idx} className="flex items-center gap-4 py-2">
+                        <span className="text-sm font-bold text-indigo-600 w-20 shrink-0">{sch.time || '—'}</span>
+                        <span className="text-sm text-gray-700">{sch.title || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Plan */}
+              {paymentPlan.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-base font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">Payment Plan</h3>
+                  <div className="space-y-3">
+                    {paymentPlan.map((plan, idx) => (
+                      <div key={idx} className="flex items-start justify-between py-2 border-b border-gray-50">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{plan.title || `Installment ${idx + 1}`}</p>
+                          {plan.dueDateDescription && (
+                            <p className="text-xs text-gray-500 mt-0.5">{plan.dueDateDescription}</p>
+                          )}
+                        </div>
+                        <span className="text-sm font-bold text-gray-900 shrink-0 ml-4">₹{(plan.amount || 0).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Structured Terms */}
+              {structuredTerms.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-base font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">Terms &amp; Conditions</h3>
+                  <div className="space-y-4">
+                    {structuredTerms.map((term, idx) => (
+                      <div key={idx}>
+                        {term.title && <p className="text-sm font-bold text-gray-800 mb-1">{term.title}</p>}
+                        {term.content && <p className="text-sm text-gray-600 leading-relaxed">{term.content}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* General Terms (plain text) */}
+              {terms && (
+                <div className="mb-8">
+                  <h3 className="text-base font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">General Terms</h3>
+                  <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{terms}</p>
+                </div>
+              )}
+
+              {/* Notes */}
+              {notes && (
+                <div className="mb-8 bg-amber-50 rounded-xl p-4 border border-amber-100">
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">Notes</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{notes}</p>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="mt-10 pt-6 border-t border-gray-200 text-center">
+                <p className="text-xs text-gray-400 italic">
+                  This is a draft preview. The final quotation is generated by the server upon issuance.
+                </p>
               </div>
+
             </div>
           </div>
         </div>
@@ -691,3 +1077,4 @@ export const AdminCreateQuotation = () => {
     </div>
   );
 };
+
