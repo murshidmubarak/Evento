@@ -18,12 +18,12 @@ export const createQuotation = catchAsync(async (req: Request, res: Response) =>
     advanceAmount: req.body.advanceAmount,
     tax: req.body.tax
       ? {
-          taxType: req.body.tax.taxType,
-          taxRate: req.body.tax.taxRate,
-          gstTreatment: req.body.tax.gstTreatment,
-          placeOfSupply: req.body.tax.placeOfSupply,
-          customerGstin: req.body.tax.customerGstin,
-        }
+        taxType: req.body.tax.taxType,
+        taxRate: req.body.tax.taxRate,
+        gstTreatment: req.body.tax.gstTreatment,
+        placeOfSupply: req.body.tax.placeOfSupply,
+        customerGstin: req.body.tax.customerGstin,
+      }
       : undefined,
     validUntil: req.body.validUntil,
     notes: req.body.notes,
