@@ -12,6 +12,11 @@ export interface IEvent extends Document {
   startTime: string;
   endTime: string;
   notes?: string;
+  clientInfo?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
   location: {
     address: string;
     lat?: number;
@@ -39,6 +44,11 @@ const eventSchema = new Schema<IEvent>(
     startTime: { type: String, required: true },
     endTime: { type: String, required: true },
     notes: { type: String },
+    clientInfo: {
+      name: { type: String },
+      phone: { type: String },
+      email: { type: String },
+    },
     location: {
       address: { type: String, required: true },
       lat: { type: Number },

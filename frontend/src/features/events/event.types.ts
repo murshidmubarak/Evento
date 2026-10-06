@@ -23,6 +23,11 @@ export interface ClientEvent {
   startTime: string;
   endTime: string;
   notes?: string;
+  clientInfo?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
   location: {
     address: string;
     lat?: number;
@@ -44,6 +49,11 @@ export interface CreateEventRequest {
   startTime: string;
   endTime: string;
   notes?: string;
+  clientInfo?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+  };
   location: {
     address: string;
     lat?: number;

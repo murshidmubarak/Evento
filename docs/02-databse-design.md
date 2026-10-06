@@ -45,6 +45,11 @@ Fields:
 - startTime
 - endTime
 
+Client Info (contact details for the event):
+- clientInfo.name
+- clientInfo.phone
+- clientInfo.email
+
 Location:
 - address
 - lat

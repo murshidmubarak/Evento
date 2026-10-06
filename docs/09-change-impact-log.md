@@ -209,5 +209,16 @@ Change local UI text in one page.
 - Added `POST /api/events/:id/service-reference-images` endpoint in `event.routes.ts` and `event.controller.ts`.
 - Structured metadata stored inside `selectedServices[...].preferences.referenceImages` array.
 - Added test coverage in `eventMedia.test.ts` to verify authorization (401/403), validation (400/404), and successful storage, with mocked Cloudinary API.
+- Low impact on existing systems. Isolated feature addition mapped safely into existing `preferences` contract without schema mutations. All existing event/manager APIs untouched. Regression suite passed successfully. TypeScript compile clean. No arbitrary file execution or binary storage in MongoDB.
+
+### [Event clientInfo Field]
+**Date:** 2026-10-06
+**Changes:**
+- Added optional `clientInfo` sub-document (`name`, `phone`, `email`) to the Event model (`event.model.ts`).
+- Added validation for `clientInfo` in `event.validation.ts` (all sub-fields optional strings).
+- Updated `event.service.ts` to pass `data.clientInfo` through when building the event document.
+- Updated `CreateEventRequest` and `ClientEvent` frontend types to include `clientInfo`.
+- Updated `CreateEventWizard.tsx` to pre-fill `clientName`, `clientPhone`, and `clientEmail` from the Redux auth user, make email disabled, and send `clientInfo` as a dedicated structured field.
+- Updated `docs/02-databse-design.md` to document the new field.
 **Impact:**
-- Low impact on existing systems. Isolated feature addition mapped safely into existing `preferences` contract without schema mutations. All existing event/manager APIs untouched. Regression suite passed successfully. TypeScript compile clean. No arbitrary file execution or binary storage in MongoDB.
+- Low impact. Purely additive optional field. No existing queries, validations, API contracts, or test files are broken. MongoDB schema is backward-compatible (field is optional with no default). No financial, payment, or worker logic is affected.

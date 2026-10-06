@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
 import type { ClientEvent } from '../../features/events/event.types';
-import { Loader2, ArrowLeft, Calendar, MapPin, Users, IndianRupee, Clock, CheckCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, MapPin, Users, IndianRupee, Clock, CheckCircle, User, Mail, Phone } from 'lucide-react';
 
 const statusColors: Record<string, { bg: string, text: string }> = {
   requested: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
@@ -148,7 +148,7 @@ export const EventDetails = () => {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
           <h2 className="text-lg font-bold text-gray-900 mb-2 border-b border-gray-100 pb-2">Event Schedule</h2>
           
@@ -211,6 +211,40 @@ export const EventDetails = () => {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
+          <h2 className="text-lg font-bold text-gray-900 mb-2 border-b border-gray-100 pb-2">Contact Information</h2>
+          
+          <div className="flex items-start gap-3">
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <User className="w-5 h-5 text-slate-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Name</p>
+              <p className="text-base font-semibold text-gray-900">{event.clientInfo?.name || (event.clientId as any)?.name || 'Unknown'}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <Phone className="w-5 h-5 text-slate-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Phone</p>
+              <p className="text-base font-semibold text-gray-900">{event.clientInfo?.phone || (event.clientId as any)?.phone || 'Not provided'}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="bg-slate-50 p-2 rounded-lg">
+              <Mail className="w-5 h-5 text-slate-600" />
+            </div>
+            <div className="overflow-hidden max-w-full">
+              <p className="text-sm font-medium text-gray-500">Email</p>
+              <p className="text-base font-semibold text-gray-900 truncate">{event.clientInfo?.email || (event.clientId as any)?.email || 'Not provided'}</p>
+            </div>
+          </div>
         </div>
       </div>
 

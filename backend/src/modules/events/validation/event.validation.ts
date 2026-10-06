@@ -116,6 +116,24 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
     }
   }
 
+  // Validate optional clientInfo sub-document
+  const { clientInfo } = req.body;
+  if (clientInfo !== undefined && clientInfo !== null) {
+    if (typeof clientInfo !== 'object' || Array.isArray(clientInfo)) {
+      errors.push('clientInfo must be an object');
+    } else {
+      if (clientInfo.name !== undefined && typeof clientInfo.name !== 'string') {
+        errors.push('clientInfo.name must be a string');
+      }
+      if (clientInfo.phone !== undefined && typeof clientInfo.phone !== 'string') {
+        errors.push('clientInfo.phone must be a string');
+      }
+      if (clientInfo.email !== undefined && typeof clientInfo.email !== 'string') {
+        errors.push('clientInfo.email must be a string');
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return next(ApiError.badRequest('Validation failed', errors));
   }

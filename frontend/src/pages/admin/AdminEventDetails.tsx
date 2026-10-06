@@ -216,15 +216,15 @@ export const AdminEventDetails = () => {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-400 font-medium mb-1">Host Name</p>
-                <p className="font-semibold text-lg">{client?.name || 'Unknown'}</p>
+                <p className="font-semibold text-lg">{event.clientInfo?.name || client?.name || 'Unknown'}</p>
               </div>
               <div className="flex items-center gap-3">
                 <Mail className="w-4 h-4 text-gray-400" />
-                <span className="text-gray-300">{client?.email || 'No email provided'}</span>
+                <span className="text-gray-300">{event.clientInfo?.email || client?.email || 'No email provided'}</span>
               </div>
               <div className="flex items-center gap-3">
                 <Phone className="w-4 h-4 text-gray-400" />
-                <span className="text-gray-300">{client?.phone || 'No phone provided'}</span>
+                <span className="text-gray-300">{event.clientInfo?.phone || client?.phone || 'No phone provided'}</span>
               </div>
             </div>
           </div>

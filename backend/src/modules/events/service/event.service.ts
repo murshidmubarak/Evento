@@ -39,6 +39,7 @@ export class EventService {
       startTime: data.startTime,
       endTime: data.endTime,
       notes: data.notes,
+      clientInfo: data.clientInfo,
       location: data.location,
       guestCount: data.guestCount,
       budget: data.budget,

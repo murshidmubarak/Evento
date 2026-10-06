@@ -28,10 +28,11 @@ export const AdminRequestedEvents = () => {
     fetchEvents();
   }, [statusFilter]);
 
-  const filteredEvents = events.filter(e => 
-    e.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (e.clientId as any)?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEvents = events.filter(e => {
+    const clientName = e.clientInfo?.name || (e.clientId as any)?.name || '';
+    return e.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           clientName.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -111,7 +112,7 @@ export const AdminRequestedEvents = () => {
               </h3>
               <p className="text-sm text-gray-500 mb-4 font-medium flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
-                {(event.clientId as any)?.name || 'Unknown Client'}
+                {event.clientInfo?.name || (event.clientId as any)?.name || 'Unknown Client'}
               </p>
 
               <div className="space-y-3 mb-6 bg-gray-50/50 p-4 rounded-2xl">

@@ -840,8 +840,8 @@ export const AdminCreateQuotation = () => {
               <div className="grid grid-cols-2 gap-8 mb-10 p-5 bg-gray-50 rounded-2xl">
                 <div>
                   <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Client</p>
-                  <p className="text-lg font-bold text-gray-900">{(event?.clientId as any)?.name || '—'}</p>
-                  <p className="text-sm text-gray-500 mt-0.5">{(event?.clientId as any)?.email || ''}</p>
+                  <p className="text-lg font-bold text-gray-900">{event?.clientInfo?.name || (event?.clientId as any)?.name || '—'}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">{event?.clientInfo?.email || (event?.clientId as any)?.email || ''}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Event</p>
