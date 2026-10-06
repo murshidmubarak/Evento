@@ -76,6 +76,9 @@ export const EventDetails = () => {
           {preferences.serviceMode?.length > 0 && (
             <div><span className="font-semibold text-gray-900 block mb-1">Service Mode</span><ul className="list-disc pl-5">{preferences.serviceMode.map((m:string)=><li key={m}>{m}</li>)}</ul></div>
           )}
+          {preferences.starters?.length > 0 && (
+            <div><span className="font-semibold text-gray-900 block mb-1">Starters</span><ul className="list-disc pl-5">{preferences.starters.map((m:string)=><li key={m}>{m}</li>)}</ul></div>
+          )}
           {preferences.mainDishes?.length > 0 && (
             <div><span className="font-semibold text-gray-900 block mb-1">Main Dishes</span><ul className="list-disc pl-5">{preferences.mainDishes.map((m:string)=><li key={m}>{m}</li>)}</ul></div>
           )}

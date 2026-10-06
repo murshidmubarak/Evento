@@ -221,4 +221,13 @@ Change local UI text in one page.
 - Updated `CreateEventWizard.tsx` to pre-fill `clientName`, `clientPhone`, and `clientEmail` from the Redux auth user, make email disabled, and send `clientInfo` as a dedicated structured field.
 - Updated `docs/02-databse-design.md` to document the new field.
 **Impact:**
-- Low impact. Purely additive optional field. No existing queries, validations, API contracts, or test files are broken. MongoDB schema is backward-compatible (field is optional with no default). No financial, payment, or worker logic is affected.
+- Low impact. Purely additive optional field. No existing queries, validations, API contracts, or test files are broken. MongoDB schema is backward-compatible (field is optional with no default). No financial, payment, or worker logic is affected.
+
+### [Event Catering Preferences - Starters]
+**Date:** 2026-10-06
+**Changes:**
+- Added `starters` array to the catering preferences state in `CreateEventWizard.tsx`.
+- Updated wizard review step and client `EventDetails.tsx` to render the `starters` array properly.
+- No backend schema changes required, as `starters` natively uses the existing `Schema.Types.Mixed` in `event.model.ts` for structured JSON storage, identical to `mainDishes` and `juices`.
+**Impact:**
+- Low impact. Purely additive frontend data structure handled safely by the existing backend dynamic preferences object.

@@ -111,7 +111,7 @@ export const CreateEventWizard = () => {
   const [isLoadingServices, setIsLoadingServices] = useState(false);
 
   // Step 4 Preferences
-  const [cateringPrefs, setCateringPrefs] = useState<any>({ serviceMode: [], mainDishes: [], juices: [], desserts: [] });
+  const [cateringPrefs, setCateringPrefs] = useState<any>({ serviceMode: [], starters: [], mainDishes: [], juices: [], desserts: [] });
   const [decorationPrefs, setDecorationPrefs] = useState<any>({});
   const [photoPrefs, setPhotoPrefs] = useState<any>({});
   const [otherCustomRequests, setOtherCustomRequests] = useState('');
@@ -147,6 +147,7 @@ export const CreateEventWizard = () => {
     // Catering
     const catService = availableServices.find(s => s.name.toLowerCase().match(/catering|food|dining/));
     const hasCateringData = cateringPrefs.serviceMode?.length > 0 ||
+      cateringPrefs.starters?.length > 0 ||
       cateringPrefs.mainDishes?.length > 0 ||
       cateringPrefs.juices?.length > 0 ||
       cateringPrefs.desserts?.length > 0;
@@ -707,6 +708,13 @@ export const CreateEventWizard = () => {
                       </div>
                       <div className="p-6 bg-gray-50/30">
                         <CustomList
+                          title="Starters"
+                          items={cateringPrefs.starters || []}
+                          predefined={['Chicken Tikka', 'Paneer Tikka', 'Spring Rolls']}
+                          onChange={(val) => setCateringPrefs({ ...cateringPrefs, starters: val })}
+                          placeholder="Add custom starter..."
+                        />
+                        <CustomList
                           title="Main Dishes"
                           items={cateringPrefs.mainDishes || []}
                           predefined={['Malaber Chicken Biryani', 'Mutton Biryani']}
@@ -1053,14 +1061,20 @@ export const CreateEventWizard = () => {
                                 <p className="text-xs text-gray-700 font-medium">{data.preferences.package}</p>
                               </div>
                             )}
-                            {name.includes('catering') && data.preferences.mainDishes && (
+                            {name.includes('catering') && (data.preferences.mainDishes || data.preferences.starters || data.preferences.juices || data.preferences.desserts) && (
                               <div className="mt-2 space-y-1">
                                 <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Menu Items</p>
-                                {data.preferences.mainDishes.map((dish: string, i: number) => (
+                                {data.preferences.starters?.map((dish: string, i: number) => (
+                                  <p key={`s${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                ))}
+                                {data.preferences.mainDishes?.map((dish: string, i: number) => (
                                   <p key={i} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
                                 ))}
                                 {data.preferences.juices?.map((dish: string, i: number) => (
                                   <p key={`j${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                ))}
+                                {data.preferences.desserts?.map((dish: string, i: number) => (
+                                  <p key={`d${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
                                 ))}
                               </div>
                             )}
