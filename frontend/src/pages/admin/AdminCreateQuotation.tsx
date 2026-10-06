@@ -15,7 +15,9 @@ export const AdminCreateQuotation = () => {
   const [event, setEvent] = useState<ClientEvent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState('');         // page-load error
+  const [saveError, setSaveError] = useState(''); // inline form save error
+  const [saveErrors, setSaveErrors] = useState<string[]>([]); // detailed field errors from backend
 
   // Form State
   const [validUntil, setValidUntil] = useState('');
@@ -106,21 +108,58 @@ export const AdminCreateQuotation = () => {
   const remainingAmount = round2(Math.max(0, finalAmount - advanceAmount));
 
   const handleSave = async (issue: boolean = false) => {
+    if (isSaving) return; // Guard against double-click creating multiple revisions
     try {
       setIsSaving(true);
-      setError('');
+      setSaveError('');
+      setSaveErrors([]);
+
+      // Ensure all quantities are positive integers and detailedContent is clean
+      const sanitizedItems = items.map(i => ({
+        serviceId: i.serviceId,
+        quantity: Math.max(1, Math.floor(Number(i.quantity) || 1)),
+        unitPrice: Math.max(0, Number(i.unitPrice) || 0),
+        requirements: i.requirements || '',
+        scope: i.scope || '',
+        detailedContent: (i.detailedContent || [])
+          .filter((s: any) => s.sectionName?.trim() || s.items?.some((x: string) => x?.trim()))
+          .map((s: any) => ({
+            sectionName: (s.sectionName?.trim() || 'Details'),
+            items: (s.items || []).filter((x: string) => typeof x === 'string' && x.trim().length > 0)
+          }))
+      }));
+
+      // Sanitize structuredTerms: filter empty rows, provide defaults
+      const sanitizedStructuredTerms = structuredTerms
+        .filter(t => t.title?.trim() || t.content?.trim())
+        .map(t => ({
+          title: (t.title || t.content || '').trim(),
+          content: (t.content || '').trim()
+        }));
+
+      // Sanitize schedules: filter empty rows
+      const sanitizedSchedules = schedules
+        .filter(s => s.title?.trim() || s.time?.trim())
+        .map(s => ({
+          title: (s.title || 'Schedule').trim(),
+          time: (s.time || '').trim()
+        }));
+
+      // Sanitize paymentPlan: filter empty rows
+      const sanitizedPaymentPlan = paymentPlan
+        .filter(p => p.title?.trim() || (Number(p.amount) > 0))
+        .map(p => ({
+          title: (p.title || 'Installment').trim(),
+          amount: Math.max(0, Number(p.amount) || 0),
+          dueDateDescription: (p.dueDateDescription || '').trim(),
+          percentage: p.percentage,
+          purpose: p.purpose || [],
+          status: p.status || 'Pending'
+        }));
       
       const request: CreateQuotationRequest = {
         eventId: id!,
-        items: items.map(i => ({
-          serviceId: i.serviceId,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          requirements: i.requirements,
-          pricingType: i.pricingType,
-          scope: i.scope,
-          detailedContent: i.detailedContent
-        })),
+        items: sanitizedItems,
         discount,
         advanceAmount,
         tax: taxType === 'none'
@@ -135,9 +174,9 @@ export const AdminCreateQuotation = () => {
         validUntil: validUntil || undefined,
         notes,
         terms,
-        structuredTerms,
-        schedules,
-        paymentPlan,
+        structuredTerms: sanitizedStructuredTerms,
+        schedules: sanitizedSchedules,
+        paymentPlan: sanitizedPaymentPlan,
         conciergeNotes
       };
 
@@ -145,12 +184,14 @@ export const AdminCreateQuotation = () => {
       
       if (issue) {
         await sendQuotation(qtn._id);
-        navigate(`/admin/events/${id}`);
-      } else {
-        navigate(`/admin/events/${id}`);
       }
+      navigate(`/admin/events/${id}`);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save quotation');
+      // Use saveError (not error) so the full-page load error check is NOT triggered
+      const msg = err.response?.data?.message || 'Failed to save quotation';
+      const details: string[] = err.response?.data?.error?.errors || [];
+      setSaveError(msg);
+      setSaveErrors(details);
     } finally {
       setIsSaving(false);
     }
@@ -223,6 +264,22 @@ export const AdminCreateQuotation = () => {
         </div>
       </div>
 
+      {/* Inline save error — shown inside the form, never replaces the page */}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+          <p className="text-red-700 font-semibold text-sm">{saveError}</p>
+          {saveErrors.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {saveErrors.map((e, i) => (
+                <li key={i} className="text-red-600 text-xs flex items-start gap-1.5">
+                  <span className="mt-0.5">•</span><span>{e}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         {/* Left Column - Form */}
@@ -283,10 +340,10 @@ export const AdminCreateQuotation = () => {
                             {item.pricingType === 'per_guest' ? 'Quantity (Guests)' : 'Quantity'}
                           </label>
                           <input 
-                            type="number" min="1"
+                            type="number" min="1" step="1"
                             className="w-full border-gray-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" 
                             value={item.quantity}
-                            onChange={e => updateItem(index, 'quantity', Number(e.target.value) || 0)}
+                            onChange={e => updateItem(index, 'quantity', Math.max(1, Math.floor(Number(e.target.value) || 1)))}
                           />
                         </div>
                         <div>
@@ -658,7 +715,7 @@ export const AdminCreateQuotation = () => {
                       }}
                     />
                     <textarea 
-                      placeholder="Content..." 
+                      placeholder="Content (optional)..." 
                       className="w-full border-gray-200 rounded-lg text-sm"
                       rows={2}
                       value={term.content}

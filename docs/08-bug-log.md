@@ -313,4 +313,103 @@ Audit scripts queried MongoDB collection `medias` (Mongoose default pluralizatio
 1. NEVER silently swallow upload errors after a successful primary operation. Always set visible error state.
 2. Always restart the backend server after changing `.env` — hot-reload does NOT pick up `.env` changes automatically in all environments.
 3. When querying MongoDB collections by name in diagnostic scripts, use the exact collection name (`media` not `medias`) or query via the Mongoose model which resolves the name automatically.
+
+---
+
+## BUG-006 — Quotation Revision Auto-Incrementing + "Validation Failed" on Issue Quotation
+
+### Date
+
+2026-10-06
+
+### Feature / Module
+
+Quotations / AdminCreateQuotation.tsx / quotation.validation.ts / quotation.service.ts
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. Every click of the "Issue Quotation" button created a new quotation revision for the same event, resulting in revision 4 after just a few clicks (expected: revision 1 per event thread unless admin explicitly revises).
+
+2. The "Issue Quotation" button sometimes showed "Validation failed" error.
+
+### Root Cause
+
+**Revision incrementing:**
+The `handleSave(issue=true)` in `AdminCreateQuotation.tsx` always called `createQuotation` (which creates a new quotation doc → new revision per business logic) then `sendQuotation`. No guard existed against double-clicks. Each click = new revision.
+
+**Validation failed:**
+- `quantity` was set via `Number(e.target.value) || 0`. If the field was `0` or empty, it would pass `0`, which fails the backend check `item.quantity < 1 || !Number.isInteger(item.quantity)`.
+- `Number(e.target.value)` can produce a float (e.g., `1.5`) which fails `Number.isInteger()`.
+- Empty `detailedContent` sections with empty strings were sent, passing through unnecessarily.
+
+### Solution
+
+1. Added `if (isSaving) return;` guard at the top of `handleSave` to prevent double-click from submitting multiple times.
+2. Changed `navigate()` to be called once after both `createQuotation` and `sendQuotation` (if issue=true), preventing duplicate navigation attempts.
+3. Added a `sanitizedItems` step inside `handleSave` that enforces:
+   - `quantity = Math.max(1, Math.floor(Number(quantity) || 1))` → always a positive integer.
+   - `unitPrice = Math.max(0, Number(unitPrice) || 0)` → always non-negative.
+   - `requirements` and `scope` default to `''` (never undefined/null).
+   - `detailedContent` filtered to remove empty/blank sections.
+4. Updated the quantity `<input>` to use `step="1"` and `Math.floor` on change.
+
+### Rule
+
+Always sanitize numeric inputs to meet backend validation requirements before submitting. Backend validation uses strict `Number.isInteger()` for quantity — never pass `0`, `NaN`, or floats.
+
+---
+
+## BUG-007 — Quotation Creation Fails with "Path `content` is required"
+
+### Date
+
+2026-10-06
+
+### Feature / Module
+
+Quotations / AdminCreateQuotation.tsx / quotation.model.ts / quotation.service.ts
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When saving or issuing a quotation from `AdminCreateQuotation.tsx`, the submission fails with:
+`Validation failed`
+`• Path `content` is required.`
+`• Path `content` is required.`
+
+### Root Cause
+
+1. In `quotation.model.ts`, `structuredTermSchema` defined `content: { type: String, required: true }`.
+2. When the admin added structured terms in `AdminCreateQuotation.tsx` (e.g. entering titles like "Validity" or "Cancellation" but leaving the content textarea blank, or leaving rows empty), empty strings `""` were sent for `content`.
+3. Mongoose treats empty string `""` as missing for required string paths, triggering Mongoose `ValidationError` on the document.
+4. Neither frontend nor backend sanitized `structuredTerms`, `schedules`, or `paymentPlan` before database persistence.
+
+### Solution
+
+1. Updated `quotation.model.ts`:
+   - `structuredTermSchema.content`: changed from `required: true` to `default: ''`.
+   - `quotationScheduleSchema.time`: changed to `default: ''`.
+   - `paymentInstallmentSchema.dueDateDescription`: changed to `default: ''`.
+2. Updated `quotation.service.ts` to sanitize `structuredTerms`, `schedules`, `paymentPlan`, and `detailedContent` before calling `quotationRepository.create()`.
+3. Updated `AdminCreateQuotation.tsx` `handleSave` to sanitize `structuredTerms`, `schedules`, and `paymentPlan` (filtering empty rows and setting safe defaults) before submitting the request.
+4. Updated the placeholder in `AdminCreateQuotation.tsx` to `Content (optional)...`.
+
+### Rule
+
+Never mark subdocument detail fields as `required: true` in Mongoose schemas if they can be omitted in user forms. Always sanitize array inputs on both client and service layers before persistence.
 

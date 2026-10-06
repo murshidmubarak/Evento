@@ -23,6 +23,6 @@ export const createQuotation = async (request: CreateQuotationRequest): Promise<
 };
 
 export const sendQuotation = async (id: string): Promise<Quotation> => {
-  const response = await apiClient.post<{ data: Quotation }>(`/quotations/${id}/send`);
+  const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/send`);
   return response.data.data as unknown as Quotation;
 };

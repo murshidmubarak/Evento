@@ -137,8 +137,8 @@ export const AdminRequestedEvents = () => {
               </div>
 
               <div className="flex flex-wrap gap-2 mb-6">
-                {event.selectedServices?.map((s: any) => (
-                  <span key={s.serviceId} className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-lg font-medium">
+                {event.selectedServices?.map((s: any, idx: number) => (
+                  <span key={s.serviceId?._id?.toString() || s.serviceId?.toString() || idx} className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-lg font-medium">
                     {s.serviceName || 'Service'}
                   </span>
                 ))}

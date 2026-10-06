@@ -94,7 +94,12 @@ export class QuotationService {
         pricingType: service.pricingType,
         requirements: reqItem.requirements,
         scope: reqItem.scope,
-        detailedContent: reqItem.detailedContent,
+        detailedContent: (reqItem.detailedContent || [])
+          .filter((s) => s.sectionName?.trim() || s.items?.some((x) => x?.trim()))
+          .map((s) => ({
+            sectionName: (s.sectionName?.trim() || 'Details'),
+            items: (s.items || []).filter((x) => typeof x === 'string' && x.trim().length > 0),
+          })),
         quantity: reqItem.quantity,
         unitPrice: reqItem.unitPrice,
         amount,
@@ -255,9 +260,28 @@ export class QuotationService {
       validUntil: input.validUntil,
       notes: input.notes,
       terms: input.terms,
-      structuredTerms: input.structuredTerms || [],
-      schedules: input.schedules || [],
-      paymentPlan: input.paymentPlan || [],
+      structuredTerms: (input.structuredTerms || [])
+        .filter((t) => t.title?.trim() || t.content?.trim())
+        .map((t) => ({
+          title: (t.title || t.content || '').trim(),
+          content: (t.content || '').trim(),
+        })),
+      schedules: (input.schedules || [])
+        .filter((s) => s.title?.trim() || s.time?.trim())
+        .map((s) => ({
+          title: (s.title || 'Schedule').trim(),
+          time: (s.time || '').trim(),
+        })),
+      paymentPlan: (input.paymentPlan || [])
+        .filter((p) => p.title?.trim() || (p.amount !== undefined && p.amount > 0))
+        .map((p) => ({
+          title: (p.title || 'Installment').trim(),
+          amount: Number(p.amount) || 0,
+          dueDateDescription: (p.dueDateDescription || '').trim(),
+          percentage: p.percentage,
+          purpose: p.purpose || [],
+          status: p.status || 'Pending',
+        })),
       conciergeNotes: input.conciergeNotes,
       status: 'draft',
       createdBy: new Types.ObjectId(user.id),

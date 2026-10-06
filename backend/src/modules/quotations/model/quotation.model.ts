@@ -135,7 +135,7 @@ const paymentInstallmentSchema = new Schema<IPaymentInstallment>(
     title: { type: String, required: true },
     percentage: { type: Number },
     amount: { type: Number, required: true, min: 0 },
-    dueDateDescription: { type: String, required: true },
+    dueDateDescription: { type: String, default: '' },
     purpose: { type: [String], default: [] },
     status: { type: String, default: 'Pending' },
   },
@@ -145,7 +145,7 @@ const paymentInstallmentSchema = new Schema<IPaymentInstallment>(
 const quotationScheduleSchema = new Schema<IQuotationSchedule>(
   {
     title: { type: String, required: true },
-    time: { type: String, required: true },
+    time: { type: String, default: '' },
   },
   { _id: false }
 );
@@ -153,7 +153,7 @@ const quotationScheduleSchema = new Schema<IQuotationSchedule>(
 const structuredTermSchema = new Schema<IStructuredTerm>(
   {
     title: { type: String, required: true },
-    content: { type: String, required: true },
+    content: { type: String, default: '' },
   },
   { _id: false }
 );
