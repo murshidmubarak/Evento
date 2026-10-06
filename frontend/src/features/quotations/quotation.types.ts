@@ -101,6 +101,7 @@ export interface CreateQuotationRequest {
     requirements?: string;
     scope?: string;
     detailedContent?: { sectionName: string; items: string[] }[];
+    pricingType?: string;
   }[];
   discount?: number;
   advanceAmount?: number;

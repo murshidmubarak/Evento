@@ -51,15 +51,19 @@ export const AdminCreateQuotation = () => {
           
           // Initialize items based on selected services
           if (data.selectedServices) {
-            const initialItems = data.selectedServices.map(s => ({
-              serviceId: s.serviceId,
-              name: s.serviceName,
-              scope: '',
-              requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
-              quantity: 1,
-              unitPrice: 0,
-              detailedContent: []
-            }));
+              const initialItems = data.selectedServices.map(s => {
+                const isPerGuest = s.pricingType === 'per_guest';
+                return {
+                  serviceId: s.serviceId,
+                  name: s.serviceName,
+                  pricingType: s.pricingType || 'per_event',
+                  scope: '',
+                  requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+                  quantity: isPerGuest ? (data.guestCount || 1) : 1,
+                  unitPrice: s.basePrice || 0,
+                  detailedContent: []
+                };
+              });
             setItems(initialItems);
             if (initialItems.length > 0) setExpandedService(initialItems[0].serviceId);
           }
@@ -113,6 +117,7 @@ export const AdminCreateQuotation = () => {
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           requirements: i.requirements,
+          pricingType: i.pricingType,
           scope: i.scope,
           detailedContent: i.detailedContent
         })),
@@ -238,7 +243,7 @@ export const AdminCreateQuotation = () => {
                   >
                     <div className="flex items-center gap-3">
                       <span className="font-bold text-lg text-gray-900">{item.name}</span>
-                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-md uppercase">Service</span>
+                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-md uppercase">{item.pricingType?.replace('_', ' ') || 'Service'}</span>
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="font-semibold text-gray-900">₹{(item.quantity * item.unitPrice).toLocaleString()}</span>
@@ -274,7 +279,9 @@ export const AdminCreateQuotation = () => {
 
                       <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {item.pricingType === 'per_guest' ? 'Quantity (Guests)' : 'Quantity'}
+                          </label>
                           <input 
                             type="number" min="1"
                             className="w-full border-gray-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" 
@@ -283,7 +290,9 @@ export const AdminCreateQuotation = () => {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (₹)</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Unit Price (₹) {item.pricingType === 'per_guest' ? '/ Guest' : ''}
+                          </label>
                           <input 
                             type="number" min="0"
                             className="w-full border-gray-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" 
@@ -907,8 +916,18 @@ export const AdminCreateQuotation = () => {
                             </div>
                           )}
                         </td>
-                        <td className="py-5 text-center font-semibold text-gray-900">{item.quantity}</td>
-                        <td className="py-5 text-right text-gray-600">₹{item.unitPrice.toLocaleString('en-IN')}</td>
+                        <td className="py-5 text-center font-semibold text-gray-900">
+                          {item.quantity} 
+                          <span className="block text-[10px] text-gray-400 font-normal mt-0.5 uppercase">
+                            {item.pricingType === 'per_guest' ? 'Guests' : item.pricingType === 'per_event' ? 'Event' : 'Pkg'}
+                          </span>
+                        </td>
+                        <td className="py-5 text-right text-gray-600">
+                          ₹{item.unitPrice.toLocaleString('en-IN')}
+                          <span className="block text-[10px] text-gray-400 font-normal mt-0.5 uppercase">
+                            {item.pricingType === 'per_guest' ? '/ Guest' : item.pricingType === 'per_event' ? '/ Event' : '/ Pkg'}
+                          </span>
+                        </td>
                         <td className="py-5 text-right font-bold text-gray-900">₹{(item.quantity * item.unitPrice).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}

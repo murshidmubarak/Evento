@@ -106,6 +106,8 @@ export class EventService {
           serviceId: serviceIdValue,
           serviceName: srv.name,
           serviceDescription: srv.description,
+          pricingType: srv.pricingType,
+          basePrice: srv.basePrice,
           preferences: ss.preferences || {},
           referenceImages: referenceImages.length > 0 ? referenceImages : []
         };

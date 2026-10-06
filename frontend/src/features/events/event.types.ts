@@ -5,6 +5,8 @@ export interface EventServicePreference {
   serviceId: any;
   serviceName?: string;
   serviceDescription?: string;
+  pricingType?: 'per_guest' | 'per_event' | 'package';
+  basePrice?: number;
   preferences?: Record<string, unknown>;
   referenceImages?: {
     url: string;
