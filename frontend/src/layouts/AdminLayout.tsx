@@ -29,33 +29,30 @@ export const AdminLayout: React.FC = () => {
         <nav className="flex-1 px-3 py-4 space-y-1">
           <Link
             to="/admin"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-              isActive('/admin')
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${isActive('/admin')
                 ? 'bg-blue-50 text-[#0051e5]'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
+              }`}
           >
             <LayoutDashboard size={18} />
             Dashboard
           </Link>
           <Link
             to="/admin/events"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-              isActive('/admin/events')
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${isActive('/admin/events')
                 ? 'bg-blue-50 text-[#0051e5]'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
+              }`}
           >
             <CalendarX2 size={18} />
             Requested Events
           </Link>
           <Link
             to="/admin/quotations"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-              isActive('/admin/quotations')
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${isActive('/admin/quotations')
                 ? 'bg-blue-50 text-[#0051e5]'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
+              }`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
