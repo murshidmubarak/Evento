@@ -185,7 +185,7 @@ export const AdminCreateQuotation = () => {
       if (issue) {
         await sendQuotation(qtn._id);
       }
-      navigate(`/admin/events/${id}`);
+      navigate(`/admin/quotations/success/${qtn._id}`);
     } catch (err: any) {
       // Use saveError (not error) so the full-page load error check is NOT triggered
       const msg = err.response?.data?.message || 'Failed to save quotation';

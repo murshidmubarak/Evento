@@ -1,23 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
+import { getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
-import { Loader2, Calendar, Clock, MapPin, Users, Mail, Phone, ArrowLeft, FileText, ImageIcon } from 'lucide-react';
+import type { Quotation } from '../../features/quotations/quotation.types';
+import { Loader2, Calendar, Clock, MapPin, Users, Mail, Phone, ArrowLeft, FileText, ImageIcon, Eye } from 'lucide-react';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
 
 export const AdminEventDetails = () => {
   const { id } = useParams<{ id: string }>();
   const [event, setEvent] = useState<ClientEvent | null>(null);
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const fetchEvent = async () => {
+    const fetchEventData = async () => {
       try {
         setIsLoading(true);
         if (id) {
-          const data = await getEventById(id);
-          setEvent(data);
+          const eventData = await getEventById(id);
+          setEvent(eventData);
+          
+          try {
+            const quotationsData = await getQuotations(id);
+            if (quotationsData && quotationsData.length > 0) {
+              setQuotation(quotationsData[0]); // Assuming latest is first or only one exists
+            }
+          } catch (qErr) {
+            console.error('Failed to fetch quotation for this event', qErr);
+          }
         }
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load event details');
@@ -25,7 +37,7 @@ export const AdminEventDetails = () => {
         setIsLoading(false);
       }
     };
-    fetchEvent();
+    fetchEventData();
   }, [id]);
 
   if (isLoading) {
@@ -74,13 +86,23 @@ export const AdminEventDetails = () => {
           </div>
         </div>
         <div>
-          <Link
-            to={`/admin/events/${event._id}/quotation/create`}
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-xl font-semibold"
-          >
-            <FileText className="w-5 h-5" />
-            Create Quotation
-          </Link>
+          {!quotation || quotation.status === 'draft' ? (
+            <Link
+              to={`/admin/events/${event._id}/quotation/create`}
+              className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-xl font-semibold"
+            >
+              <FileText className="w-5 h-5" />
+              {quotation?.status === 'draft' ? 'Continue Quotation' : 'Create Quotation'}
+            </Link>
+          ) : (
+            <Link
+              to={`/admin/quotations/${quotation._id}`}
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all shadow-md hover:shadow-xl font-semibold"
+            >
+              <Eye className="w-5 h-5" />
+              View Quotation
+            </Link>
+          )}
         </div>
       </div>
 
