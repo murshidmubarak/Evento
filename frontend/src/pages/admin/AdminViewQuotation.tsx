@@ -68,14 +68,14 @@ export const AdminViewQuotation = () => {
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 print:p-0 print:m-0 print:space-y-0">
 
       {/* Top Action Bar (Hidden when printing) */}
-      <div className="flex items-center justify-between print:hidden mb-8">
-        <div className="flex items-center gap-4">
-          <button onClick={() => window.history.back()} className="p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden mb-6">
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
+          <button onClick={() => window.history.back()} className="p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors shadow-sm shrink-0 mt-0.5 sm:mt-0">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Quotation {quotation.quotationNumber}</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Quotation {quotation.quotationNumber}</h1>
               <span className={`px-2.5 py-1 text-[10px] font-bold rounded-md uppercase tracking-wider
                 ${quotation.status === 'draft' ? 'bg-gray-100 text-gray-800' :
                   quotation.status === 'sent' ? 'bg-blue-100 text-blue-800' :
@@ -87,15 +87,15 @@ export const AdminViewQuotation = () => {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 self-start sm:self-center shrink-0">
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors shadow-sm font-medium"
+            className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors shadow-sm font-medium text-xs sm:text-sm"
           >
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-[#172542] text-white rounded-xl hover:bg-[#0f192d] transition-colors shadow-sm font-medium">
+          <button className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-[#172542] text-white rounded-xl hover:bg-[#0f192d] transition-colors shadow-sm font-medium text-xs sm:text-sm">
             <Download className="w-4 h-4" />
             Download PDF
           </button>
@@ -106,19 +106,19 @@ export const AdminViewQuotation = () => {
       <div className="bg-white shadow-xl sm:rounded-md print:shadow-none print:rounded-none overflow-hidden text-[13px] font-sans text-gray-800 border border-gray-200 print:border-none relative min-h-[1056px]">
 
         {/* Top Dark Bar */}
-        <div className="h-8 bg-[#172542] w-full flex items-center justify-between px-10">
+        <div className="h-8 bg-[#172542] w-full flex items-center justify-between px-6 sm:px-10">
           <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase">EventOps ERP SYSTEM</span>
-          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase">Premium Event Experience</span>
+          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase hidden sm:inline">Premium Event Experience</span>
         </div>
 
-        <div className="p-10 sm:px-14 sm:py-12">
+        <div className="p-6 sm:p-10 sm:px-14 sm:py-12">
 
           {/* Header Section */}
-          <div className="flex justify-between items-start mb-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-8">
             <div className="flex flex-col gap-5">
               {/* Company Logo / Branding */}
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-[#172542] rounded-lg flex items-center justify-center text-white shadow-sm">
+                <div className="w-12 h-12 bg-[#172542] rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
                   <Calculator className="w-6 h-6" />
                 </div>
                 <div>
@@ -133,9 +133,9 @@ export const AdminViewQuotation = () => {
               </div>
             </div>
 
-            <div className="text-right flex flex-col items-end">
-              <h1 className="text-4xl font-black text-[#172542] tracking-wide mb-6">QUOTATION</h1>
-              <div className="bg-gray-50/80 rounded-md p-4 min-w-[240px]">
+            <div className="text-left sm:text-right flex flex-col items-start sm:items-end w-full sm:w-auto">
+              <h1 className="text-3xl sm:text-4xl font-black text-[#172542] tracking-wide mb-4 sm:mb-6">QUOTATION</h1>
+              <div className="bg-gray-50/80 rounded-md p-4 w-full sm:min-w-[240px]">
                 <table className="w-full text-left text-[11px]">
                   <tbody>
                     <tr>
@@ -159,12 +159,12 @@ export const AdminViewQuotation = () => {
           <div className="w-full h-px bg-gray-200 mb-8"></div>
 
           {/* Client & Event Info Section */}
-          <div className="grid grid-cols-2 gap-12 mb-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 mb-10">
             <div>
               <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Prepared For</h3>
               <p className="text-lg font-bold text-gray-900 mb-1">{quotation.eventSnapshot?.clientName || 'Client Name'}</p>
               {quotation.eventSnapshot?.location?.address ? (
-                <p className="text-gray-500 leading-relaxed pr-8">
+                <p className="text-gray-500 leading-relaxed pr-0 sm:pr-8">
                   {quotation.eventSnapshot.location.address}
                 </p>
               ) : (
@@ -201,8 +201,8 @@ export const AdminViewQuotation = () => {
           <h2 className="text-lg font-bold text-[#172542] mb-3">Services & pricing</h2>
 
           {/* Line Items Table */}
-          <div className="mb-10">
-            <table className="w-full text-left">
+          <div className="mb-10 overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+            <table className="w-full text-left min-w-[500px]">
               <thead className="bg-[#172542] text-white">
                 <tr>
                   <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest w-[55%]">Item & Description</th>
@@ -226,7 +226,7 @@ export const AdminViewQuotation = () => {
                           <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Included Services</p>
 
                           {/* We try to format it in columns if there are multiple sections */}
-                          <div className={`grid gap-4 ${item.detailedContent.length >= 3 ? 'grid-cols-3' : item.detailedContent.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                          <div className={`grid gap-4 ${item.detailedContent.length >= 3 ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3' : item.detailedContent.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                             {item.detailedContent.map((section, sidx) => (
                               <div key={sidx}>
                                 <p className="font-semibold text-gray-800 text-[11px] mb-2">{section.sectionName}</p>
@@ -251,10 +251,10 @@ export const AdminViewQuotation = () => {
           </div>
 
           {/* Bottom Section */}
-          <div className="flex justify-between items-start gap-10">
+          <div className="flex flex-col md:flex-row justify-between items-start gap-8 md:gap-10">
 
             {/* Left Side: Payment Schedule & Terms */}
-            <div className="flex-1 space-y-8">
+            <div className="flex-1 space-y-8 w-full">
               {quotation.paymentPlan && quotation.paymentPlan.length > 0 && (
                 <div>
                   <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Payment Schedule</h3>
@@ -287,7 +287,7 @@ export const AdminViewQuotation = () => {
             </div>
 
             {/* Right Side: Totals Summary */}
-            <div className="w-[340px] shrink-0">
+            <div className="w-full md:w-[340px] shrink-0">
               <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
                 <div className="p-5">
                   <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-4">Quotation Summary</h3>
@@ -328,7 +328,7 @@ export const AdminViewQuotation = () => {
               </div>
 
               {/* Authorized Signature */}
-              <div className="mt-16 text-center">
+              <div className="mt-12 md:mt-16 text-center">
                 <p className="text-gray-400 text-[10px] mb-1">Authorized Signatory</p>
                 <p className="font-bold text-[#172542] uppercase text-[11px] tracking-wider">EventOps Management</p>
               </div>
@@ -338,7 +338,7 @@ export const AdminViewQuotation = () => {
         </div>
 
         {/* Footer Note */}
-        <div className="absolute bottom-6 w-full text-center">
+        <div className="relative md:absolute bottom-6 w-full text-center mt-8 md:mt-0 px-4">
           <p className="text-[10px] text-gray-400">
             Thank you for choosing EventOps ERP. For any inquiries, reach out at: support@eventops.example.com
           </p>

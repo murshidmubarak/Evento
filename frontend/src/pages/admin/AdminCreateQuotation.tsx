@@ -11,7 +11,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export const AdminCreateQuotation = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+
   const [event, setEvent] = useState<ClientEvent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -24,7 +24,7 @@ export const AdminCreateQuotation = () => {
   const [notes, setNotes] = useState('');
   const [terms, setTerms] = useState('');
   const [conciergeNotes, setConciergeNotes] = useState('');
-  
+
   const [discount, setDiscount] = useState(0);
   const [advanceAmount, setAdvanceAmount] = useState(0);
 
@@ -34,12 +34,12 @@ export const AdminCreateQuotation = () => {
   const [gstTreatment, setGstTreatment] = useState<GstTreatment>('intra_state');
   const [placeOfSupply, setPlaceOfSupply] = useState('');
   const [customerGstin, setCustomerGstin] = useState('');
-  
+
   const [items, setItems] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<IQuotationSchedule[]>([]);
   const [paymentPlan, setPaymentPlan] = useState<IPaymentInstallment[]>([]);
   const [structuredTerms, setStructuredTerms] = useState<IStructuredTerm[]>([]);
-  
+
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -50,21 +50,21 @@ export const AdminCreateQuotation = () => {
         if (id) {
           const data = await getEventById(id);
           setEvent(data);
-          
+
           if (data.selectedServices) {
-              const initialItems = data.selectedServices.map(s => {
-                const isPerGuest = s.pricingType === 'per_guest';
-                return {
-                  serviceId: s.serviceId,
-                  name: s.serviceName,
-                  pricingType: s.pricingType || 'per_event',
-                  scope: '',
-                  requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
-                  quantity: isPerGuest ? (data.guestCount || 1) : 1,
-                  unitPrice: s.basePrice || 0,
-                  detailedContent: []
-                };
-              });
+            const initialItems = data.selectedServices.map(s => {
+              const isPerGuest = s.pricingType === 'per_guest';
+              return {
+                serviceId: s.serviceId,
+                name: s.serviceName,
+                pricingType: s.pricingType || 'per_event',
+                scope: '',
+                requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+                quantity: isPerGuest ? (data.guestCount || 1) : 1,
+                unitPrice: s.basePrice || 0,
+                detailedContent: []
+              };
+            });
             setItems(initialItems);
             if (initialItems.length > 0) setExpandedService(initialItems[0].serviceId);
           }
@@ -151,7 +151,7 @@ export const AdminCreateQuotation = () => {
           purpose: p.purpose || [],
           status: p.status || 'Pending'
         }));
-      
+
       const request: CreateQuotationRequest = {
         eventId: id!,
         items: sanitizedItems,
@@ -160,12 +160,12 @@ export const AdminCreateQuotation = () => {
         tax: taxType === 'none'
           ? { taxType: 'none', taxRate: 0 }
           : {
-              taxType,
-              taxRate,
-              ...(taxType === 'gst' ? { gstTreatment } : {}),
-              ...(placeOfSupply ? { placeOfSupply } : {}),
-              ...(customerGstin ? { customerGstin } : {}),
-            },
+            taxType,
+            taxRate,
+            ...(taxType === 'gst' ? { gstTreatment } : {}),
+            ...(placeOfSupply ? { placeOfSupply } : {}),
+            ...(customerGstin ? { customerGstin } : {}),
+          },
         validUntil: validUntil || undefined,
         notes,
         terms,
@@ -176,7 +176,7 @@ export const AdminCreateQuotation = () => {
       };
 
       const qtn = await createQuotation(request);
-      
+
       if (issue) {
         await sendQuotation(qtn._id);
       }
@@ -229,7 +229,7 @@ export const AdminCreateQuotation = () => {
 
   return (
     <div className="max-w-[1400px] mx-auto pb-24 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -286,20 +286,20 @@ export const AdminCreateQuotation = () => {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* Left Column - Form */}
         <div className="xl:col-span-2 space-y-6">
-          
+
           {/* Services & Pricing */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
               <h2 className="text-base font-bold text-gray-900">Services & Pricing</h2>
             </div>
-            
+
             <div className="p-6 space-y-4">
               {items.map((item, index) => (
                 <div key={item.serviceId} className="border border-gray-200 rounded-lg overflow-hidden transition-all duration-300">
-                  <div 
+                  <div
                     className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer hover:bg-gray-100"
                     onClick={() => setExpandedService(expandedService === item.serviceId ? null : item.serviceId)}
                   >
@@ -312,16 +312,16 @@ export const AdminCreateQuotation = () => {
                       {expandedService === item.serviceId ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                     </div>
                   </div>
-                  
+
                   {expandedService === item.serviceId && (
                     <div className="p-5 space-y-5 bg-white border-t border-gray-200">
-                      
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Scope</label>
-                          <input 
-                            type="text" 
-                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
+                          <input
+                            type="text"
+                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             placeholder="e.g. 500 plates"
                             value={item.scope}
                             onChange={e => updateItem(index, 'scope', e.target.value)}
@@ -329,9 +329,9 @@ export const AdminCreateQuotation = () => {
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Client Requirements</label>
-                          <input 
-                            type="text" 
-                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
+                          <input
+                            type="text"
+                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             placeholder="Requirements"
                             value={item.requirements}
                             onChange={e => updateItem(index, 'requirements', e.target.value)}
@@ -344,9 +344,9 @@ export const AdminCreateQuotation = () => {
                           <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
                             {item.pricingType === 'per_guest' ? 'Quantity (Guests)' : 'Quantity'}
                           </label>
-                          <input 
+                          <input
                             type="number" min="1" step="1"
-                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
+                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             value={item.quantity}
                             onChange={e => updateItem(index, 'quantity', Math.max(1, Math.floor(Number(e.target.value) || 1)))}
                           />
@@ -355,9 +355,9 @@ export const AdminCreateQuotation = () => {
                           <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">
                             Unit Price {item.pricingType === 'per_guest' ? '(Per Guest)' : ''}
                           </label>
-                          <input 
+                          <input
                             type="number" min="0"
-                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
+                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             value={item.unitPrice}
                             onChange={e => updateItem(index, 'unitPrice', Number(e.target.value) || 0)}
                           />
@@ -369,12 +369,12 @@ export const AdminCreateQuotation = () => {
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* Detailed Content */}
                       <div>
                         <div className="flex justify-between items-center mb-3">
                           <label className="block text-sm font-bold text-gray-900">Detailed Scope / Sub-items</label>
-                          <button 
+                          <button
                             className="text-indigo-600 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
                             onClick={() => {
                               const newContent = [...(item.detailedContent || []), { sectionName: '', items: [''] }];
@@ -384,13 +384,13 @@ export const AdminCreateQuotation = () => {
                             <Plus className="w-3 h-3" /> Add Section
                           </button>
                         </div>
-                        
+
                         <div className="space-y-4">
                           {item.detailedContent?.map((section: any, sIdx: number) => (
                             <div key={sIdx} className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
                               <div className="flex gap-2 mb-3">
-                                <input 
-                                  type="text" 
+                                <input
+                                  type="text"
                                   className="flex-1 border border-gray-300 rounded-md shadow-sm text-sm py-1.5 px-3 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                                   placeholder="Section Name (e.g. Main Course)"
                                   value={section.sectionName}
@@ -400,7 +400,7 @@ export const AdminCreateQuotation = () => {
                                     updateItem(index, 'detailedContent', newContent);
                                   }}
                                 />
-                                <button 
+                                <button
                                   className="text-gray-400 p-1.5 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-transparent hover:border-red-100"
                                   onClick={() => {
                                     const newContent = item.detailedContent.filter((_: any, i: number) => i !== sIdx);
@@ -414,7 +414,7 @@ export const AdminCreateQuotation = () => {
                                 {section.items.map((strItem: string, iIdx: number) => (
                                   <div key={iIdx} className="flex gap-2 items-center">
                                     <span className="text-gray-300 text-xs shrink-0">■</span>
-                                    <input 
+                                    <input
                                       type="text"
                                       className="flex-1 border border-gray-300 rounded-md shadow-sm text-sm py-1.5 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                                       placeholder="Item detail..."
@@ -426,7 +426,7 @@ export const AdminCreateQuotation = () => {
                                       }}
                                     />
                                     {iIdx === section.items.length - 1 ? (
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           const newContent = [...item.detailedContent];
                                           newContent[sIdx].items.push('');
@@ -437,7 +437,7 @@ export const AdminCreateQuotation = () => {
                                         <Plus className="w-4 h-4" />
                                       </button>
                                     ) : (
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           const newContent = [...item.detailedContent];
                                           newContent[sIdx].items = newContent[sIdx].items.filter((_: any, i: number) => i !== iIdx);
@@ -476,11 +476,10 @@ export const AdminCreateQuotation = () => {
                     <button
                       key={t}
                       onClick={() => { setTaxType(t); setTaxRate(0); }}
-                      className={`py-2 px-3 rounded-md text-sm font-bold border transition-all ${
-                        taxType === t
+                      className={`py-2 px-3 rounded-md text-sm font-bold border transition-all ${taxType === t
                           ? 'bg-[#111827] text-white border-[#111827] shadow-sm'
                           : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
+                        }`}
                     >
                       {t === 'none' ? 'No Tax' : t.toUpperCase()}
                     </button>
@@ -552,7 +551,7 @@ export const AdminCreateQuotation = () => {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Event Schedules</h2>
-              <button 
+              <button
                 onClick={() => setSchedules([...schedules, { title: '', time: '' }])}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
@@ -566,8 +565,8 @@ export const AdminCreateQuotation = () => {
                 <div className="space-y-3">
                   {schedules.map((sch, idx) => (
                     <div key={idx} className="flex gap-3 items-start">
-                      <input 
-                        type="text" placeholder="Title (e.g. Venue Handover)" 
+                      <input
+                        type="text" placeholder="Title (e.g. Venue Handover)"
                         className="flex-1 border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         value={sch.title}
                         onChange={e => {
@@ -576,8 +575,8 @@ export const AdminCreateQuotation = () => {
                           setSchedules(newSch);
                         }}
                       />
-                      <input 
-                        type="text" placeholder="Time (e.g. 7:00 AM)" 
+                      <input
+                        type="text" placeholder="Time (e.g. 7:00 AM)"
                         className="w-32 border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         value={sch.time}
                         onChange={e => {
@@ -600,7 +599,7 @@ export const AdminCreateQuotation = () => {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Payment Plan</h2>
-              <button 
+              <button
                 onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDateDescription: '', purpose: [] }])}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
@@ -609,7 +608,7 @@ export const AdminCreateQuotation = () => {
             </div>
             <div className="p-6">
               {paymentPlan.length === 0 ? (
-                 <p className="text-gray-500 italic text-sm text-center py-2">No payment installments added.</p>
+                <p className="text-gray-500 italic text-sm text-center py-2">No payment installments added.</p>
               ) : (
                 <div className="space-y-4">
                   {paymentPlan.map((plan, idx) => (
@@ -618,8 +617,8 @@ export const AdminCreateQuotation = () => {
                         <div className="flex gap-3">
                           <div className="flex-1">
                             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Title</label>
-                            <input 
-                              type="text" placeholder="e.g. Booking Advance" 
+                            <input
+                              type="text" placeholder="e.g. Booking Advance"
                               className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               value={plan.title}
                               onChange={e => {
@@ -631,7 +630,7 @@ export const AdminCreateQuotation = () => {
                           </div>
                           <div className="w-32">
                             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Amount (₹)</label>
-                            <input 
+                            <input
                               type="number" placeholder="0" min="0"
                               className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold text-gray-900"
                               value={plan.amount}
@@ -645,8 +644,8 @@ export const AdminCreateQuotation = () => {
                         </div>
                         <div>
                           <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Due Condition</label>
-                          <input 
-                            type="text" placeholder="e.g. Immediate upon acceptance" 
+                          <input
+                            type="text" placeholder="e.g. Immediate upon acceptance"
                             className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             value={plan.dueDateDescription}
                             onChange={e => {
@@ -671,7 +670,7 @@ export const AdminCreateQuotation = () => {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Structured Terms</h2>
-              <button 
+              <button
                 onClick={() => setStructuredTerms([...structuredTerms, { title: '', content: '' }])}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
@@ -679,15 +678,15 @@ export const AdminCreateQuotation = () => {
               </button>
             </div>
             <div className="p-6">
-               {structuredTerms.length === 0 ? (
-                 <p className="text-gray-500 italic text-sm text-center py-2">No structured terms added.</p>
+              {structuredTerms.length === 0 ? (
+                <p className="text-gray-500 italic text-sm text-center py-2">No structured terms added.</p>
               ) : (
                 <div className="space-y-4">
                   {structuredTerms.map((term, idx) => (
                     <div key={idx} className="flex gap-3">
                       <div className="flex-1 space-y-2">
-                        <input 
-                          type="text" placeholder="Title (e.g. Validity, Cancellation)" 
+                        <input
+                          type="text" placeholder="Title (e.g. Validity, Cancellation)"
                           className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
                           value={term.title}
                           onChange={e => {
@@ -696,8 +695,8 @@ export const AdminCreateQuotation = () => {
                             setStructuredTerms(newT);
                           }}
                         />
-                        <textarea 
-                          placeholder="Content (optional)..." 
+                        <textarea
+                          placeholder="Content (optional)..."
                           className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                           rows={2}
                           value={term.content}
@@ -726,7 +725,7 @@ export const AdminCreateQuotation = () => {
             <div className="p-6 space-y-5">
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">General Notes</label>
-                <textarea 
+                <textarea
                   className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500" rows={2}
                   value={notes} onChange={e => setNotes(e.target.value)}
                   placeholder="Notes visible to client..."
@@ -734,7 +733,7 @@ export const AdminCreateQuotation = () => {
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Standard Terms & Conditions</label>
-                <textarea 
+                <textarea
                   className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500" rows={2}
                   value={terms} onChange={e => setTerms(e.target.value)}
                   placeholder="General terms..."
@@ -742,7 +741,7 @@ export const AdminCreateQuotation = () => {
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 text-amber-600">Internal Concierge Notes (Admin Only)</label>
-                <textarea 
+                <textarea
                   className="w-full border border-amber-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-amber-50" rows={2}
                   value={conciergeNotes} onChange={e => setConciergeNotes(e.target.value)}
                   placeholder="Notes for internal team..."
@@ -755,12 +754,12 @@ export const AdminCreateQuotation = () => {
 
         {/* Right Column - Summary & Settings */}
         <div className="space-y-6">
-          
+
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm sticky top-6">
             <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50">
               <h3 className="text-sm font-bold text-gray-900">Financial Summary</h3>
             </div>
-            
+
             <div className="p-5">
               <div className="space-y-3 text-sm mb-6">
                 <div className="flex justify-between items-center text-gray-600">
@@ -769,9 +768,9 @@ export const AdminCreateQuotation = () => {
                 </div>
                 <div className="flex justify-between items-center text-gray-600">
                   <span className="font-medium">Discount</span>
-                  <input 
+                  <input
                     type="number" min="0" max={subtotal}
-                    className="w-24 border border-gray-300 rounded-md py-1 px-2 text-right text-red-600 font-bold text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" 
+                    className="w-24 border border-gray-300 rounded-md py-1 px-2 text-right text-red-600 font-bold text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     value={discount}
                     onChange={e => setDiscount(Number(e.target.value) || 0)}
                   />
@@ -780,7 +779,7 @@ export const AdminCreateQuotation = () => {
                   <span className="font-medium">Taxable Amount</span>
                   <span className="font-bold text-gray-900">{formatCurrency(taxableAmount)}</span>
                 </div>
-                
+
                 {taxType !== 'none' && taxAmount > 0 && (
                   <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 space-y-2 mt-2">
                     {taxType === 'gst' && gstTreatment === 'intra_state' && (
@@ -813,14 +812,14 @@ export const AdminCreateQuotation = () => {
                     </div>
                   </div>
                 )}
-                
+
                 {taxType !== 'none' && taxAmount === 0 && (
                   <div className="flex justify-between items-center text-gray-400 text-xs italic mt-2">
                     <span>Tax ({taxType.toUpperCase()})</span>
                     <span>₹0.00 (Exempt / 0%)</span>
                   </div>
                 )}
-                
+
                 <div className="pt-4 mt-2 border-t border-gray-200 flex justify-between items-center">
                   <span className="font-bold text-gray-900">Total Amount</span>
                   <span className="font-black text-indigo-600 text-xl">{formatCurrency(finalAmount)}</span>
@@ -830,9 +829,9 @@ export const AdminCreateQuotation = () => {
               <div className="space-y-4 pt-4 border-t border-gray-100">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Advance Required (₹)</label>
-                  <input 
+                  <input
                     type="number" min="0" max={finalAmount}
-                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500" 
+                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     value={advanceAmount}
                     onChange={e => setAdvanceAmount(Number(e.target.value) || 0)}
                   />
@@ -843,15 +842,15 @@ export const AdminCreateQuotation = () => {
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Valid Until</label>
-                  <input 
+                  <input
                     type="date"
-                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500" 
+                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     value={validUntil}
                     onChange={e => setValidUntil(e.target.value)}
                   />
                 </div>
               </div>
-              
+
               <div className="mt-5 pt-5 border-t border-gray-100">
                 <p className="text-[10px] text-gray-400 text-center uppercase tracking-widest font-bold">
                   Calculations performed securely on backend.
@@ -859,7 +858,7 @@ export const AdminCreateQuotation = () => {
               </div>
             </div>
           </div>
-          
+
         </div>
       </div>
 
@@ -968,7 +967,7 @@ export const AdminCreateQuotation = () => {
                             )}
                           </td>
                           <td className="py-4 px-2 text-center font-semibold text-gray-700 text-sm">
-                            {item.quantity} 
+                            {item.quantity}
                           </td>
                           <td className="py-4 px-2 text-right text-gray-600 text-sm">
                             {formatCurrency(item.unitPrice)}
@@ -983,10 +982,10 @@ export const AdminCreateQuotation = () => {
 
               {/* Financials & Left Column Info */}
               <div className="flex flex-col md:flex-row justify-between gap-10 mb-10">
-                
+
                 {/* Left Side: Schedules & Plans */}
                 <div className="flex-1 space-y-8 order-2 md:order-1">
-                  
+
                   {schedules.length > 0 && (
                     <div>
                       <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Event Schedule</h3>
@@ -1033,7 +1032,7 @@ export const AdminCreateQuotation = () => {
                       </div>
                     </div>
                   )}
-                  
+
                   {terms && (
                     <div>
                       <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">General Terms</h3>
@@ -1054,7 +1053,7 @@ export const AdminCreateQuotation = () => {
                   <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
                     <div className="p-5 space-y-2.5">
                       <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Quotation Summary</h3>
-                      
+
                       <div className="flex justify-between text-gray-600 text-xs">
                         <span className="font-medium">Subtotal</span>
                         <span className="font-bold text-gray-900">{formatCurrency(subtotal)}</span>
@@ -1105,13 +1104,13 @@ export const AdminCreateQuotation = () => {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="bg-[#111827] text-white p-5 m-1 rounded-md flex flex-col justify-center text-right">
                       <span className="text-[10px] font-bold text-white/70 uppercase tracking-widest mb-1">Total Amount</span>
                       <span className="text-2xl font-black tracking-tight">{formatCurrency(finalAmount)}</span>
                     </div>
                   </div>
-                  
+
                   {/* Authorized Signature Placeholder */}
                   <div className="mt-12 text-right">
                     <p className="text-gray-400 text-[10px] mb-1 uppercase tracking-widest font-bold">Authorized Signatory</p>

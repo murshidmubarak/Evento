@@ -29,7 +29,7 @@ const CustomList = ({ title, items, predefined, onChange, placeholder }: { title
 
   return (
     <div className="mb-6 last:mb-0">
-      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">[{title}]</p>
+      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">{title}</p>
       <div className="flex flex-wrap gap-4 mb-3">
         {predefined.map(item => (
           <label key={item} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
@@ -1158,7 +1158,7 @@ export const CreateEventWizard = () => {
                   : 'bg-blue-300 text-white cursor-not-allowed'
                 }`}
             >
-              [Next Step]
+              Next Step
               <ArrowRight className="w-4 h-4" />
             </button>
           ) : (

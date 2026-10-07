@@ -130,19 +130,19 @@ export const AdminQuotationSuccess = () => {
           </div>
         </div>
         
-        <div className="bg-gray-50/80 p-6 flex flex-col sm:flex-row justify-end gap-4 border-t border-gray-100">
+        <div className="bg-gray-50/80 p-6 flex flex-col sm:flex-row justify-end gap-3 border-t border-gray-100">
           <Link
             to="/admin/quotations"
-            className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-gray-700 hover:text-gray-900 font-medium rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-gray-700 hover:text-gray-900 font-semibold text-xs sm:text-sm rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors shadow-2xs"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
             Back to Quotations
           </Link>
           <Link
-            to={`/admin/events/${quotation.eventId}`}
-            className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-colors shadow-sm"
+            to={`/admin/quotations/${quotation._id}`}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#111827] hover:bg-gray-800 text-white font-semibold text-xs sm:text-sm rounded-lg transition-colors shadow-2xs"
           >
-            <Eye className="w-5 h-5" />
+            <Eye className="w-4 h-4" />
             View Quotation
           </Link>
         </div>

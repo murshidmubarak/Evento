@@ -1,75 +1,80 @@
 import { Link } from 'react-router-dom';
 import type { ClientEvent } from '../event.types';
-import { Calendar, MapPin, Users, IndianRupee, Clock } from 'lucide-react';
+import { Calendar, MapPin, Users, IndianRupee, Clock, ArrowRight } from 'lucide-react';
 
 interface EventCardProps {
   event: ClientEvent;
 }
 
-const statusColors: Record<string, { bg: string, text: string }> = {
-  requested: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
-  quoted: { bg: 'bg-blue-100', text: 'text-blue-800' },
-  awaiting_payment: { bg: 'bg-orange-100', text: 'text-orange-800' },
-  confirmed: { bg: 'bg-green-100', text: 'text-green-800' },
-  in_progress: { bg: 'bg-purple-100', text: 'text-purple-800' },
-  completed: { bg: 'bg-gray-100', text: 'text-gray-800' },
-  cancelled: { bg: 'bg-red-100', text: 'text-red-800' },
+const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
+  requested: { bg: 'bg-amber-50 border-amber-200/70', text: 'text-amber-700', label: 'Requested' },
+  quoted: { bg: 'bg-blue-50 border-blue-200/70', text: 'text-blue-700', label: 'Quoted' },
+  awaiting_payment: { bg: 'bg-orange-50 border-orange-200/70', text: 'text-orange-700', label: 'Awaiting Payment' },
+  confirmed: { bg: 'bg-emerald-50 border-emerald-200/70', text: 'text-emerald-700', label: 'Confirmed' },
+  in_progress: { bg: 'bg-purple-50 border-purple-200/70', text: 'text-purple-700', label: 'In Progress' },
+  completed: { bg: 'bg-gray-100 border-gray-200', text: 'text-gray-700', label: 'Completed' },
+  cancelled: { bg: 'bg-rose-50 border-rose-200/70', text: 'text-rose-700', label: 'Cancelled' },
 };
 
 export const EventCard = ({ event }: EventCardProps) => {
-  const statusFormat = statusColors[event.status] || { bg: 'bg-gray-100', text: 'text-gray-800' };
+  const status = statusConfig[event.status] || {
+    bg: 'bg-gray-100 border-gray-200',
+    text: 'text-gray-700',
+    label: event.status.replace(/_/g, ' ')
+  };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow overflow-hidden flex flex-col group">
-      <div className="p-6 flex-grow">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-1">
+    <div className="bg-white rounded-xl shadow-xs border border-gray-200/90 hover:border-gray-300 hover:shadow-sm transition-all overflow-hidden flex flex-col group">
+      <div className="p-5 flex-grow">
+        <div className="flex justify-between items-start gap-2 mb-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-bold text-gray-900 group-hover:text-indigo-600 transition-colors truncate">
               {event.title}
             </h3>
-            <p className="text-sm font-medium text-indigo-600">{event.eventType}</p>
+            <p className="text-xs font-semibold text-indigo-600 mt-0.5">{event.eventType}</p>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${statusFormat.bg} ${statusFormat.text}`}>
-            {event.status.replace('_', ' ')}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border shrink-0 ${status.bg} ${status.text}`}>
+            {status.label}
           </span>
         </div>
 
-        <div className="space-y-3 mt-5">
-          <div className="flex items-center text-sm text-gray-600 gap-3">
-            <Calendar className="w-4 h-4 text-gray-400" />
-            <span>{new Date(event.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+        <div className="space-y-2.5 mt-4 pt-3 border-t border-gray-100">
+          <div className="flex items-center text-xs text-gray-600 gap-2.5">
+            <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span className="truncate">{new Date(event.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
           </div>
           
-          <div className="flex items-center text-sm text-gray-600 gap-3">
-            <Clock className="w-4 h-4 text-gray-400" />
-            <span>{event.startTime} - {event.endTime}</span>
+          <div className="flex items-center text-xs text-gray-600 gap-2.5">
+            <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span>{event.startTime} – {event.endTime}</span>
           </div>
 
-          <div className="flex items-start text-sm text-gray-600 gap-3">
-            <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-            <span className="line-clamp-2">{event.location.address}</span>
+          <div className="flex items-start text-xs text-gray-600 gap-2.5">
+            <MapPin className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
+            <span className="line-clamp-1">{event.location.address}</span>
           </div>
 
-          <div className="flex items-center text-sm text-gray-600 gap-3">
-            <Users className="w-4 h-4 text-gray-400" />
-            <span>{event.guestCount} guests expected</span>
+          <div className="flex items-center text-xs text-gray-600 gap-2.5">
+            <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span>{event.guestCount} guests</span>
           </div>
 
           {event.budget !== undefined && event.budget > 0 && (
-            <div className="flex items-center text-sm text-gray-600 gap-3">
-              <IndianRupee className="w-4 h-4 text-gray-400" />
-              <span>{event.budget.toLocaleString()} budget</span>
+            <div className="flex items-center text-xs text-gray-600 gap-2.5">
+              <IndianRupee className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <span>₹{event.budget.toLocaleString()} budget</span>
             </div>
           )}
         </div>
       </div>
-      <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+
+      <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-100">
         <Link 
           to={`/client/events/${event._id}`} 
-          className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center justify-between w-full"
+          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center justify-between w-full"
         >
-          View Details
-          <span aria-hidden="true">&rarr;</span>
+          <span>View Details</span>
+          <ArrowRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
         </Link>
       </div>
     </div>

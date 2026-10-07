@@ -21,11 +21,11 @@ export const AdminEventDetails = () => {
         if (id) {
           const eventData = await getEventById(id);
           setEvent(eventData);
-          
+
           try {
             const quotationsData = await getQuotations(id);
             if (quotationsData && quotationsData.length > 0) {
-              setQuotation(quotationsData[0]); 
+              setQuotation(quotationsData[0]);
             }
           } catch (qErr) {
             console.error('Failed to fetch quotation for this event', qErr);
@@ -80,26 +80,26 @@ export const AdminEventDetails = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      
+
       {/* Breadcrumbs & Actions Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link to="/admin/events" className="p-2 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg transition-colors text-gray-500 shadow-sm">
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
+          <Link to="/admin/events" className="p-2 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg transition-colors text-gray-500 shadow-sm shrink-0 mt-0.5 sm:mt-0">
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
-              {event.title}
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 tracking-tight flex flex-wrap items-center gap-2.5">
+              <span>{event.title}</span>
               {getStatusBadge(event.status)}
             </h1>
-            <p className="text-gray-500 text-sm mt-1 font-mono">{event._id}</p>
+            <p className="text-gray-400 text-xs mt-1 font-mono truncate">{event._id}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {!quotation || quotation.status === 'draft' ? (
             <Link
               to={`/admin/events/${event._id}/quotation/create`}
-              className="flex items-center gap-2 bg-[#111827] text-white px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-semibold text-sm"
+              className="flex items-center gap-2 bg-[#111827] text-white px-4 sm:px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-semibold text-xs sm:text-sm"
             >
               <FileText className="w-4 h-4" />
               {quotation?.status === 'draft' ? 'Continue Quotation' : 'Create Quotation'}
@@ -107,7 +107,7 @@ export const AdminEventDetails = () => {
           ) : (
             <Link
               to={`/admin/quotations/${quotation._id}`}
-              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-lg hover:bg-gray-50 transition-colors shadow-sm font-semibold text-sm"
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-lg hover:bg-gray-50 transition-colors shadow-sm font-semibold text-xs sm:text-sm"
             >
               <Eye className="w-4 h-4 text-gray-500" />
               View Quotation
@@ -117,16 +117,16 @@ export const AdminEventDetails = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* Left Column - Main Details */}
         <div className="xl:col-span-2 space-y-6">
-          
+
           {/* Selected Services Card */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50">
               <h2 className="text-base font-bold text-gray-900">Selected Services</h2>
             </div>
-            
+
             <div className="p-6">
               {event.selectedServices && event.selectedServices.length > 0 ? (
                 <div className="space-y-6">
@@ -143,7 +143,7 @@ export const AdminEventDetails = () => {
                           Service
                         </span>
                       </div>
-                      
+
                       {/* Client Preferences */}
                       {Object.keys(service.preferences || {}).length > 0 && (
                         <div className="mb-5 bg-gray-50 rounded-lg p-4 border border-gray-100">
@@ -171,9 +171,9 @@ export const AdminEventDetails = () => {
                           <div className="flex gap-3 overflow-x-auto pb-2">
                             {service.referenceImages.map((img: any) => (
                               <a href={img.url} target="_blank" rel="noopener noreferrer" key={img.publicId} className="shrink-0 group">
-                                <img 
-                                  src={img.url} 
-                                  alt="Reference" 
+                                <img
+                                  src={img.url}
+                                  alt="Reference"
                                   className="w-24 h-24 object-cover rounded-lg border border-gray-200 group-hover:opacity-90 transition-opacity shadow-sm"
                                 />
                               </a>
@@ -195,7 +195,7 @@ export const AdminEventDetails = () => {
           {/* Notes Card */}
           {event.notes && (
             <div className="bg-amber-50 rounded-xl border border-amber-200 shadow-sm overflow-hidden">
-               <div className="px-6 py-4 border-b border-amber-200 bg-amber-100/50">
+              <div className="px-6 py-4 border-b border-amber-200 bg-amber-100/50">
                 <h2 className="text-base font-bold text-amber-900">Client Notes</h2>
               </div>
               <div className="p-6">
@@ -207,7 +207,7 @@ export const AdminEventDetails = () => {
 
         {/* Right Column - Meta Info */}
         <div className="space-y-6">
-          
+
           {/* Client Information */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50">
@@ -249,7 +249,7 @@ export const AdminEventDetails = () => {
                   <p className="text-sm font-semibold text-gray-900">{new Date(event.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
                 </div>
               </div>
-              
+
               <div className="flex items-start gap-3">
                 <Clock className="w-4 h-4 text-gray-400 mt-0.5" />
                 <div>

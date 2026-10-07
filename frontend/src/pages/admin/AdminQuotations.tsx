@@ -8,7 +8,7 @@ export const AdminQuotations = () => {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -33,14 +33,14 @@ export const AdminQuotations = () => {
     const clientName = qtn.eventSnapshot?.clientName || '';
     const eventTitle = qtn.eventSnapshot?.title || '';
     const qtnId = qtn.quotationNumber || '';
-    
-    const matchesSearch = 
+
+    const matchesSearch =
       qtnId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       eventTitle.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
     const matchesStatus = statusFilter ? qtn.status === statusFilter : true;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -78,7 +78,7 @@ export const AdminQuotations = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
-      
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
@@ -153,7 +153,7 @@ export const AdminQuotations = () => {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-          
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -168,7 +168,7 @@ export const AdminQuotations = () => {
               <tbody className="divide-y divide-gray-100">
                 {paginatedQuotations.map((qtn) => (
                   <tr key={qtn._id} className="hover:bg-gray-50/50 transition-colors group">
-                    
+
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
                         <span className="font-bold text-gray-900 text-sm mb-1">{qtn.quotationNumber}</span>
@@ -177,7 +177,7 @@ export const AdminQuotations = () => {
                         </span>
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="font-semibold text-gray-900 text-sm mb-1 truncate max-w-[200px] sm:max-w-[300px]">
@@ -188,15 +188,15 @@ export const AdminQuotations = () => {
                         </span>
                       </div>
                     </td>
-                    
+
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <span className="font-bold text-gray-900">{formatCurrency(qtn.finalAmount)}</span>
                     </td>
-                    
+
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       {getStatusBadge(qtn.status)}
                     </td>
-                    
+
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
                         {qtn.status === 'draft' ? (
@@ -223,7 +223,7 @@ export const AdminQuotations = () => {
               </tbody>
             </table>
           </div>
-          
+
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between sm:justify-end gap-4">
