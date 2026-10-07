@@ -66,7 +66,7 @@ export const AdminViewQuotation = () => {
 
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 print:p-0 print:m-0 print:space-y-0">
-      
+
       {/* Top Action Bar (Hidden when printing) */}
       <div className="flex items-center justify-between print:hidden mb-8">
         <div className="flex items-center gap-4">
@@ -77,10 +77,10 @@ export const AdminViewQuotation = () => {
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Quotation {quotation.quotationNumber}</h1>
               <span className={`px-2.5 py-1 text-[10px] font-bold rounded-md uppercase tracking-wider
-                ${quotation.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
-                  quotation.status === 'sent' ? 'bg-blue-100 text-blue-800' : 
-                  quotation.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
-                  'bg-amber-100 text-amber-800'}`}
+                ${quotation.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                  quotation.status === 'sent' ? 'bg-blue-100 text-blue-800' :
+                    quotation.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
+                      'bg-amber-100 text-amber-800'}`}
               >
                 {quotation.status.replace('_', ' ')}
               </span>
@@ -88,7 +88,7 @@ export const AdminViewQuotation = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={handlePrint}
             className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors shadow-sm font-medium"
           >
@@ -104,7 +104,7 @@ export const AdminViewQuotation = () => {
 
       {/* A4 Document Container */}
       <div className="bg-white shadow-xl sm:rounded-md print:shadow-none print:rounded-none overflow-hidden text-[13px] font-sans text-gray-800 border border-gray-200 print:border-none relative min-h-[1056px]">
-        
+
         {/* Top Dark Bar */}
         <div className="h-8 bg-[#172542] w-full flex items-center justify-between px-10">
           <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase">EventOps ERP SYSTEM</span>
@@ -112,7 +112,7 @@ export const AdminViewQuotation = () => {
         </div>
 
         <div className="p-10 sm:px-14 sm:py-12">
-          
+
           {/* Header Section */}
           <div className="flex justify-between items-start mb-8">
             <div className="flex flex-col gap-5">
@@ -132,7 +132,7 @@ export const AdminViewQuotation = () => {
                 <p>+1 (555) 123-4567</p>
               </div>
             </div>
-            
+
             <div className="text-right flex flex-col items-end">
               <h1 className="text-4xl font-black text-[#172542] tracking-wide mb-6">QUOTATION</h1>
               <div className="bg-gray-50/80 rounded-md p-4 min-w-[240px]">
@@ -171,11 +171,11 @@ export const AdminViewQuotation = () => {
                 <p className="text-gray-400 italic">No address provided</p>
               )}
             </div>
-            
+
             <div>
               <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Event Details</h3>
               <p className="text-lg font-bold text-gray-900 mb-3">{quotation.eventSnapshot?.title || 'Event Title'}</p>
-              
+
               <div className="grid grid-cols-2 gap-y-2 gap-x-4">
                 <div className="flex">
                   <span className="text-gray-400 w-12 font-medium">Type:</span>
@@ -219,12 +219,12 @@ export const AdminViewQuotation = () => {
                       {item.requirements && (
                         <p className="text-gray-500 mb-4">{item.requirements}</p>
                       )}
-                      
+
                       {/* Nested Detailed Content */}
                       {item.detailedContent && item.detailedContent.length > 0 && (
                         <div className="bg-gray-50/80 rounded border border-gray-100 p-4 mt-2">
                           <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Included Services</p>
-                          
+
                           {/* We try to format it in columns if there are multiple sections */}
                           <div className={`grid gap-4 ${item.detailedContent.length >= 3 ? 'grid-cols-3' : item.detailedContent.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                             {item.detailedContent.map((section, sidx) => (
@@ -252,7 +252,7 @@ export const AdminViewQuotation = () => {
 
           {/* Bottom Section */}
           <div className="flex justify-between items-start gap-10">
-            
+
             {/* Left Side: Payment Schedule & Terms */}
             <div className="flex-1 space-y-8">
               {quotation.paymentPlan && quotation.paymentPlan.length > 0 && (
@@ -320,13 +320,13 @@ export const AdminViewQuotation = () => {
                     </tbody>
                   </table>
                 </div>
-                
+
                 <div className="bg-[#172542] text-white p-5 m-1 rounded-md flex flex-col justify-center">
                   <span className="text-[10px] font-bold text-white/80 uppercase tracking-widest mb-1">Total Amount</span>
                   <span className="text-3xl font-bold tracking-tight">{formatCurrency(quotation.finalAmount)}</span>
                 </div>
               </div>
-              
+
               {/* Authorized Signature */}
               <div className="mt-16 text-center">
                 <p className="text-gray-400 text-[10px] mb-1">Authorized Signatory</p>
@@ -334,9 +334,9 @@ export const AdminViewQuotation = () => {
               </div>
             </div>
           </div>
-          
+
         </div>
-        
+
         {/* Footer Note */}
         <div className="absolute bottom-6 w-full text-center">
           <p className="text-[10px] text-gray-400">

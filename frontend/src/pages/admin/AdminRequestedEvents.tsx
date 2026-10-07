@@ -114,7 +114,7 @@ export const AdminRequestedEvents = () => {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Event Details</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Client & Services</th>
+                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Client</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Date & Time</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Status</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest text-right">Action</th>
@@ -136,18 +136,6 @@ export const AdminRequestedEvents = () => {
                       <p className="font-semibold text-gray-900 text-sm mb-1">
                         {event.clientInfo?.name || (event.clientId as any)?.name || 'Unknown Client'}
                       </p>
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {event.selectedServices?.slice(0, 2).map((s: any, idx: number) => (
-                          <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded uppercase tracking-wider">
-                            {s.serviceName?.split(' ')[0]}
-                          </span>
-                        ))}
-                        {event.selectedServices && event.selectedServices.length > 2 && (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded">
-                            +{event.selectedServices.length - 2}
-                          </span>
-                        )}
-                      </div>
                     </td>
                     <td className="px-6 py-4 align-top text-sm">
                       <p className="font-semibold text-gray-900 mb-1">
