@@ -309,6 +309,13 @@ export class QuotationService {
     return this.quotationRepository.findByEventId(eventId);
   }
 
+  async getQuotationsByClient(user: { id: string; role: string }) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only clients can fetch their quotations.');
+    }
+    return this.quotationRepository.findByClientId(user.id);
+  }
+
   async getQuotationById(user: { id: string; role: string }, quotationId: string) {
     const quotation = await this.quotationRepository.findById(quotationId);
     if (!quotation) {
@@ -400,7 +407,7 @@ export class QuotationService {
     return quotation;
   }
 
-  async rejectQuotation(user: { id: string; role: string }, quotationId: string) {
+  async rejectQuotation(user: { id: string; role: string }, quotationId: string, reason?: string) {
     if (user.role !== 'client') {
       throw ApiError.forbidden('Only the client can reject a quotation.');
     }
@@ -424,10 +431,13 @@ export class QuotationService {
     }
 
     quotation.status = 'rejected';
+    if (reason && typeof reason === 'string') {
+      quotation.rejectionReason = reason.trim();
+    }
     return quotation.save();
   }
 
-  async requestChangesQuotation(user: { id: string; role: string }, quotationId: string) {
+  async requestChangesQuotation(user: { id: string; role: string }, quotationId: string, reason?: string) {
     if (user.role !== 'client') {
       throw ApiError.forbidden('Only the client can request changes to a quotation.');
     }
@@ -455,6 +465,9 @@ export class QuotationService {
     }
 
     quotation.status = 'changes_requested';
+    if (reason && typeof reason === 'string') {
+      quotation.clientNotes = reason.trim();
+    }
     return quotation.save();
   }
 }

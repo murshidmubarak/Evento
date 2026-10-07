@@ -26,3 +26,18 @@ export const sendQuotation = async (id: string): Promise<Quotation> => {
   const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/send`);
   return response.data.data as unknown as Quotation;
 };
+
+export const acceptQuotation = async (id: string): Promise<Quotation> => {
+  const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/accept`);
+  return response.data.data as unknown as Quotation;
+};
+
+export const rejectQuotation = async (id: string, reason?: string): Promise<Quotation> => {
+  const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/reject`, { reason });
+  return response.data.data as unknown as Quotation;
+};
+
+export const requestChangesQuotation = async (id: string, reason: string): Promise<Quotation> => {
+  const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/request-changes`, { reason });
+  return response.data.data as unknown as Quotation;
+};

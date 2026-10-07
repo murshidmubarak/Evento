@@ -86,6 +86,8 @@ export interface Quotation {
   schedules?: IQuotationSchedule[];
   paymentPlan?: IPaymentInstallment[];
   conciergeNotes?: string;
+  clientNotes?: string;
+  rejectionReason?: string;
   status: QuotationStatus;
   createdBy: string;
   createdAt: string;

@@ -125,71 +125,68 @@ export const CreateEventWizard = () => {
   const [isRetryingUpload, setIsRetryingUpload] = useState(false);
 
   useEffect(() => {
-    if (step === 4 && availableServices.length === 0) {
-      const loadServices = async () => {
-        setIsLoadingServices(true);
-        try {
-          const services = await getActiveServices();
-          setAvailableServices(services);
-        } catch (err) {
-          console.error('Failed to load services', err);
-        } finally {
-          setIsLoadingServices(false);
-        }
-      };
-      loadServices();
-    }
-  }, [step, availableServices.length]);
+    const loadServices = async () => {
+      setIsLoadingServices(true);
+      try {
+        const services = await getActiveServices();
+        setAvailableServices(services);
+      } catch (err) {
+        console.error('Failed to load services', err);
+      } finally {
+        setIsLoadingServices(false);
+      }
+    };
+    loadServices();
+  }, []);
 
   const getSelectedServicesList = () => {
     const list: Array<{ serviceId: string, preferences: any, name: string, basePrice: number }> = [];
 
     // Catering
     const catService = availableServices.find(s => s.name.toLowerCase().match(/catering|food|dining/));
-    const hasCateringData = cateringPrefs.serviceMode?.length > 0 ||
-      cateringPrefs.starters?.length > 0 ||
-      cateringPrefs.mainDishes?.length > 0 ||
-      cateringPrefs.juices?.length > 0 ||
-      cateringPrefs.desserts?.length > 0;
+    const hasCateringData = (cateringPrefs.serviceMode && cateringPrefs.serviceMode.length > 0) ||
+      (cateringPrefs.starters && cateringPrefs.starters.length > 0) ||
+      (cateringPrefs.mainDishes && cateringPrefs.mainDishes.length > 0) ||
+      (cateringPrefs.juices && cateringPrefs.juices.length > 0) ||
+      (cateringPrefs.desserts && cateringPrefs.desserts.length > 0);
 
-    if (catService && hasCateringData) {
+    const targetCatId = catService?._id || (catService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('cater'))?._id || availableServices[0]?._id;
+    if (targetCatId && hasCateringData) {
       list.push({
-        serviceId: catService._id || (catService as any).id,
+        serviceId: targetCatId,
         preferences: { ...cateringPrefs },
-        name: catService.name,
-        basePrice: catService.basePrice || 0
+        name: catService?.name || 'Catering Service',
+        basePrice: catService?.basePrice || 0
       });
     }
 
     // Decoration
     const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
-    if (decService && (decorationPrefs.style || decorationPrefs.notes)) {
+    const targetDecId = decService?._id || (decService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('decor'))?._id || availableServices[1]?._id;
+    if (targetDecId && (decorationPrefs.style || decorationPrefs.notes || referenceImages.length > 0)) {
       list.push({
-        serviceId: decService._id || (decService as any).id,
+        serviceId: targetDecId,
         preferences: { ...decorationPrefs },
-        name: decService.name,
-        basePrice: decService.basePrice || 0
+        name: decService?.name || 'Stage Decoration Service',
+        basePrice: decService?.basePrice || 0
       });
     }
 
     // Photography
     const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/));
-    if (photoService && photoPrefs.package) {
+    const targetPhotoId = photoService?._id || (photoService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('photo'))?._id || availableServices[2]?._id;
+    if (targetPhotoId && photoPrefs.package) {
       list.push({
-        serviceId: photoService._id || (photoService as any).id,
+        serviceId: targetPhotoId,
         preferences: { ...photoPrefs },
-        name: photoService.name,
-        basePrice: photoService.basePrice || 0
+        name: photoService?.name || 'Photography & Videography',
+        basePrice: photoService?.basePrice || 0
       });
     }
 
     return list;
   };
 
-  // Pre-calculate available matching services for rendering conditions
-  const hasCatService = availableServices.some(s => s.name.toLowerCase().match(/catering|food|dining/));
-  const hasDecService = availableServices.some(s => s.name.toLowerCase().match(/decoration|stage|decor/));
-  const hasPhotoService = availableServices.some(s => s.name.toLowerCase().match(/photo|video|camera/));
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -660,191 +657,176 @@ export const CreateEventWizard = () => {
                 <div className="space-y-6">
 
                   {/* Catering Configuration */}
-
-                  {hasCatService && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                      <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
-                        <Utensils className="w-5 h-5 text-blue-600" />
-                        <h3 className="font-bold text-gray-900">Catering Service Configuration</h3>
-                      </div>
-                      <div className="p-5 grid sm:grid-cols-2 gap-4 bg-gray-50/30">
-                        {[
-                          { id: 'Full Service Catering', desc: 'Food preparation & full waitstaff' },
-                          { id: 'Food Preparation Only', desc: 'Delivery and setup without service' },
-                          { id: 'Table Serving Service Only', desc: 'Staff provided for pre-arranged food' },
-                          { id: 'Dining & Seating Arrangements', desc: 'Tables, chairs, and linen setup' }
-                        ].map(m => {
-                          const isSelected = cateringPrefs.serviceMode?.includes(m.id);
-                          return (
-                            <label key={m.id} className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all ${isSelected ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => {
-                                  const newModes = isSelected ? cateringPrefs.serviceMode.filter((mode: string) => mode !== m.id) : [...(cateringPrefs.serviceMode || []), m.id];
-                                  setCateringPrefs({ ...cateringPrefs, serviceMode: newModes });
-                                }}
-                                className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                              />
-                              <div>
-                                <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">{m.id}</p>
-                                <p className="text-[11px] text-gray-500 leading-tight">{m.desc}</p>
-                              </div>
-                            </label>
-                          )
-                        })}
-                      </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
+                      <Utensils className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-gray-900">Catering Service Configuration</h3>
                     </div>
-                  )}
+                    <div className="p-5 grid sm:grid-cols-2 gap-4 bg-gray-50/30">
+                      {[
+                        { id: 'Full Service Catering', desc: 'Food preparation & full waitstaff' },
+                        { id: 'Food Preparation Only', desc: 'Delivery and setup without service' },
+                        { id: 'Table Serving Service Only', desc: 'Staff provided for pre-arranged food' },
+                        { id: 'Dining & Seating Arrangements', desc: 'Tables, chairs, and linen setup' }
+                      ].map(m => {
+                        const isSelected = cateringPrefs.serviceMode?.includes(m.id);
+                        return (
+                          <label key={m.id} className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all ${isSelected ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                const newModes = isSelected ? cateringPrefs.serviceMode.filter((mode: string) => mode !== m.id) : [...(cateringPrefs.serviceMode || []), m.id];
+                                setCateringPrefs({ ...cateringPrefs, serviceMode: newModes });
+                              }}
+                              className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                            />
+                            <div>
+                              <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">{m.id}</p>
+                              <p className="text-[11px] text-gray-500 leading-tight">{m.desc}</p>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
 
                   {/* Food & Bev Selection */}
-
-
-                  {hasCatService && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                      <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
-                        <BookOpen className="w-5 h-5 text-blue-600" />
-                        <h3 className="font-bold text-gray-900">Food & Beverage Menu Selection</h3>
-                      </div>
-                      <div className="p-6 bg-gray-50/30">
-                        <CustomList
-                          title="Starters"
-                          items={cateringPrefs.starters || []}
-                          predefined={['Chicken Tikka', 'Paneer Tikka', 'Spring Rolls']}
-                          onChange={(val) => setCateringPrefs({ ...cateringPrefs, starters: val })}
-                          placeholder="Add custom starter..."
-                        />
-                        <CustomList
-                          title="Main Dishes"
-                          items={cateringPrefs.mainDishes || []}
-                          predefined={['Malaber Chicken Biryani', 'Mutton Biryani']}
-                          onChange={(val) => setCateringPrefs({ ...cateringPrefs, mainDishes: val })}
-                          placeholder="Add custom main dish..."
-                        />
-                        <CustomList
-                          title="Juices & Drinks"
-                          items={cateringPrefs.juices || []}
-                          predefined={['Fresh Lime Juice', 'Mint Mojito']}
-                          onChange={(val) => setCateringPrefs({ ...cateringPrefs, juices: val })}
-                          placeholder="Add custom juice..."
-                        />
-                        <CustomList
-                          title="Desserts"
-                          items={cateringPrefs.desserts || []}
-                          predefined={['Fruit Salad with Ice Cream', 'Gulab Jamun']}
-                          onChange={(val) => setCateringPrefs({ ...cateringPrefs, desserts: val })}
-                          placeholder="Add custom dessert..."
-                        />
-                      </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
+                      <BookOpen className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-gray-900">Food & Beverage Menu Selection</h3>
                     </div>
-                  )}
+                    <div className="p-6 bg-gray-50/30">
+                      <CustomList
+                        title="Starters"
+                        items={cateringPrefs.starters || []}
+                        predefined={['Chicken Tikka', 'Paneer Tikka', 'Spring Rolls']}
+                        onChange={(val) => setCateringPrefs({ ...cateringPrefs, starters: val })}
+                        placeholder="Add custom starter..."
+                      />
+                      <CustomList
+                        title="Main Dishes"
+                        items={cateringPrefs.mainDishes || []}
+                        predefined={['Malaber Chicken Biryani', 'Mutton Biryani']}
+                        onChange={(val) => setCateringPrefs({ ...cateringPrefs, mainDishes: val })}
+                        placeholder="Add custom main dish..."
+                      />
+                      <CustomList
+                        title="Juices & Drinks"
+                        items={cateringPrefs.juices || []}
+                        predefined={['Fresh Lime Juice', 'Mint Mojito']}
+                        onChange={(val) => setCateringPrefs({ ...cateringPrefs, juices: val })}
+                        placeholder="Add custom juice..."
+                      />
+                      <CustomList
+                        title="Desserts"
+                        items={cateringPrefs.desserts || []}
+                        predefined={['Fruit Salad with Ice Cream', 'Gulab Jamun']}
+                        onChange={(val) => setCateringPrefs({ ...cateringPrefs, desserts: val })}
+                        placeholder="Add custom dessert..."
+                      />
+                    </div>
+                  </div>
 
                   {/* Stage Decoration */}
-
-
-                  {hasDecService && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                      <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
-                        <Sparkles className="w-5 h-5 text-blue-600" />
-                        <h3 className="font-bold text-gray-900">Stage Decoration Style</h3>
-                      </div>
-                      <div className="p-5 grid sm:grid-cols-3 gap-4 bg-gray-50/30">
-                        {[
-                          { id: 'Traditional', icon: <Flower2 className="w-5 h-5" />, desc: 'Classic floral arrangements and warm lighting setups.' },
-                          { id: 'Modern', icon: <Sparkles className="w-5 h-5" />, desc: 'Minimalist structures, geometric accents, and cool tones.' },
-                          { id: 'Luxury', icon: <Diamond className="w-5 h-5" />, desc: 'Premium materials, grand scale setups, and custom detailing.' }
-                        ].map(s => {
-                          const isSelected = decorationPrefs.style === s.id;
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => setDecorationPrefs({ ...decorationPrefs, style: s.id })}
-                              className={`flex flex-col items-start text-left p-4 rounded-xl border bg-white transition-all ${isSelected ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}
-                            >
-                              <div className={`p-2 rounded-lg mb-3 ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>
-                                {s.icon}
-                              </div>
-                              <h4 className="font-bold text-gray-900 text-sm mb-1.5">{s.id}</h4>
-                              <p className="text-[11px] text-gray-500 leading-tight">{s.desc}</p>
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div className="px-5 pb-5 bg-gray-50/30 border-t border-gray-100 pt-5">
-                        <label className="border border-dashed border-gray-300 rounded-xl p-6 text-center flex flex-col items-center justify-center bg-white hover:bg-gray-50 transition-colors cursor-pointer mb-2">
-                          <Upload className="w-5 h-5 text-blue-500 mb-2" />
-                          <span className="text-xs font-bold text-gray-900 mb-0.5">Upload Reference Images</span>
-                          <span className="text-[10px] text-gray-500">Drag and drop or click to browse (JPG, PNG up to 5MB)</span>
-                          <input
-                            type="file"
-                            multiple
-                            accept="image/jpeg, image/png, image/webp"
-                            className="hidden"
-                            onChange={handleImageChange}
-                            disabled={referenceImages.length >= 5}
-                          />
-                        </label>
-                        {referenceImages.length > 0 && (
-                          <div className="grid grid-cols-5 gap-2 mt-4">
-                            {referenceImages.map((file, i) => (
-                              <div key={i} className="relative aspect-square rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
-                                <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
-                                <button
-                                  type="button"
-                                  onClick={() => removeImage(i)}
-                                  className="absolute top-1 right-1 bg-white/80 backdrop-blur-sm rounded-full shadow-sm p-0.5 text-gray-700 hover:text-red-600 transition-colors"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
+                      <Sparkles className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-gray-900">Stage Decoration Style</h3>
                     </div>
-                  )}
+                    <div className="p-5 grid sm:grid-cols-3 gap-4 bg-gray-50/30">
+                      {[
+                        { id: 'Traditional', icon: <Flower2 className="w-5 h-5" />, desc: 'Classic floral arrangements and warm lighting setups.' },
+                        { id: 'Modern', icon: <Sparkles className="w-5 h-5" />, desc: 'Minimalist structures, geometric accents, and cool tones.' },
+                        { id: 'Luxury', icon: <Diamond className="w-5 h-5" />, desc: 'Premium materials, grand scale setups, and custom detailing.' }
+                      ].map(s => {
+                        const isSelected = decorationPrefs.style === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setDecorationPrefs({ ...decorationPrefs, style: s.id })}
+                            className={`flex flex-col items-start text-left p-4 rounded-xl border bg-white transition-all ${isSelected ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}
+                          >
+                            <div className={`p-2 rounded-lg mb-3 ${isSelected ? 'text-gray-900' : 'text-gray-500'}`}>
+                              {s.icon}
+                            </div>
+                            <h4 className="font-bold text-gray-900 text-sm mb-1.5">{s.id}</h4>
+                            <p className="text-[11px] text-gray-500 leading-tight">{s.desc}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="px-5 pb-5 bg-gray-50/30 border-t border-gray-100 pt-5">
+                      <label className="border border-dashed border-gray-300 rounded-xl p-6 text-center flex flex-col items-center justify-center bg-white hover:bg-gray-50 transition-colors cursor-pointer mb-2">
+                        <Upload className="w-5 h-5 text-blue-500 mb-2" />
+                        <span className="text-xs font-bold text-gray-900 mb-0.5">Upload Reference Images</span>
+                        <span className="text-[10px] text-gray-500">Drag and drop or click to browse (JPG, PNG up to 5MB)</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/jpeg, image/png, image/webp"
+                          className="hidden"
+                          onChange={handleImageChange}
+                          disabled={referenceImages.length >= 5}
+                        />
+                      </label>
+                      {referenceImages.length > 0 && (
+                        <div className="grid grid-cols-5 gap-2 mt-4">
+                          {referenceImages.map((file, i) => (
+                            <div key={i} className="relative aspect-square rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
+                              <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => removeImage(i)}
+                                className="absolute top-1 right-1 bg-white/80 backdrop-blur-sm rounded-full shadow-sm p-0.5 text-gray-700 hover:text-red-600 transition-colors"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Photo & Video */}
-
-
-                  {hasPhotoService && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                      <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
-                        <Camera className="w-5 h-5 text-blue-600" />
-                        <h3 className="font-bold text-gray-900">Photo & Videography</h3>
-                      </div>
-                      <div className="p-5 grid sm:grid-cols-2 gap-4 bg-gray-50/30">
-                        <label className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all ${photoPrefs.package === 'Basic Photo & Video Package' ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
-                          <input
-                            type="radio"
-                            name="photo-pkg"
-                            checked={photoPrefs.package === 'Basic Photo & Video Package'}
-                            onChange={() => setPhotoPrefs({ ...photoPrefs, package: 'Basic Photo & Video Package' })}
-                            className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                          />
-                          <div>
-                            <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Basic Photo & Video Package</p>
-                            <p className="text-[11px] text-gray-500 leading-tight">Standard coverage with 1 photographer, 1 videographer. Includes edited digital gallery.</p>
-                          </div>
-                        </label>
-                        <label className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all relative ${photoPrefs.package === 'Premium Cinematic Package' ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
-                          <div className="absolute top-0 right-0 transform translate-x-0 -translate-y-2 bg-[#0051e5] text-white text-[9px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider shadow-sm">Popular</div>
-                          <input
-                            type="radio"
-                            name="photo-pkg"
-                            checked={photoPrefs.package === 'Premium Cinematic Package'}
-                            onChange={() => setPhotoPrefs({ ...photoPrefs, package: 'Premium Cinematic Package' })}
-                            className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                          />
-                          <div>
-                            <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Premium Cinematic Package</p>
-                            <p className="text-[11px] text-gray-500 leading-tight">Multi-cam setup, drone footage, cinematic highlights, and priority editing delivery.</p>
-                          </div>
-                        </label>
-                      </div>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-white">
+                      <Camera className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-gray-900">Photo & Videography</h3>
                     </div>
-                  )}
+                    <div className="p-5 grid sm:grid-cols-2 gap-4 bg-gray-50/30">
+                      <label className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all ${photoPrefs.package === 'Basic Photo & Video Package' ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
+                        <input
+                          type="radio"
+                          name="photo-pkg"
+                          checked={photoPrefs.package === 'Basic Photo & Video Package'}
+                          onChange={() => setPhotoPrefs({ ...photoPrefs, package: 'Basic Photo & Video Package' })}
+                          className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                        <div>
+                          <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Basic Photo & Video Package</p>
+                          <p className="text-[11px] text-gray-500 leading-tight">Standard coverage with 1 photographer, 1 videographer. Includes edited digital gallery.</p>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all relative ${photoPrefs.package === 'Premium Cinematic Package' ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
+                        <div className="absolute top-0 right-0 transform translate-x-0 -translate-y-2 bg-[#0051e5] text-white text-[9px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider shadow-sm">Popular</div>
+                        <input
+                          type="radio"
+                          name="photo-pkg"
+                          checked={photoPrefs.package === 'Premium Cinematic Package'}
+                          onChange={() => setPhotoPrefs({ ...photoPrefs, package: 'Premium Cinematic Package' })}
+                          className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                        <div>
+                          <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Premium Cinematic Package</p>
+                          <p className="text-[11px] text-gray-500 leading-tight">Multi-cam setup, drone footage, cinematic highlights, and priority editing delivery.</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
 
                   {/* Special Requirements */}
                   <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">

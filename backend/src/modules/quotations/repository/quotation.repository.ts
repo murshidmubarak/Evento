@@ -48,6 +48,10 @@ export class QuotationRepository {
     return Quotation.find({ eventId }).sort({ createdAt: -1 }).exec();
   }
 
+  async findByClientId(clientId: string): Promise<IQuotation[]> {
+    return Quotation.find({ clientId }).sort({ createdAt: -1 }).exec();
+  }
+
   async findAll(filter: any = {}): Promise<IQuotation[]> {
     return Quotation.find(filter).sort({ createdAt: -1 }).exec();
   }

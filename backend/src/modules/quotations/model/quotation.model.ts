@@ -86,6 +86,8 @@ export interface IQuotation extends Document {
   schedules?: IQuotationSchedule[];
   paymentPlan?: IPaymentInstallment[];
   conciergeNotes?: string;
+  clientNotes?: string;
+  rejectionReason?: string;
   status: QuotationStatus;
   createdBy: Types.ObjectId;
   createdAt: Date;
@@ -222,6 +224,8 @@ const quotationSchema = new Schema<IQuotation>(
     schedules: { type: [quotationScheduleSchema], default: [] },
     paymentPlan: { type: [paymentInstallmentSchema], default: [] },
     conciergeNotes: { type: String },
+    clientNotes: { type: String },
+    rejectionReason: { type: String },
     status: {
       type: String,
       enum: ['draft', 'sent', 'awaiting_approval', 'changes_requested', 'accepted', 'rejected', 'expired'],
@@ -238,5 +242,8 @@ quotationSchema.index({ quotationNumber: 1, revision: 1 }, { unique: true });
 
 // Index on eventId to quickly find quotations for an event
 quotationSchema.index({ eventId: 1 });
+
+// Index on clientId to quickly find quotations for a client
+quotationSchema.index({ clientId: 1 });
 
 export const Quotation = mongoose.model<IQuotation>('Quotation', quotationSchema);

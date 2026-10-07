@@ -959,4 +959,76 @@ describe('Quotations API', () => {
     const event = await Event.findById(eventId1);
     assert.equal(event?.status, 'awaiting_payment');
   });
+
+  it('52. Client can list own quotations via GET /api/quotations without eventId', async () => {
+    // Create a quotation for client 1
+    const payload = validPayload(eventId1, activeServiceId1);
+    await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+
+    // Client 1 fetches all own quotations
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      headers: { 'Authorization': `Bearer ${clientToken1}` }
+    });
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as any;
+    assert.ok(Array.isArray(data.data));
+    assert.equal(data.data.length, 1);
+    assert.equal(data.data[0].clientId, clientId1);
+  });
+
+  it('53. Client can request changes with reason notes persisted', async () => {
+    // Create & send a quotation for client 1
+    const payload = validPayload(eventId1, activeServiceId1);
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    const { data: q } = (await createRes.json()) as any;
+
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/request-changes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ reason: 'Please reduce decoration package rate by 10%.' }),
+    });
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as any;
+    assert.equal(data.data.status, 'changes_requested');
+    assert.equal(data.data.clientNotes, 'Please reduce decoration package rate by 10%.');
+  });
+
+  it('54. Client can reject quotation with reason persisted', async () => {
+    // Create & send a quotation for client 2
+    const payload = validPayload(eventId2, activeServiceId1);
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    const { data: q } = (await createRes.json()) as any;
+
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/reject`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken2}` },
+      body: JSON.stringify({ reason: 'Found alternative budget option.' }),
+    });
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as any;
+    assert.equal(data.data.status, 'rejected');
+    assert.equal(data.data.rejectionReason, 'Found alternative budget option.');
+  });
 });

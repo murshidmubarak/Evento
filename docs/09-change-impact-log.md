@@ -230,4 +230,21 @@ Change local UI text in one page.
 - Updated wizard review step and client `EventDetails.tsx` to render the `starters` array properly.
 - No backend schema changes required, as `starters` natively uses the existing `Schema.Types.Mixed` in `event.model.ts` for structured JSON storage, identical to `mainDishes` and `juices`.
 **Impact:**
-- Low impact. Purely additive frontend data structure handled safely by the existing backend dynamic preferences object.
+- Low impact. Purely additive frontend data structure handled safely by the existing backend dynamic preferences object.
+
+### [Client Quotation Review & Decision]
+**Date:** 2026-10-07
+**Changes:**
+- Extended `GET /api/quotations` to allow authenticated Clients to list quotations for their own events (`findByClientId`), strictly enforcing client ownership on the backend.
+- Added optional `clientNotes?: string` and `rejectionReason?: string` to `Quotation` model and schema to persist client revision request feedback and rejection rationale.
+- Added `{ clientId: 1 }` index on `quotationSchema`.
+- Updated `QuotationController` to pass `req.body.reason` to `rejectQuotation` and `requestChangesQuotation`.
+- Frontend API: Exported `acceptQuotation`, `rejectQuotation`, and `requestChangesQuotation` from `quotationApi.ts`.
+- Frontend Navigation: Added "Quotations" (`/client/quotations`, icon: `FileText`) to `ClientLayout.tsx` navigation.
+- Frontend Routing: Registered `/client/quotations` (`ClientQuotations`) and `/client/quotations/:id` (`ClientViewQuotation`) under client `RoleRoute` in `AppRoutes.tsx`.
+- Client Quotations List (`ClientQuotations.tsx`): Overview metrics, search, status filter, responsive table and card layouts, empty and loading states.
+- Client Quotation Document & Review (`ClientViewQuotation.tsx`): A4 document presentation, dynamic status banner (Awaiting Decision, Accepted, Changes Requested, Rejected, Expired), decision action bar with double-click guarded modals for Accept, Request Changes, and Reject.
+- Preserved existing EventOps business workflow: Quotation acceptance updates quotation to `accepted` and event to `awaiting_payment` (does not mark event `confirmed`). Event confirmation strictly requires backend-verified advance payment.
+- Added tests 52, 53, 54 to `quotations.test.ts`. Full quotation test suite passes (34/34 tests).
+**Impact:**
+- Low impact. Additive client functionality reusing the existing quotation lifecycle and event architecture. Historical revisions remain immutable. Full regression tests passing, TypeScript check clean, production build passing.

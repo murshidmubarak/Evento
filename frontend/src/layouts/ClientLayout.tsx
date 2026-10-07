@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { logout } from '../features/auth/authSlice';
-import { LogOut, LayoutDashboard, Calendar, PlusCircle, Menu, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, Calendar, FileText, PlusCircle, Menu, X } from 'lucide-react';
 
 export const ClientLayout: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -31,6 +31,7 @@ export const ClientLayout: React.FC = () => {
   const navLinks = [
     { to: '/client', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/client/events', label: 'My Events', icon: Calendar },
+    { to: '/client/quotations', label: 'Quotations', icon: FileText },
     { to: '/client/events/create', label: 'Request Event', icon: PlusCircle },
   ];
 

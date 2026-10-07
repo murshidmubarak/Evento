@@ -54,6 +54,9 @@ export const getQuotations = catchAsync(async (req: Request, res: Response) => {
     if (user.role === 'admin') {
       const allQuotations = await (quotationService as any).quotationRepository.findAll();
       new ApiResponse(200, 'All quotations retrieved successfully', allQuotations).send(res);
+    } else if (user.role === 'client') {
+      const clientQuotations = await quotationService.getQuotationsByClient(user);
+      new ApiResponse(200, 'Quotations retrieved successfully', clientQuotations).send(res);
     } else {
       res.status(403).json({ success: false, message: 'Insufficient permissions to list all quotations' });
     }
@@ -86,12 +89,12 @@ export const acceptQuotation = catchAsync(async (req: Request, res: Response) =>
 
 export const rejectQuotation = catchAsync(async (req: Request, res: Response) => {
   const user = { id: req.user!.id, role: req.user!.role };
-  const quotation = await quotationService.rejectQuotation(user, req.params.id);
+  const quotation = await quotationService.rejectQuotation(user, req.params.id, req.body?.reason);
   new ApiResponse(200, 'Quotation rejected successfully', quotation).send(res);
 });
 
 export const requestChangesQuotation = catchAsync(async (req: Request, res: Response) => {
   const user = { id: req.user!.id, role: req.user!.role };
-  const quotation = await quotationService.requestChangesQuotation(user, req.params.id);
+  const quotation = await quotationService.requestChangesQuotation(user, req.params.id, req.body?.reason);
   new ApiResponse(200, 'Changes requested successfully', quotation).send(res);
 });

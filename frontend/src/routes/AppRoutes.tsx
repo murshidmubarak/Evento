@@ -20,6 +20,8 @@ import { ClientDashboard } from '../pages/client/ClientDashboard';
 import { MyEvents } from '../pages/client/MyEvents';
 import { CreateEvent } from '../pages/client/CreateEvent';
 import { EventDetails } from '../pages/client/EventDetails';
+import { ClientQuotations } from '../pages/client/ClientQuotations';
+import { ClientViewQuotation } from '../pages/client/ClientViewQuotation';
 
 import { ManagerLayout } from '../layouts/ManagerLayout';
 import { ManagerDashboard } from '../pages/manager/ManagerDashboard';
@@ -57,6 +59,8 @@ export const AppRoutes = () => {
             <Route path="events" element={<MyEvents />} />
             <Route path="events/create" element={<CreateEvent />} />
             <Route path="events/:id" element={<EventDetails />} />
+            <Route path="quotations" element={<ClientQuotations />} />
+            <Route path="quotations/:id" element={<ClientViewQuotation />} />
           </Route>
         </Route>
 
