@@ -58,7 +58,12 @@ export const AdminQuotations = () => {
       case 'awaiting_approval':
         return <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold uppercase tracking-wider rounded-md border border-blue-200/50">Awaiting Approval</span>;
       case 'changes_requested':
-        return <span className="px-2.5 py-1 bg-purple-50 text-purple-700 text-xs font-bold uppercase tracking-wider rounded-md border border-purple-200/50">Changes Requested</span>;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-800 text-xs font-bold uppercase tracking-wider rounded-md border border-amber-300 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            Changes Requested
+          </span>
+        );
       case 'accepted':
         return <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider rounded-md border border-emerald-200/50">Accepted</span>;
       case 'rejected':
@@ -124,11 +129,10 @@ export const AdminQuotations = () => {
             className="block w-full sm:w-48 pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           >
             <option value="">All Statuses</option>
+            <option value="changes_requested">Changes Requested (Action Required)</option>
             <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="awaiting_approval">Awaiting Approval</option>
+            <option value="sent">Sent / Awaiting Approval</option>
             <option value="accepted">Accepted</option>
-            <option value="changes_requested">Changes Requested</option>
             <option value="rejected">Rejected</option>
           </select>
         </div>
@@ -158,7 +162,7 @@ export const AdminQuotations = () => {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest whitespace-nowrap">Quotation ID & Date</th>
+                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest whitespace-nowrap">Quotation ID & Revision</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest">Client & Event</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest text-right">Amount</th>
                   <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-widest text-center">Status</th>
@@ -166,60 +170,84 @@ export const AdminQuotations = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {paginatedQuotations.map((qtn) => (
-                  <tr key={qtn._id} className="hover:bg-gray-50/50 transition-colors group">
+                {paginatedQuotations.map((qtn) => {
+                  const isChangesRequested = qtn.status === 'changes_requested';
+                  return (
+                    <tr
+                      key={qtn._id}
+                      className={`transition-colors group ${
+                        isChangesRequested
+                          ? 'bg-amber-50/25 hover:bg-amber-50/50 border-l-4 border-l-amber-500'
+                          : 'hover:bg-gray-50/50'
+                      }`}
+                    >
 
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-gray-900 text-sm mb-1">{qtn.quotationNumber}</span>
-                        <span className="text-xs text-gray-500 font-medium">
-                          {new Date(qtn.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                    </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold text-gray-900 text-sm">{qtn.quotationNumber}</span>
+                            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded">
+                              Rev {qtn.revision}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500 font-medium">
+                            {new Date(qtn.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-gray-900 text-sm mb-1 truncate max-w-[200px] sm:max-w-[300px]">
-                          {qtn.eventSnapshot?.clientName || 'Unknown Client'}
-                        </span>
-                        <span className="text-xs text-gray-500 truncate max-w-[200px] sm:max-w-[300px]">
-                          {qtn.eventSnapshot?.title || 'Unknown Event'}
-                        </span>
-                      </div>
-                    </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-900 text-sm mb-1 truncate max-w-[200px] sm:max-w-[300px]">
+                            {qtn.eventSnapshot?.clientName || 'Unknown Client'}
+                          </span>
+                          <span className="text-xs text-gray-500 truncate max-w-[200px] sm:max-w-[300px]">
+                            {qtn.eventSnapshot?.title || 'Unknown Event'}
+                          </span>
+                        </div>
+                      </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className="font-bold text-gray-900">{formatCurrency(qtn.finalAmount)}</span>
-                    </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <span className="font-bold text-gray-900">{formatCurrency(qtn.finalAmount)}</span>
+                      </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {getStatusBadge(qtn.status)}
-                    </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {getStatusBadge(qtn.status)}
+                      </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {qtn.status === 'draft' ? (
-                          <Link
-                            to={`/admin/events/${qtn.eventId}/quotation/create`}
-                            className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
-                            title="Continue Quotation"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </Link>
-                        ) : (
-                          <Link
-                            to={`/admin/quotations/${qtn._id}`}
-                            className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
-                            title="View Quotation"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Link>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {isChangesRequested ? (
+                            <Link
+                              to={`/admin/quotations/${qtn._id}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
+                              title="Review Client Changes"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Review Request
+                            </Link>
+                          ) : qtn.status === 'draft' ? (
+                            <Link
+                              to={`/admin/events/${qtn.eventId}/quotation/create?draftId=${qtn._id}`}
+                              className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                              title="Continue Quotation"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </Link>
+                          ) : (
+                            <Link
+                              to={`/admin/quotations/${qtn._id}`}
+                              className="inline-flex items-center justify-center p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                              title="View Quotation"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

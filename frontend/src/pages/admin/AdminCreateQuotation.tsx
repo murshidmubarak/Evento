@@ -1,23 +1,28 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
-import { createQuotation, sendQuotation } from '../../features/quotations/quotationApi';
+import { createQuotation, sendQuotation, getQuotationById, updateQuotation } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
-import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment } from '../../features/quotations/quotation.types';
-import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X } from 'lucide-react';
+import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment, Quotation } from '../../features/quotations/quotation.types';
+import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle } from 'lucide-react';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const AdminCreateQuotation = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const reviseId = searchParams.get('revise');
+  const draftId = searchParams.get('draftId');
   const navigate = useNavigate();
 
   const [event, setEvent] = useState<ClientEvent | null>(null);
+  const [baseQuotation, setBaseQuotation] = useState<Quotation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
+  const [showIssueConfirm, setShowIssueConfirm] = useState(false);
 
   // Form State
   const [validUntil, setValidUntil] = useState('');
@@ -43,40 +48,90 @@ export const AdminCreateQuotation = () => {
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
+  const isReviseMode = Boolean(reviseId && baseQuotation);
+  const isDraftEditMode = Boolean(draftId && baseQuotation);
+
   useEffect(() => {
-    const fetchEvent = async () => {
+    const fetchData = async () => {
       try {
         setIsLoading(true);
-        if (id) {
-          const data = await getEventById(id);
-          setEvent(data);
+        if (!id) return;
 
-          if (data.selectedServices) {
-            const initialItems = data.selectedServices.map(s => {
-              const isPerGuest = s.pricingType === 'per_guest';
-              return {
-                serviceId: s.serviceId,
-                name: s.serviceName,
-                pricingType: s.pricingType || 'per_event',
-                scope: '',
-                requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
-                quantity: isPerGuest ? (data.guestCount || 1) : 1,
-                unitPrice: s.basePrice || 0,
-                detailedContent: []
-              };
-            });
-            setItems(initialItems);
-            if (initialItems.length > 0) setExpandedService(initialItems[0].serviceId);
+        const eventData = await getEventById(id);
+        setEvent(eventData);
+
+        const targetQuotationId = reviseId || draftId;
+        if (targetQuotationId) {
+          const qtnData = await getQuotationById(targetQuotationId);
+          setBaseQuotation(qtnData);
+
+          // Populate form from existing quotation
+          if (qtnData.items && qtnData.items.length > 0) {
+            const mappedItems = qtnData.items.map(item => ({
+              serviceId: item.serviceId,
+              name: item.name,
+              pricingType: item.pricingType || 'per_event',
+              scope: item.scope || '',
+              requirements: item.requirements || '',
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              detailedContent: item.detailedContent || []
+            }));
+            setItems(mappedItems);
+            setExpandedService(mappedItems[0].serviceId);
           }
+
+          if (qtnData.validUntil) {
+            setValidUntil(qtnData.validUntil.split('T')[0]);
+          }
+          setNotes(qtnData.notes || '');
+          setTerms(qtnData.terms || '');
+          setConciergeNotes(qtnData.conciergeNotes || '');
+          setDiscount(qtnData.discount || 0);
+          setAdvanceAmount(qtnData.advanceAmount || 0);
+
+          if (qtnData.tax) {
+            setTaxType(qtnData.tax.taxType || 'none');
+            setTaxRate(qtnData.tax.taxRate || 0);
+            setGstTreatment(qtnData.tax.gstTreatment || 'intra_state');
+            setPlaceOfSupply(qtnData.tax.placeOfSupply || '');
+            setCustomerGstin(qtnData.tax.customerGstin || '');
+          }
+
+          if (qtnData.structuredTerms && qtnData.structuredTerms.length > 0) {
+            setStructuredTerms(qtnData.structuredTerms);
+          }
+          if (qtnData.schedules && qtnData.schedules.length > 0) {
+            setSchedules(qtnData.schedules);
+          }
+          if (qtnData.paymentPlan && qtnData.paymentPlan.length > 0) {
+            setPaymentPlan(qtnData.paymentPlan);
+          }
+        } else if (eventData.selectedServices) {
+          const initialItems = eventData.selectedServices.map(s => {
+            const isPerGuest = s.pricingType === 'per_guest';
+            return {
+              serviceId: s.serviceId,
+              name: s.serviceName,
+              pricingType: s.pricingType || 'per_event',
+              scope: '',
+              requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+              quantity: isPerGuest ? (eventData.guestCount || 1) : 1,
+              unitPrice: s.basePrice || 0,
+              detailedContent: []
+            };
+          });
+          setItems(initialItems);
+          if (initialItems.length > 0) setExpandedService(initialItems[0].serviceId);
         }
       } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load event details');
+        setError(err.response?.data?.message || 'Failed to load details');
       } finally {
         setIsLoading(false);
       }
     };
-    fetchEvent();
-  }, [id]);
+    fetchData();
+  }, [id, reviseId, draftId]);
 
   // Derived calculations
   const subtotal = round2(items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0));
@@ -175,12 +230,24 @@ export const AdminCreateQuotation = () => {
         conciergeNotes
       };
 
-      const qtn = await createQuotation(request);
-
-      if (issue) {
-        await sendQuotation(qtn._id);
+      if (isDraftEditMode && draftId) {
+        // Updating existing draft in place
+        await updateQuotation(draftId, request);
+        if (issue) {
+          await sendQuotation(draftId);
+          navigate(`/admin/quotations/success/${draftId}`);
+        } else {
+          navigate(`/admin/quotations/success/${draftId}`);
+        }
+      } else {
+        // Creating new quotation revision or initial quotation
+        // Backend createQuotation automatically increments sequence and assigns next revision atomically
+        const qtn = await createQuotation(request);
+        if (issue) {
+          await sendQuotation(qtn._id);
+        }
+        navigate(`/admin/quotations/success/${qtn._id}`);
       }
-      navigate(`/admin/quotations/success/${qtn._id}`);
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to save quotation';
       const details: string[] = err.response?.data?.error?.errors || [];
@@ -188,6 +255,7 @@ export const AdminCreateQuotation = () => {
       setSaveErrors(details);
     } finally {
       setIsSaving(false);
+      setShowIssueConfirm(false);
     }
   };
 
@@ -232,21 +300,51 @@ export const AdminCreateQuotation = () => {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link to={`/admin/events/${id}`} className="p-2 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg transition-colors text-gray-500 shadow-sm">
+        <div className="flex items-start sm:items-center gap-4">
+          <Link to={`/admin/events/${id}`} className="p-2 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg transition-colors text-gray-500 shadow-sm shrink-0 mt-1 sm:mt-0">
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
-              Quotation Builder
-            </h1>
-            <p className="text-gray-500 text-sm mt-1">Editing draft for <span className="font-semibold text-gray-700">{event.title}</span></p>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                {isReviseMode ? 'Revise Quotation' : isDraftEditMode ? 'Edit Draft Quotation' : 'Quotation Builder'}
+              </h1>
+              {baseQuotation && (
+                <>
+                  <span className="px-2.5 py-0.5 bg-gray-100 text-gray-800 text-xs font-mono font-bold rounded border border-gray-200">
+                    {baseQuotation.quotationNumber}
+                  </span>
+                  {isReviseMode && (
+                    <>
+                      <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded border border-indigo-200">
+                        New Rev {(baseQuotation.revision || 1) + 1}
+                      </span>
+                      <span className="text-xs text-gray-500 font-medium">
+                        (based on Rev {baseQuotation.revision})
+                      </span>
+                    </>
+                  )}
+                  {isDraftEditMode && (
+                    <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 text-xs font-bold rounded border border-amber-200">
+                      Draft Rev {baseQuotation.revision}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            <p className="text-gray-500 text-sm mt-1">
+              {isReviseMode
+                ? `Preparing revision for ${event.title}`
+                : isDraftEditMode
+                  ? `Editing draft for ${event.title}`
+                  : `Creating quotation for ${event.title}`}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0 flex-wrap">
           <button
             onClick={() => setShowPreview(true)}
-            className="flex items-center gap-2 bg-white text-gray-700 px-5 py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all font-semibold shadow-sm text-sm"
+            className="flex items-center gap-2 bg-white text-gray-700 px-4 sm:px-5 py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all font-semibold shadow-sm text-sm"
           >
             <Eye className="w-4 h-4" />
             Preview
@@ -254,21 +352,128 @@ export const AdminCreateQuotation = () => {
           <button
             onClick={() => handleSave(false)}
             disabled={isSaving}
-            className="flex items-center gap-2 bg-white text-gray-700 px-5 py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all font-semibold shadow-sm text-sm"
+            className="flex items-center gap-2 bg-white text-gray-700 px-4 sm:px-5 py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all font-semibold shadow-sm text-sm"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save Draft
+            {isReviseMode ? 'Save Revised Draft' : 'Save Draft'}
           </button>
           <button
-            onClick={() => handleSave(true)}
+            onClick={() => setShowIssueConfirm(true)}
             disabled={isSaving}
-            className="flex items-center gap-2 bg-[#111827] text-white px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-semibold text-sm"
+            className="flex items-center gap-2 bg-[#111827] text-white px-4 sm:px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-semibold text-sm"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Issue Quotation
+            {isReviseMode
+              ? `Issue Revision ${(baseQuotation?.revision || 1) + 1}`
+              : isDraftEditMode
+                ? `Issue Revision ${baseQuotation?.revision || 1}`
+                : 'Issue Quotation'}
           </button>
         </div>
       </div>
+
+      {/* Client Requested Changes Banner (if revising after change request) */}
+      {isReviseMode && baseQuotation && (baseQuotation.status === 'changes_requested' || baseQuotation.clientNotes) && (
+        <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-5 shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-amber-200 text-amber-900 rounded-xl shrink-0 mt-0.5">
+              <AlertCircle className="w-5 h-5 text-amber-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
+                  Client Requested Changes
+                </span>
+                <span className="text-xs font-semibold text-amber-800">
+                  Ref: Revision {baseQuotation.revision}
+                </span>
+                <span className="text-xs text-amber-700 capitalize">
+                  Status: {baseQuotation.status.replace('_', ' ')}
+                </span>
+              </div>
+              <h3 className="text-sm font-bold text-gray-900">
+                Client requested changes to this quotation
+              </h3>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Requested by <strong className="text-gray-900">{baseQuotation.eventSnapshot?.clientName || (event?.clientId as any)?.name || 'Client'}</strong> on{' '}
+                {new Date(baseQuotation.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+
+              <div className="mt-3 bg-white rounded-xl border border-amber-200 p-4 shadow-2xs">
+                <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                  Client's Requested Changes:
+                </p>
+                <p className="text-xs text-gray-800 whitespace-pre-line leading-relaxed font-medium">
+                  {baseQuotation.clientNotes || 'No specific notes provided by the client.'}
+                </p>
+              </div>
+
+              <p className="text-[11px] text-amber-800 mt-2.5 font-medium">
+                Review the client's request above, modify the services or terms below, and issue the revised quotation. A new <strong>Revision {(baseQuotation.revision || 1) + 1}</strong> will be created, and Revision {baseQuotation.revision} will remain intact in history.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Issue Confirmation Modal */}
+      {showIssueConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">
+                {isReviseMode
+                  ? `Issue Revision ${(baseQuotation?.revision || 1) + 1}?`
+                  : isDraftEditMode
+                    ? `Issue Revision ${baseQuotation?.revision || 1}?`
+                    : 'Issue Quotation?'}
+              </h3>
+              <button
+                onClick={() => setShowIssueConfirm(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+              {isReviseMode ? (
+                <>
+                  This will create and issue <strong>Revision {(baseQuotation?.revision || 1) + 1}</strong> of{' '}
+                  <strong>{baseQuotation?.quotationNumber}</strong> to{' '}
+                  <strong>{baseQuotation?.eventSnapshot?.clientName || (event?.clientId as any)?.name || 'the client'}</strong> for review.
+                  Previous revisions (Rev {baseQuotation?.revision}) will remain immutable in history.
+                </>
+              ) : (
+                <>
+                  This will send the quotation to{' '}
+                  <strong>{event?.clientInfo?.name || (event?.clientId as any)?.name || 'the client'}</strong> for review.
+                </>
+              )}
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowIssueConfirm(false)}
+                disabled={isSaving}
+                className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(true)}
+                disabled={isSaving}
+                className="flex items-center gap-2 px-5 py-2 bg-[#111827] hover:bg-gray-800 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {isReviseMode ? 'Confirm & Issue Revision' : 'Issue Quotation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {saveError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
@@ -879,7 +1084,19 @@ export const AdminCreateQuotation = () => {
               <div className="border-b-2 border-[#111827] pb-6 mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-6">
                 <div>
                   <h2 className="text-3xl font-black text-[#111827] tracking-tight uppercase">Quotation</h2>
-                  <p className="text-gray-400 mt-1 text-sm font-medium">Draft Preview — not yet issued</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-mono font-bold text-gray-700">
+                      {baseQuotation?.quotationNumber || 'QTN-NEW'}
+                    </span>
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-800 text-[10px] font-bold rounded">
+                      {isReviseMode
+                        ? `Revision ${(baseQuotation?.revision || 1) + 1} (Draft Preview)`
+                        : isDraftEditMode
+                          ? `Revision ${baseQuotation?.revision || 1} (Draft)`
+                          : 'Revision 1 (Draft Preview)'}
+                    </span>
+                  </div>
+                  <p className="text-gray-400 mt-1 text-xs font-medium">Draft Preview — not yet issued</p>
                 </div>
                 <div className="text-left sm:text-right">
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Date</p>

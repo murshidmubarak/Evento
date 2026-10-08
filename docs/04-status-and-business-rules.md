@@ -1047,3 +1047,20 @@ User role
 Resource ownership
 Business rules
 Required conditions
+
+33. Database Safety, Test Isolation & Data Preservation Rules
+
+Rule 1 — Absolute Preservation of Real Database:
+The actual development or production database (`eventops`) must NEVER be cleared, wiped, dropped, or deleted by automated tests or test cleanup scripts.
+User-created events, quotations, client accounts, admin users, and business records are sacred and must remain intact.
+
+Rule 2 — No Dummy or Test Data in Real Database:
+Test scripts, unit/integration suites, and mock data generators must NEVER insert temporary, test, or dummy records into the actual database.
+
+Rule 3 — Strict Test Database Isolation:
+All automated tests must run against a completely separate, dedicated test database (e.g. `eventops_test`).
+Test configuration must verify that the connection string specifically targets a test database before any test suite executes.
+
+Rule 4 — Complete Teardown of Test Data:
+All mock and test data created during test runs must be dropped and wiped completely from the test database upon test completion (`cleanupTestDatabase()`).
+No test data may remain lingering in any database after test execution.

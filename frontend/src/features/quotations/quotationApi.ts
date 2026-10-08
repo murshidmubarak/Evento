@@ -22,6 +22,11 @@ export const createQuotation = async (request: CreateQuotationRequest): Promise<
   return response.data.data as unknown as Quotation;
 };
 
+export const updateQuotation = async (id: string, request: CreateQuotationRequest): Promise<Quotation> => {
+  const response = await apiClient.put<{ data: Quotation }>(`/quotations/${id}`, request);
+  return response.data.data as unknown as Quotation;
+};
+
 export const sendQuotation = async (id: string): Promise<Quotation> => {
   const response = await apiClient.patch<{ data: Quotation }>(`/quotations/${id}/send`);
   return response.data.data as unknown as Quotation;

@@ -9,11 +9,65 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config();
 
+process.env.NODE_ENV = 'test';
+
+// ISOLATE TEST DATABASE:
+// Ensure tests always run against eventops_test so that test cleanup
+// (e.g. User.deleteMany, Event.deleteMany) never wipes the dev database.
+if (process.env.MONGODB_TEST_URI) {
+  process.env.MONGODB_URI = process.env.MONGODB_TEST_URI;
+} else if (process.env.MONGODB_URI) {
+  try {
+    const url = new URL(process.env.MONGODB_URI);
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/eventops_test';
+    } else if (!url.pathname.endsWith('_test')) {
+      url.pathname = `${url.pathname}_test`;
+    }
+    process.env.MONGODB_URI = url.toString();
+  } catch {
+    process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/eventops_test';
+  }
+}
+
 // Provide fallback values if environment variables are not set in the running shell
 if (!process.env.MONGODB_URI) {
   throw new Error('MONGODB_URI is not set. Please check your .env file.');
 }
 
+// HARD SAFETY GUARD:
+// Absolute protection against accidental execution on production/dev DB.
+// Tests are forbidden from executing against any database that does not have '_test' in its URI.
+if (!process.env.MONGODB_URI.includes('_test')) {
+  throw new Error(
+    `CRITICAL DATABASE SAFETY VIOLATION: Tests attempted to connect to '${process.env.MONGODB_URI}'. ` +
+    'Tests must ONLY run against an isolated test database (e.g. eventops_test) to protect real data.'
+  );
+}
+
 if (!process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET is not set. Please check your .env file.');
 }
+
+/**
+ * Drops the test database completely after test execution.
+ * Only drops if the database name ends with '_test'.
+ */
+export const cleanupTestDatabase = async () => {
+  const mongoose = (await import('mongoose')).default;
+  if (mongoose.connection.readyState === 1 && mongoose.connection.name.endsWith('_test')) {
+    await mongoose.connection.dropDatabase();
+  }
+};
+
+// Automatic cleanup hook on test process completion
+process.on('beforeExit', async () => {
+  try {
+    const mongoose = (await import('mongoose')).default;
+    if (mongoose.connection.readyState === 1 && mongoose.connection.name.endsWith('_test')) {
+      await mongoose.connection.dropDatabase();
+    }
+  } catch {
+    // Ignore teardown errors
+  }
+});

@@ -98,12 +98,29 @@ export const AdminEventDetails = () => {
         <div className="flex items-center gap-3 shrink-0">
           {!quotation || quotation.status === 'draft' ? (
             <Link
-              to={`/admin/events/${event._id}/quotation/create`}
+              to={`/admin/events/${event._id}/quotation/create${quotation?._id ? `?draftId=${quotation._id}` : ''}`}
               className="flex items-center gap-2 bg-[#111827] text-white px-4 sm:px-5 py-2.5 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-semibold text-xs sm:text-sm"
             >
               <FileText className="w-4 h-4" />
-              {quotation?.status === 'draft' ? 'Continue Quotation' : 'Create Quotation'}
+              {quotation?.status === 'draft' ? 'Continue Draft Quotation' : 'Create Quotation'}
             </Link>
+          ) : quotation.status === 'changes_requested' ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                to={`/admin/events/${event._id}/quotation/create?revise=${quotation._id}`}
+                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 sm:px-5 py-2.5 rounded-lg transition-colors shadow-sm font-bold text-xs sm:text-sm"
+              >
+                <FileText className="w-4 h-4" />
+                Review & Edit Changes
+              </Link>
+              <Link
+                to={`/admin/quotations/${quotation._id}`}
+                className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-lg hover:bg-gray-50 transition-colors shadow-sm font-semibold text-xs sm:text-sm"
+              >
+                <Eye className="w-4 h-4 text-gray-500" />
+                View Quotation
+              </Link>
+            </div>
           ) : (
             <Link
               to={`/admin/quotations/${quotation._id}`}

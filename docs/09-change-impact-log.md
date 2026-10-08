@@ -247,4 +247,31 @@ Change local UI text in one page.
 - Preserved existing EventOps business workflow: Quotation acceptance updates quotation to `accepted` and event to `awaiting_payment` (does not mark event `confirmed`). Event confirmation strictly requires backend-verified advance payment.
 - Added tests 52, 53, 54 to `quotations.test.ts`. Full quotation test suite passes (34/34 tests).
 **Impact:**
-- Low impact. Additive client functionality reusing the existing quotation lifecycle and event architecture. Historical revisions remain immutable. Full regression tests passing, TypeScript check clean, production build passing.
+- Low impact. Additive client functionality reusing the existing quotation lifecycle and event architecture. Historical revisions remain immutable. Full regression tests passing, TypeScript check clean, production build passing.
+
+### [Admin Handle Client Requested Changes — Revision & Re-issue Workflow]
+**Date:** 2026-10-07
+**Changes:**
+- Backend Service: Added `getAllQuotations(user)` and `updateQuotation(user, quotationId, input)` in `quotation.service.ts`.
+- Immutability Enforcement: `updateQuotation` strictly enforces that only quotations in `draft` status may be updated in place. Non-draft, sent, changes_requested, accepted, or rejected quotations immediately reject mutation with 400 Bad Request.
+- Existing Revision Mechanism: Creating a revised quotation for an event that has requested changes reuses `createQuotation`, which automatically identifies the event's existing `quotationNumber` and atomically generates the incremented revision number via sequence generator.
+- Historical Immutability: Previous quotation revisions (Revision 1, Revision 2, etc.) and their stored `clientNotes` remain completely unchanged and readable in MongoDB.
+- Backend Routes: Added `PUT /api/quotations/:id` guarded by `authenticate`, `authorize('admin', 'event_manager')`, and `validateCreateQuotation`.
+- Backend Tests: Added tests 55, 56, and 57 to `quotations.test.ts` verifying revision creation on changes_requested, draft updating, non-draft immutability, and multi-cycle revision progression (Rev 1 -> Rev 2 -> Rev 3). All 37/37 backend tests pass.
+- Frontend Quotations List (`AdminQuotations.tsx`): Added "Changes Requested" visual badge, attention pulsing indicator, row highlight, revision indicator badge, and direct "Review Request" action button.
+- Frontend Quotation Document (`AdminViewQuotation.tsx`): Implemented prominent "Client Requested Changes" panel showing client name, request date, request message, and "Review & Edit Quotation" action button. Implemented interactive "Quotation Revision History" grid linking to all revisions for the event.
+- Frontend Quotation Builder (`AdminCreateQuotation.tsx`): Added support for `?revise=<id>` and `?draftId=<id>`. Pre-populates all items, scopes, requirements, detailed content, pricing, tax, discounts, advance, schedules, terms, and notes. Renders top Revision Context header (`Quotation Number`, `New Rev X based on Rev Y`) and prominent Client Change Request Banner. Added double-action "Save Revised Draft" and "Issue Revision X" with confirmation dialog.
+- Frontend Quotation Success (`AdminQuotationSuccess.tsx`): Dynamically shows revision-specific success state (`Revision X Issued Successfully`, `The revised quotation has been sent back to the client for review`).
+- Seed Script: Updated `backend/seed.ts` to ensure admin (`admin@eventops.com`), manager (`manager@eventops.com`), and client test credentials are created/seeded.
+**Impact:**
+- Low impact. Strictly preserved existing EventOps business workflows, quotation lifecycle statuses, payment logic, and event confirmation rules. Did not introduce duplicate quotation numbers or overwrite historical revisions. Frontend build clean, backend build clean, all 37 quotation integration tests pass.
+
+### [Database Safety & Test Isolation Policy]
+**Date:** 2026-10-07
+**Changes:**
+- Enforced strict database isolation in `backend/tests/setup.ts`: tests are forced to connect exclusively to `eventops_test` (or `MONGODB_TEST_URI`).
+- Added hard runtime safety assertion: tests immediately throw a fatal error if the database connection does not contain `_test`, completely preventing accidental execution against development or production databases.
+- Added teardown cleanup: exported `cleanupTestDatabase()` and added a process `beforeExit` hook to drop the test database completely after test execution.
+- Added permanent rules to `AGENTS.md` (Section 26) and `docs/04-status-and-business-rules.md` (Section 33) forbidding insertion of dummy test data into the real database, forbidding deletion of real database records, and mandating complete post-test data teardown.
+**Impact:**
+- Zero breaking changes to application logic. Completely eliminates accidental data loss and test pollution in the development database. Tested and verified.

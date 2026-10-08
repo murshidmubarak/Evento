@@ -63,10 +63,14 @@ export const AdminQuotationSuccess = () => {
           <CheckCircle2 className="w-12 h-12 text-green-600" />
         </div>
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
-          {isDraft ? 'Quotation Draft Saved' : 'Quotation Created Successfully'}
+          {quotation.revision > 1
+            ? (isDraft ? `Revision ${quotation.revision} Draft Saved` : `Revision ${quotation.revision} Issued Successfully`)
+            : (isDraft ? 'Quotation Draft Saved' : 'Quotation Created Successfully')}
         </h1>
         <p className="text-lg text-gray-500 max-w-xl mx-auto">
-          The quotation has been {isDraft ? 'saved as a draft' : 'created successfully'} and is ready for the next step in the existing quotation workflow.
+          {quotation.revision > 1
+            ? (isDraft ? 'The revised quotation draft has been saved and can be edited or issued.' : 'The revised quotation has been sent back to the client for review.')
+            : (isDraft ? 'The quotation has been saved as a draft and is ready for the next step in the existing quotation workflow.' : 'The quotation has been created successfully and is ready for the next step in the existing quotation workflow.')}
         </p>
       </div>
 

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getQuotationById } from '../../features/quotations/quotationApi';
+import { getQuotationById, getQuotations } from '../../features/quotations/quotationApi';
 import type { Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, ArrowLeft, Printer, Download, Calculator } from 'lucide-react';
+import { Loader2, ArrowLeft, Printer, Download, Calculator, Edit3, History, AlertCircle } from 'lucide-react';
 
 export const AdminViewQuotation = () => {
   const { id } = useParams<{ id: string }>();
   const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [allRevisions, setAllRevisions] = useState<Quotation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -17,6 +18,16 @@ export const AdminViewQuotation = () => {
         if (id) {
           const data = await getQuotationById(id);
           setQuotation(data);
+
+          if (data.eventId) {
+            try {
+              const revs = await getQuotations(data.eventId);
+              // Sort by revision ascending
+              setAllRevisions(revs.sort((a, b) => a.revision - b.revision));
+            } catch (revErr) {
+              console.error('Failed to load revision history', revErr);
+            }
+          }
         }
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load quotation');
@@ -64,30 +75,59 @@ export const AdminViewQuotation = () => {
     );
   }
 
+  const isChangesRequested = quotation.status === 'changes_requested';
+  const isDraft = quotation.status === 'draft';
+
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 print:p-0 print:m-0 print:space-y-0">
 
       {/* Top Action Bar (Hidden when printing) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden mb-2">
         <div className="flex items-start sm:items-center gap-3 min-w-0">
-          <button onClick={() => window.history.back()} className="p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors shadow-sm shrink-0 mt-0.5 sm:mt-0">
+          <Link to="/admin/quotations" className="p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors shadow-sm shrink-0 mt-0.5 sm:mt-0">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
+          </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Quotation {quotation.quotationNumber}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
+                Quotation {quotation.quotationNumber}
+              </h1>
+              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-bold rounded-md border border-gray-200">
+                Rev {quotation.revision}
+              </span>
               <span className={`px-2.5 py-1 text-[10px] font-bold rounded-md uppercase tracking-wider
                 ${quotation.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                  quotation.status === 'sent' ? 'bg-blue-100 text-blue-800' :
-                    quotation.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
-                      'bg-amber-100 text-amber-800'}`}
+                  quotation.status === 'sent' || quotation.status === 'awaiting_approval' ? 'bg-blue-100 text-blue-800' :
+                    quotation.status === 'changes_requested' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                      quotation.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
+                        'bg-red-100 text-red-800'}`}
               >
                 {quotation.status.replace('_', ' ')}
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 self-start sm:self-center shrink-0">
+        <div className="flex items-center gap-2.5 self-start sm:self-center shrink-0 flex-wrap">
+          {isChangesRequested && (
+            <Link
+              to={`/admin/events/${quotation.eventId}/quotation/create?revise=${quotation._id}`}
+              className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors shadow-sm font-bold text-xs sm:text-sm"
+            >
+              <Edit3 className="w-4 h-4" />
+              Review & Edit Quotation
+            </Link>
+          )}
+
+          {isDraft && (
+            <Link
+              to={`/admin/events/${quotation.eventId}/quotation/create?draftId=${quotation._id}`}
+              className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-[#172542] hover:bg-[#0f192d] text-white rounded-xl transition-colors shadow-sm font-semibold text-xs sm:text-sm"
+            >
+              <Edit3 className="w-4 h-4" />
+              Continue Editing Draft
+            </Link>
+          )}
+
           <button
             onClick={handlePrint}
             className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors shadow-sm font-medium text-xs sm:text-sm"
@@ -101,6 +141,100 @@ export const AdminViewQuotation = () => {
           </button>
         </div>
       </div>
+
+      {/* Prominent Client Change Request Panel (if changes_requested) */}
+      {isChangesRequested && (
+        <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-6 shadow-sm print:hidden animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4 pb-4 border-b border-amber-200">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-200/70 text-amber-900 rounded-xl shrink-0 mt-0.5">
+                <AlertCircle className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-amber-900 uppercase tracking-wider bg-amber-200 px-2 py-0.5 rounded">
+                    Action Required
+                  </span>
+                  <span className="text-xs font-semibold text-amber-800">
+                    Revision {quotation.revision}
+                  </span>
+                </div>
+                <h2 className="text-lg font-bold text-gray-900 mt-1">Client Requested Changes</h2>
+                <p className="text-xs text-gray-600">
+                  Requested by <strong className="text-gray-900">{quotation.eventSnapshot?.clientName || 'Client'}</strong> on {formatDate(quotation.updatedAt)}
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/admin/events/${quotation.eventId}/quotation/create?revise=${quotation._id}`}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm self-start sm:self-auto shrink-0"
+            >
+              <Edit3 className="w-4 h-4" />
+              Review & Edit Quotation
+            </Link>
+          </div>
+
+          <div className="bg-white rounded-xl border border-amber-200 p-4">
+            <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+              Client's Request Message:
+            </h4>
+            <p className="text-sm font-medium text-gray-900 leading-relaxed whitespace-pre-wrap">
+              {quotation.clientNotes || 'No specific note was provided by the client.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Revision History Card (if multiple revisions exist) */}
+      {allRevisions.length > 1 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm print:hidden">
+          <div className="flex items-center gap-2 mb-3">
+            <History className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-bold text-gray-900">Quotation Revision History</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {allRevisions.map((rev) => {
+              const isCurrent = rev._id === quotation._id;
+              return (
+                <Link
+                  key={rev._id}
+                  to={`/admin/quotations/${rev._id}`}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    isCurrent
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/30'
+                      : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-bold text-sm text-gray-900">Revision {rev.revision}</span>
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
+                      rev.status === 'draft' ? 'bg-gray-100 text-gray-700' :
+                        rev.status === 'sent' ? 'bg-blue-100 text-blue-700' :
+                          rev.status === 'changes_requested' ? 'bg-amber-100 text-amber-800' :
+                            rev.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
+                              'bg-red-100 text-red-700'
+                    }`}>
+                      {rev.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-gray-700 mb-1">{formatCurrency(rev.finalAmount)}</p>
+                  <p className="text-[11px] text-gray-400">{formatDate(rev.createdAt)}</p>
+                  {rev.clientNotes && (
+                    <p className="text-[11px] text-amber-800 truncate mt-1 italic">
+                      "{rev.clientNotes}"
+                    </p>
+                  )}
+                  {isCurrent && (
+                    <span className="inline-block mt-1 text-[10px] font-bold text-indigo-600">
+                      ● Currently Viewing
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* A4 Document Container */}
       <div className="bg-white shadow-xl sm:rounded-md print:shadow-none print:rounded-none overflow-hidden text-[13px] font-sans text-gray-800 border border-gray-200 print:border-none relative min-h-[1056px]">

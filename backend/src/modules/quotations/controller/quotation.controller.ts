@@ -52,7 +52,7 @@ export const getQuotations = catchAsync(async (req: Request, res: Response) => {
   } else {
     // If Admin wants to fetch all quotations
     if (user.role === 'admin') {
-      const allQuotations = await (quotationService as any).quotationRepository.findAll();
+      const allQuotations = await quotationService.getAllQuotations(user);
       new ApiResponse(200, 'All quotations retrieved successfully', allQuotations).send(res);
     } else if (user.role === 'client') {
       const clientQuotations = await quotationService.getQuotationsByClient(user);
@@ -61,6 +61,40 @@ export const getQuotations = catchAsync(async (req: Request, res: Response) => {
       res.status(403).json({ success: false, message: 'Insufficient permissions to list all quotations' });
     }
   }
+});
+
+export const updateQuotation = catchAsync(async (req: Request, res: Response) => {
+  const user = {
+    id: req.user!.id,
+    role: req.user!.role,
+  };
+
+  const input: CreateQuotationInput = {
+    eventId: req.body.eventId,
+    items: req.body.items,
+    discount: req.body.discount,
+    advanceAmount: req.body.advanceAmount,
+    tax: req.body.tax
+      ? {
+        taxType: req.body.tax.taxType,
+        taxRate: req.body.tax.taxRate,
+        gstTreatment: req.body.tax.gstTreatment,
+        placeOfSupply: req.body.tax.placeOfSupply,
+        customerGstin: req.body.tax.customerGstin,
+      }
+      : undefined,
+    validUntil: req.body.validUntil,
+    notes: req.body.notes,
+    terms: req.body.terms,
+    structuredTerms: req.body.structuredTerms,
+    schedules: req.body.schedules,
+    paymentPlan: req.body.paymentPlan,
+    conciergeNotes: req.body.conciergeNotes,
+  };
+
+  const quotation = await quotationService.updateQuotation(user, req.params.id, input);
+
+  new ApiResponse(200, 'Quotation updated successfully', quotation).send(res);
 });
 
 export const getQuotation = catchAsync(async (req: Request, res: Response) => {

@@ -20,6 +20,36 @@ const seedDatabase = async () => {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
 
+    // Seed Admin User
+    const adminEmail = 'admin@eventops.com';
+    let admin = await User.findOne({ email: adminEmail });
+    if (!admin) {
+      const hashedPassword = await bcrypt.hash('Admin@1234', 10);
+      admin = await User.create({
+        email: adminEmail,
+        password: hashedPassword,
+        name: 'EventOps Admin',
+        role: 'admin',
+        phone: '9876543210'
+      });
+      console.log('Created admin:', adminEmail);
+    }
+
+    // Seed Event Manager User
+    const managerEmail = 'manager@eventops.com';
+    let manager = await User.findOne({ email: managerEmail });
+    if (!manager) {
+      const hashedPassword = await bcrypt.hash('Manager@1234', 10);
+      manager = await User.create({
+        email: managerEmail,
+        password: hashedPassword,
+        name: 'EventOps Manager',
+        role: 'event_manager',
+        phone: '9876543211'
+      });
+      console.log('Created event manager:', managerEmail);
+    }
+
     // Seed Client User
     const clientEmail = 'client@example.com';
     let client = await User.findOne({ email: clientEmail });
@@ -35,7 +65,6 @@ const seedDatabase = async () => {
       console.log('Created test client:', clientEmail);
     } else {
       console.log('Test client already exists');
-      // Update password just in case
       client.password = await bcrypt.hash('password123', 10);
       await client.save();
     }

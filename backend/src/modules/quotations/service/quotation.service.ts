@@ -290,6 +290,234 @@ export class QuotationService {
     return quotation;
   }
 
+  async updateQuotation(
+    user: { id: string; role: string },
+    quotationId: string,
+    input: CreateQuotationInput
+  ) {
+    if (user.role === 'client' || user.role === 'worker') {
+      throw ApiError.forbidden('You do not have permission to update a quotation.');
+    }
+
+    const quotation = await this.quotationRepository.findById(quotationId);
+    if (!quotation) {
+      throw ApiError.notFound('Quotation not found.');
+    }
+
+    // Only draft quotations can be edited. Issued and historical quotations are immutable.
+    if (quotation.status !== 'draft') {
+      throw ApiError.badRequest('Only draft quotations can be edited. Issued and historical revisions are immutable.');
+    }
+
+    // Resource Auth
+    if (user.role === 'event_manager') {
+      const event = await this.eventRepository.findById(quotation.eventId.toString());
+      if (!event || event.eventManagerId?.toString() !== user.id) {
+        throw ApiError.forbidden('Insufficient permissions to update this quotation.');
+      }
+    }
+
+    // Validate and build items
+    if (!input.items || input.items.length === 0) {
+      throw ApiError.badRequest('At least one line item is required.');
+    }
+
+    const quotationItems: IQuotationItem[] = [];
+    let subtotal = 0;
+
+    for (const reqItem of input.items) {
+      if (reqItem.quantity < 1) {
+        throw ApiError.badRequest('Quantity must be at least 1.');
+      }
+      if (reqItem.unitPrice < 0) {
+        throw ApiError.badRequest('Unit price cannot be negative.');
+      }
+
+      const service = await this.serviceRepository.findById(reqItem.serviceId);
+      if (!service) {
+        throw ApiError.badRequest(`Service with ID ${reqItem.serviceId} not found.`);
+      }
+      if (!service.isActive) {
+        throw ApiError.badRequest(`Service ${service.name} is currently inactive and cannot be quoted.`);
+      }
+
+      const amount = round2(reqItem.quantity * reqItem.unitPrice);
+      subtotal = round2(subtotal + amount);
+
+      quotationItems.push({
+        serviceId: service._id as Types.ObjectId,
+        name: service.name,
+        description: service.description,
+        pricingType: service.pricingType,
+        requirements: reqItem.requirements,
+        scope: reqItem.scope,
+        detailedContent: (reqItem.detailedContent || [])
+          .filter((s) => s.sectionName?.trim() || s.items?.some((x) => x?.trim()))
+          .map((s) => ({
+            sectionName: (s.sectionName?.trim() || 'Details'),
+            items: (s.items || []).filter((x) => typeof x === 'string' && x.trim().length > 0),
+          })),
+        quantity: reqItem.quantity,
+        unitPrice: reqItem.unitPrice,
+        amount,
+      });
+    }
+
+    // Financial validations & Tax calculations
+    const discount = input.discount !== undefined && input.discount !== null ? round2(input.discount) : 0;
+    if (discount < 0) {
+      throw ApiError.badRequest('Discount cannot be negative.');
+    }
+    if (discount > subtotal) {
+      throw ApiError.badRequest('Discount cannot exceed the subtotal.');
+    }
+
+    const taxableAmount = round2(subtotal - discount);
+
+    const taxInput = input.tax || {};
+    const taxType: TaxType = taxInput.taxType || 'none';
+    const rawTaxRate = taxInput.taxRate !== undefined && taxInput.taxRate !== null ? Number(taxInput.taxRate) : 0;
+
+    if (isNaN(rawTaxRate) || rawTaxRate < 0) {
+      throw ApiError.badRequest('Tax rate must be a non-negative number.');
+    }
+
+    const allowedTaxTypes: TaxType[] = ['none', 'gst', 'vat', 'custom'];
+    if (!allowedTaxTypes.includes(taxType)) {
+      throw ApiError.badRequest(`Invalid tax type: ${taxType}. Allowed: ${allowedTaxTypes.join(', ')}`);
+    }
+
+    let gstTreatment: GstTreatment = taxInput.gstTreatment || 'none';
+    let taxRate = rawTaxRate;
+    let taxAmount = 0;
+    let cgst = 0;
+    let sgst = 0;
+    let igst = 0;
+
+    if (taxType === 'gst') {
+      if (!taxInput.gstTreatment || taxInput.gstTreatment === 'none') {
+        gstTreatment = 'intra_state';
+      } else {
+        gstTreatment = taxInput.gstTreatment;
+      }
+
+      const allowedGstTreatments: GstTreatment[] = ['intra_state', 'inter_state', 'exempt', 'none'];
+      if (!allowedGstTreatments.includes(gstTreatment)) {
+        throw ApiError.badRequest(`Invalid GST treatment: ${gstTreatment}. Allowed: ${allowedGstTreatments.join(', ')}`);
+      }
+
+      if (gstTreatment === 'exempt' || taxRate === 0) {
+        taxAmount = 0;
+        cgst = 0;
+        sgst = 0;
+        igst = 0;
+      } else if (gstTreatment === 'intra_state') {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+        cgst = round2(taxAmount / 2);
+        sgst = round2(taxAmount - cgst);
+        igst = 0;
+      } else if (gstTreatment === 'inter_state') {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+        cgst = 0;
+        sgst = 0;
+        igst = taxAmount;
+      }
+    } else if (taxType === 'vat' || taxType === 'custom') {
+      gstTreatment = 'none';
+      if (taxRate === 0) {
+        taxAmount = 0;
+      } else {
+        taxAmount = round2(taxableAmount * (taxRate / 100));
+      }
+      cgst = 0;
+      sgst = 0;
+      igst = 0;
+    } else {
+      taxRate = 0;
+      gstTreatment = 'none';
+      taxAmount = 0;
+      cgst = 0;
+      sgst = 0;
+      igst = 0;
+    }
+
+    const taxDetails: ITaxDetails = {
+      taxType,
+      taxRate,
+      gstTreatment,
+      taxableAmount,
+      taxAmount,
+      cgst,
+      sgst,
+      igst,
+      placeOfSupply: taxInput.placeOfSupply,
+      customerGstin: taxInput.customerGstin,
+    };
+
+    const finalAmount = round2(taxableAmount + taxAmount);
+    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null ? round2(input.advanceAmount) : 0;
+
+    if (advanceAmount < 0) {
+      throw ApiError.badRequest('Advance amount cannot be negative.');
+    }
+    if (advanceAmount > finalAmount) {
+      throw ApiError.badRequest('Advance amount cannot exceed the final amount.');
+    }
+
+    const remainingAmount = round2(finalAmount - advanceAmount);
+
+    quotation.items = quotationItems;
+    quotation.subtotal = subtotal;
+    quotation.discount = discount;
+    quotation.taxableAmount = taxableAmount;
+    quotation.tax = taxDetails;
+    quotation.finalAmount = finalAmount;
+    quotation.advanceAmount = advanceAmount;
+    quotation.remainingAmount = remainingAmount;
+    if (input.validUntil !== undefined) quotation.validUntil = input.validUntil;
+    if (input.notes !== undefined) quotation.notes = input.notes;
+    if (input.terms !== undefined) quotation.terms = input.terms;
+    if (input.structuredTerms !== undefined) {
+      quotation.structuredTerms = (input.structuredTerms || [])
+        .filter((t) => t.title?.trim() || t.content?.trim())
+        .map((t) => ({
+          title: (t.title || t.content || '').trim(),
+          content: (t.content || '').trim(),
+        }));
+    }
+    if (input.schedules !== undefined) {
+      quotation.schedules = (input.schedules || [])
+        .filter((s) => s.title?.trim() || s.time?.trim())
+        .map((s) => ({
+          title: (s.title || 'Schedule').trim(),
+          time: (s.time || '').trim(),
+        }));
+    }
+    if (input.paymentPlan !== undefined) {
+      quotation.paymentPlan = (input.paymentPlan || [])
+        .filter((p) => p.title?.trim() || (p.amount !== undefined && p.amount > 0))
+        .map((p) => ({
+          title: (p.title || 'Installment').trim(),
+          amount: Number(p.amount) || 0,
+          dueDateDescription: (p.dueDateDescription || '').trim(),
+          percentage: p.percentage,
+          purpose: p.purpose || [],
+          status: p.status || 'Pending',
+        }));
+    }
+    if (input.conciergeNotes !== undefined) quotation.conciergeNotes = input.conciergeNotes;
+
+    await quotation.save();
+    return quotation;
+  }
+
+  async getAllQuotations(user: { id: string; role: string }) {
+    if (user.role !== 'admin') {
+      throw ApiError.forbidden('Only administrators can list all quotations.');
+    }
+    return this.quotationRepository.findAll();
+  }
+
   async getQuotationsByEvent(user: { id: string; role: string }, eventId: string) {
     const event = await this.eventRepository.findById(eventId);
     if (!event) {

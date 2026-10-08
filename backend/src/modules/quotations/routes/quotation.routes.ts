@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createQuotation, getQuotations, getQuotation, sendQuotation, acceptQuotation, rejectQuotation, requestChangesQuotation } from '../controller/quotation.controller.js';
+import { createQuotation, updateQuotation, getQuotations, getQuotation, sendQuotation, acceptQuotation, rejectQuotation, requestChangesQuotation } from '../controller/quotation.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
 import { validateCreateQuotation } from '../validation/quotation.validation.js';
@@ -17,6 +17,19 @@ router.post(
   authorize('admin', 'event_manager'),
   validateCreateQuotation,
   createQuotation
+);
+
+/**
+ * @route   PUT /api/quotations/:id
+ * @desc    Update a draft Quotation
+ * @access  Private (Admin, Event Manager)
+ */
+router.put(
+  '/:id',
+  authenticate,
+  authorize('admin', 'event_manager'),
+  validateCreateQuotation,
+  updateQuotation
 );
 
 /**

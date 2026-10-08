@@ -1,4 +1,4 @@
-import './setup.js';
+import { cleanupTestDatabase } from './setup.js';
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../src/app.js';
@@ -118,6 +118,7 @@ describe('Quotations API', () => {
 
   after(async () => {
     server.close();
+    await cleanupTestDatabase();
     await mongoose.disconnect();
   });
 
@@ -1030,5 +1031,165 @@ describe('Quotations API', () => {
     const data = (await res.json()) as any;
     assert.equal(data.data.status, 'rejected');
     assert.equal(data.data.rejectionReason, 'Found alternative budget option.');
+  });
+
+  it('55. Admin creates Revision 2 for changes_requested quotation, preserving Revision 1 intact', async () => {
+    // 1. Admin creates Revision 1
+    const p1 = validPayload(eventId1, activeServiceId1);
+    const createRes1 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p1),
+    });
+    const { data: rev1 } = (await createRes1.json()) as any;
+    assert.equal(rev1.revision, 1);
+
+    // 2. Issue Revision 1
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev1._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    // 3. Client requests changes on Revision 1
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev1._id}/request-changes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ reason: 'Increase quantity from 100 to 150 guests.' }),
+    });
+
+    // Verify Revision 1 is changes_requested with clientNotes
+    const rev1Doc = await Quotation.findById(rev1._id);
+    assert.equal(rev1Doc?.status, 'changes_requested');
+    assert.equal(rev1Doc?.clientNotes, 'Increase quantity from 100 to 150 guests.');
+
+    // 4. Admin creates Revision 2 with updated quantity
+    const p2 = {
+      ...validPayload(eventId1, activeServiceId1),
+      items: [{ serviceId: activeServiceId1, quantity: 150, unitPrice: 500 }],
+    };
+    const createRes2 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p2),
+    });
+    assert.equal(createRes2.status, 201);
+    const { data: rev2 } = (await createRes2.json()) as any;
+
+    assert.equal(rev2.revision, 2);
+    assert.equal(rev2.quotationNumber, rev1.quotationNumber);
+    assert.equal(rev2.status, 'draft');
+    assert.equal(rev2.items[0].quantity, 150);
+
+    // 5. Verify Revision 1 is STILL intact and unchanged
+    const rev1After = await Quotation.findById(rev1._id);
+    assert.equal(rev1After?.revision, 1);
+    assert.equal(rev1After?.status, 'changes_requested');
+    assert.equal(rev1After?.clientNotes, 'Increase quantity from 100 to 150 guests.');
+    assert.equal(rev1After?.items[0].quantity, 100);
+  });
+
+  it('56. Admin can update a draft quotation via PUT /api/quotations/:id, but cannot edit non-drafts', async () => {
+    // 1. Create draft quotation
+    const p = validPayload(eventId1, activeServiceId1);
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p),
+    });
+    const { data: draftQ } = (await createRes.json()) as any;
+
+    // 2. Update draft quotation
+    const updatedPayload = {
+      ...p,
+      discount: 2000,
+      items: [{ serviceId: activeServiceId1, quantity: 120, unitPrice: 450 }],
+    };
+    const updateRes = await fetch(`http://127.0.0.1:${port}/api/quotations/${draftQ._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(updatedPayload),
+    });
+    assert.equal(updateRes.status, 200);
+    const { data: updatedQ } = (await updateRes.json()) as any;
+    assert.equal(updatedQ.discount, 2000);
+    assert.equal(updatedQ.items[0].quantity, 120);
+
+    // 3. Issue the quotation so status is 'sent'
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${draftQ._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    // 4. Try updating the sent quotation -> must fail with 400
+    const failRes = await fetch(`http://127.0.0.1:${port}/api/quotations/${draftQ._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(updatedPayload),
+    });
+    assert.equal(failRes.status, 400);
+    const failData = (await failRes.json()) as any;
+    assert.match(failData.message, /Only draft quotations can be edited/);
+  });
+
+  it('57. Multiple change cycles work seamlessly: Rev 1 -> Rev 2 -> Rev 3', async () => {
+    // Rev 1
+    const p1 = validPayload(eventId1, activeServiceId1);
+    const c1 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p1),
+    });
+    const { data: rev1 } = (await c1.json()) as any;
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev1._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    // Client requests changes to Rev 1
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev1._id}/request-changes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ reason: 'Cycle 1 request' }),
+    });
+
+    // Admin creates and issues Rev 2
+    const c2 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId1)),
+    });
+    const { data: rev2 } = (await c2.json()) as any;
+    assert.equal(rev2.revision, 2);
+
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev2._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+
+    // Client requests changes to Rev 2
+    await fetch(`http://127.0.0.1:${port}/api/quotations/${rev2._id}/request-changes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ reason: 'Cycle 2 request' }),
+    });
+
+    // Admin creates and issues Rev 3
+    const c3 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(validPayload(eventId1, activeServiceId1)),
+    });
+    const { data: rev3 } = (await c3.json()) as any;
+    assert.equal(rev3.revision, 3);
+    assert.equal(rev3.quotationNumber, rev1.quotationNumber);
+
+    // Verify all 3 revisions exist in database
+    const all = await Quotation.find({ eventId: eventId1 }).sort({ revision: 1 });
+    assert.equal(all.length, 3);
+    assert.equal(all[0].revision, 1);
+    assert.equal(all[0].clientNotes, 'Cycle 1 request');
+    assert.equal(all[1].revision, 2);
+    assert.equal(all[1].clientNotes, 'Cycle 2 request');
+    assert.equal(all[2].revision, 3);
   });
 });

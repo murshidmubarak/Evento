@@ -457,7 +457,6 @@ The following are fixed unless explicitly approved:
 
 
 
-```md
 ### Bug and Change Impact Management
 
 Before investigating any bug or error:
@@ -489,3 +488,23 @@ Before making a significant change to an existing file, shared utility, shared t
 7. Record significant cross-file changes in `docs/09-change-impact-log.md`.
 
 Do not silently modify dependent files when a change has High or Critical impact.
+
+---
+
+## 26. Database Safety & Test Data Isolation Rules (STRICT / MANDATORY)
+
+1. **NEVER create dummy or test data in the actual database (`eventops`)**:
+   - The actual database must only contain real application and user data.
+   - Automated tests, mock data scripts, and test runners must NEVER insert data into the actual database.
+
+2. **NEVER delete, wipe, or drop data from the actual database**:
+   - `User.deleteMany({})`, `Event.deleteMany({})`, `Quotation.deleteMany({})`, or any collection-wiping operation must NEVER be run against the actual database.
+   - User-created events, quotations, client accounts, admin users, and business data must remain completely untouched and preserved.
+
+3. **Strict Separation of Test Database**:
+   - All automated test executions (`npm test`, `npx tsx --test`, integration suites) must run EXCLUSIVELY against a dedicated, isolated test database: `eventops_test` (or `MONGODB_TEST_URI`).
+   - `backend/tests/setup.ts` enforces this isolation and includes a hard safety guard that throws an immediate fatal error if any test runner or script attempts to connect to a database URI that does not end with `_test`.
+
+4. **Complete Deletion of Test Data After Test Runs**:
+   - All test data created during test execution must be completely dropped/deleted after the tests finish running (e.g. calling `cleanupTestDatabase()` which drops `eventops_test` before disconnect in the `after()` teardown hook).
+   - Zero test data or artifacts may linger in any database after test execution.
