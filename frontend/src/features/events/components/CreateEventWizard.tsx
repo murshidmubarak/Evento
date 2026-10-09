@@ -9,7 +9,7 @@ import {
   Loader2, ArrowLeft, ArrowRight, Check, Upload, MapPin,
   Utensils, BookOpen, Sparkles, Camera, AlignLeft,
   Flower2, Diamond, Box, Calendar, Clock, Users, Banknote, List, Info, Eye, X,
-  Phone, Mail, User
+  Phone, Mail, User, Plus
 } from 'lucide-react';
 import { LocationMapSelector } from './LocationMapSelector';
 
@@ -24,28 +24,78 @@ const WIZARD_STEPS = [
   { id: 6, title: 'Review & Submit' }
 ];
 
-const CustomList = ({ title, items, predefined, onChange, placeholder }: { title: string, items: string[], predefined: string[], onChange: (arr: string[]) => void, placeholder: string }) => {
+const CustomList = ({
+  title,
+  items,
+  predefined = [],
+  onChange,
+  placeholder,
+  onRemove
+}: {
+  title?: string;
+  items: string[];
+  predefined?: string[];
+  onChange: (arr: string[]) => void;
+  placeholder: string;
+  onRemove?: () => void;
+}) => {
   const [customVal, setCustomVal] = useState('');
 
   return (
     <div className="mb-6 last:mb-0">
-      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">{title}</p>
+      {title && (
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">{title}</div>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-0.5 rounded transition-colors flex items-center gap-1 font-medium"
+              title={`Remove ${title}`}
+            >
+              <X className="w-3.5 h-3.5" /> Remove Section
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-4 mb-3">
         {predefined.map(item => (
           <label key={item} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-            <input type="checkbox" checked={items.includes(item)} onChange={() => {
-              const newArr = items.includes(item) ? items.filter(m => m !== item) : [...items, item];
-              onChange(newArr);
-            }} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4" />
+            <input
+              type="checkbox"
+              checked={items.includes(item)}
+              onChange={() => {
+                const newArr = items.includes(item) ? items.filter(m => m !== item) : [...items, item];
+                onChange(newArr);
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+            />
             {item}
           </label>
         ))}
         {items.filter(i => !predefined.includes(i)).map(item => (
-          <label key={item} className="flex items-center gap-2 text-sm text-blue-700 cursor-pointer">
-            <input type="checkbox" checked={true} onChange={() => {
-              onChange(items.filter(m => m !== item));
-            }} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4" />
-            {item}
+          <label key={item} className="flex items-center gap-2 text-sm text-blue-700 cursor-pointer bg-blue-50/70 px-2.5 py-1 rounded-lg border border-blue-200">
+            <input
+              type="checkbox"
+              checked={true}
+              onChange={() => {
+                onChange(items.filter(m => m !== item));
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+            />
+            <span>{item}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onChange(items.filter(m => m !== item));
+              }}
+              className="text-blue-400 hover:text-red-500 ml-1 inline-flex items-center justify-center p-0.5 rounded hover:bg-red-50"
+              title={`Remove ${item}`}
+            >
+              <X className="w-3 h-3" />
+            </button>
           </label>
         ))}
       </div>
@@ -59,7 +109,8 @@ const CustomList = ({ title, items, predefined, onChange, placeholder }: { title
             if (e.key === 'Enter') {
               e.preventDefault();
               if (customVal.trim() && !items.includes(customVal.trim())) {
-                onChange([...items, customVal.trim()]); setCustomVal('');
+                onChange([...items, customVal.trim()]);
+                setCustomVal('');
               }
             }
           }}
@@ -71,13 +122,93 @@ const CustomList = ({ title, items, predefined, onChange, placeholder }: { title
           onClick={(e) => {
             e.preventDefault();
             if (customVal.trim() && !items.includes(customVal.trim())) {
-              onChange([...items, customVal.trim()]); setCustomVal('');
+              onChange([...items, customVal.trim()]);
+              setCustomVal('');
             }
           }}
           className="px-4 py-2 bg-blue-50 text-blue-700 text-sm font-bold hover:bg-blue-100 transition-colors border-l border-blue-100"
         >
           + Add
         </button>
+      </div>
+    </div>
+  );
+};
+
+const RequirementsAdder = ({
+  title,
+  icon,
+  items,
+  onChange,
+  addButtonText = '+ Add',
+  placeholderTitle = 'Title',
+  placeholderDesc = 'Description / details'
+}: {
+  title?: string;
+  icon?: React.ReactNode;
+  items: { title: string; description: string }[];
+  onChange: (items: { title: string; description: string }[]) => void;
+  addButtonText?: string;
+  placeholderTitle?: string;
+  placeholderDesc?: string;
+}) => {
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {icon}
+          {title && <h4 className="font-bold text-gray-900 text-sm">{title}</h4>}
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange([...items, { title: '', description: '' }])}
+          className="text-xs font-bold text-[#0051e5] bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ml-auto"
+        >
+          {addButtonText}
+        </button>
+      </div>
+      <div className="space-y-3">
+        {items.length === 0 ? (
+          <div className="text-xs text-gray-400 py-3 border border-dashed border-gray-200 rounded-xl text-center bg-white/50">
+            No items added. Click <span className="font-bold text-gray-600">"{addButtonText}"</span> to add one.
+          </div>
+        ) : (
+          items.map((req, idx) => (
+            <div key={idx} className="flex gap-2 items-start bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+              <div className="flex-1 space-y-2">
+                <input
+                  type="text"
+                  value={req.title}
+                  onChange={e => {
+                    const updated = [...items];
+                    updated[idx] = { ...updated[idx], title: e.target.value };
+                    onChange(updated);
+                  }}
+                  className="w-full rounded-lg border border-gray-200 focus:border-[#0051e5] focus:ring-[#0051e5] px-3 py-2 text-sm font-bold outline-none"
+                  placeholder={placeholderTitle}
+                />
+                <input
+                  type="text"
+                  value={req.description}
+                  onChange={e => {
+                    const updated = [...items];
+                    updated[idx] = { ...updated[idx], description: e.target.value };
+                    onChange(updated);
+                  }}
+                  className="w-full rounded-lg border border-gray-200 focus:border-[#0051e5] focus:ring-[#0051e5] px-3 py-2 text-sm outline-none"
+                  placeholder={placeholderDesc}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => onChange(items.filter((_, i) => i !== idx))}
+                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-0.5"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -111,7 +242,7 @@ export const CreateEventWizard = () => {
   const [isLoadingServices, setIsLoadingServices] = useState(false);
 
   // Step 4 Preferences
-  const [cateringPrefs, setCateringPrefs] = useState<any>({ serviceMode: [], starters: [], mainDishes: [], juices: [], desserts: [] });
+  const [cateringPrefs, setCateringPrefs] = useState<any>({ serviceMode: [], starters: [], mainDishes: [], juices: [], desserts: [], otherPreferences: [] });
   const [decorationPrefs, setDecorationPrefs] = useState<any>({});
   const [photoPrefs, setPhotoPrefs] = useState<any>({});
   const [otherCustomRequests, setOtherCustomRequests] = useState('');
@@ -148,7 +279,9 @@ export const CreateEventWizard = () => {
       (cateringPrefs.starters && cateringPrefs.starters.length > 0) ||
       (cateringPrefs.mainDishes && cateringPrefs.mainDishes.length > 0) ||
       (cateringPrefs.juices && cateringPrefs.juices.length > 0) ||
-      (cateringPrefs.desserts && cateringPrefs.desserts.length > 0);
+      (cateringPrefs.desserts && cateringPrefs.desserts.length > 0) ||
+      (cateringPrefs.otherPreferences && cateringPrefs.otherPreferences.some((p: any) => (p.items && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0))) ||
+      (cateringPrefs.otherRequirements && cateringPrefs.otherRequirements.length > 0);
 
     const targetCatId = catService?._id || (catService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('cater'))?._id || availableServices[0]?._id;
     if (targetCatId && hasCateringData) {
@@ -163,7 +296,7 @@ export const CreateEventWizard = () => {
     // Decoration
     const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
     const targetDecId = decService?._id || (decService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('decor'))?._id || availableServices[1]?._id;
-    if (targetDecId && (decorationPrefs.style || decorationPrefs.notes || referenceImages.length > 0)) {
+    if (targetDecId && (decorationPrefs.style || decorationPrefs.requirements?.length > 0 || decorationPrefs.notes || referenceImages.length > 0)) {
       list.push({
         serviceId: targetDecId,
         preferences: { ...decorationPrefs },
@@ -175,7 +308,7 @@ export const CreateEventWizard = () => {
     // Photography
     const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/));
     const targetPhotoId = photoService?._id || (photoService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('photo'))?._id || availableServices[2]?._id;
-    if (targetPhotoId && photoPrefs.package) {
+    if (targetPhotoId && (photoPrefs.package || photoPrefs.requirements?.length > 0)) {
       list.push({
         serviceId: targetPhotoId,
         preferences: { ...photoPrefs },
@@ -251,10 +384,10 @@ export const CreateEventWizard = () => {
     // Build clientInfo only if at least one field is filled
     const clientInfoPayload = (clientName.trim() || clientPhone.trim() || clientEmail.trim())
       ? {
-          name: clientName.trim() || undefined,
-          phone: clientPhone.trim() || undefined,
-          email: clientEmail.trim() || undefined,
-        }
+        name: clientName.trim() || undefined,
+        phone: clientPhone.trim() || undefined,
+        email: clientEmail.trim() || undefined,
+      }
       : undefined;
 
     const payload: CreateEventRequest = {
@@ -336,16 +469,16 @@ export const CreateEventWizard = () => {
           <Check className="w-8 h-8" strokeWidth={3} />
         </div>
         <h2 className="text-3xl font-black text-gray-900 mb-2">Success!</h2>
-        <p className="text-gray-500 mb-8 font-medium">Your event request was submitted.</p>
+        <div className="text-gray-500 mb-8 font-medium">Your event request was submitted.</div>
 
         <div className="grid md:grid-cols-2 gap-4 w-full max-w-2xl mb-8">
           <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
-            <p className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2"><List className="w-3 h-3" /> EVENT SUMMARY</p>
-            <p className="font-bold text-gray-900 text-lg mb-1">{successData.eventType}</p>
-            <p className="text-sm text-gray-600 flex items-center gap-2"><Calendar className="w-4 h-4" /> {new Date(successData.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+            <div className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2"><List className="w-3 h-3" /> EVENT SUMMARY</div>
+            <div className="font-bold text-gray-900 text-lg mb-1">{successData.eventType}</div>
+            <div className="text-sm text-gray-600 flex items-center gap-2"><Calendar className="w-4 h-4" /> {new Date(successData.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
           </div>
           <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
-            <p className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2"><Info className="w-3 h-3" /> ADMIN DETAILS</p>
+            <div className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2"><Info className="w-3 h-3" /> ADMIN DETAILS</div>
             <div className="flex justify-between text-sm mb-2"><span className="text-gray-500 font-medium">Request ID:</span> <span className="font-bold text-gray-900">EVT-{successData._id.slice(-4).toUpperCase()}</span></div>
             <div className="flex justify-between text-sm items-center"><span className="text-gray-500 font-medium">Status:</span> <span className="text-[10px] bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-black uppercase tracking-wider">Awaiting Quotation</span></div>
           </div>
@@ -356,9 +489,9 @@ export const CreateEventWizard = () => {
           <div className="w-full max-w-2xl mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
             <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
             <div className="flex-1">
-              <p className="text-sm font-bold text-amber-800">Reference image upload failed</p>
-              <p className="text-xs text-amber-700 mt-0.5">Your event was created successfully, but the decoration reference images could not be uploaded. Please retry.</p>
-              <p className="text-xs text-amber-600 mt-1 font-mono bg-amber-100 rounded px-2 py-1">{uploadError}</p>
+              <div className="text-sm font-bold text-amber-800">Reference image upload failed</div>
+              <div className="text-xs text-amber-700 mt-0.5">Your event was created successfully, but the decoration reference images could not be uploaded. Please retry.</div>
+              <div className="text-xs text-amber-600 mt-1 font-mono bg-amber-100 rounded px-2 py-1">{uploadError}</div>
               {referenceImages.length > 0 && (
                 <button
                   onClick={retryUpload}
@@ -375,7 +508,7 @@ export const CreateEventWizard = () => {
         {!uploadError && referenceImages.length > 0 && (
           <div className="w-full max-w-2xl mb-6 bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2">
             <Check className="w-4 h-4 text-green-600" />
-            <p className="text-sm font-medium text-green-800">{referenceImages.length} reference image{referenceImages.length !== 1 ? 's' : ''} uploaded successfully.</p>
+            <div className="text-sm font-medium text-green-800">{referenceImages.length} reference image{referenceImages.length !== 1 ? 's' : ''} uploaded successfully.</div>
           </div>
         )}
 
@@ -421,8 +554,8 @@ export const CreateEventWizard = () => {
                   )}
                 </div>
                 <div>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>Step {s.id}</p>
-                  <p className={`text-sm font-semibold ${isActive || isCompleted ? 'text-gray-900' : 'text-gray-400'}`}>{s.title}</p>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>Step {s.id}</div>
+                  <div className={`text-sm font-semibold ${isActive || isCompleted ? 'text-gray-900' : 'text-gray-400'}`}>{s.title}</div>
                 </div>
               </div>
             )
@@ -434,7 +567,7 @@ export const CreateEventWizard = () => {
       <div className="flex-1 min-w-0">
         <div className="md:hidden mb-6">
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-2">Create New Event</h1>
-          <p className="text-sm font-medium text-gray-500">Step {step} of 6: {WIZARD_STEPS[step - 1].title}</p>
+          <div className="text-sm font-medium text-gray-500">Step {step} of 6: {WIZARD_STEPS[step - 1].title}</div>
         </div>
 
         {error && (
@@ -447,7 +580,7 @@ export const CreateEventWizard = () => {
           {step === 1 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 1 of 6: Event Type</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 1 of 6: Event Type</div>
                 <h2 className="text-2xl font-bold text-gray-900">What type of event are you planning?</h2>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -456,8 +589,8 @@ export const CreateEventWizard = () => {
                     key={type}
                     onClick={() => setEventType(type)}
                     className={`p-5 rounded-xl border-2 text-left transition-all ${eventType === type
-                        ? 'border-[#0051e5] bg-blue-50/50 text-[#0051e5] shadow-sm'
-                        : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                      ? 'border-[#0051e5] bg-blue-50/50 text-[#0051e5] shadow-sm'
+                      : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                       }`}
                   >
                     <span className="font-bold block text-sm">{type}</span>
@@ -470,7 +603,7 @@ export const CreateEventWizard = () => {
           {step === 2 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 2 of 6: Event Details</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 2 of 6: Event Details</div>
                 <h2 className="text-2xl font-bold text-gray-900">Event Details</h2>
               </div>
 
@@ -598,7 +731,7 @@ export const CreateEventWizard = () => {
                     placeholder="Describe any general requirements or important details..."
                     maxLength={500}
                   />
-                  <p className="text-[10px] text-gray-400 mt-1 text-right font-medium">{notes.length} / 500 characters</p>
+                  <div className="text-[10px] text-gray-400 mt-1 text-right font-medium">{notes.length} / 500 characters</div>
                 </div>
               </div>
             </div>
@@ -607,7 +740,7 @@ export const CreateEventWizard = () => {
           {step === 3 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 3 of 6: Location & Guests</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 3 of 6: Location & Guests</div>
                 <h2 className="text-2xl font-bold text-gray-900">Location & Guests</h2>
               </div>
               <div className="grid md:grid-cols-2 gap-6">
@@ -645,7 +778,7 @@ export const CreateEventWizard = () => {
           {step === 4 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 4 of 6: Choose the services you need</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 4 of 6: Choose the services you need</div>
                 <h2 className="text-2xl font-bold text-gray-900">Choose the services you need</h2>
               </div>
 
@@ -682,8 +815,8 @@ export const CreateEventWizard = () => {
                               className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                             />
                             <div>
-                              <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">{m.id}</p>
-                              <p className="text-[11px] text-gray-500 leading-tight">{m.desc}</p>
+                              <div className="font-bold text-gray-900 text-sm leading-none mb-1.5">{m.id}</div>
+                              <div className="text-[11px] text-gray-500 leading-tight">{m.desc}</div>
                             </div>
                           </label>
                         )
@@ -726,6 +859,118 @@ export const CreateEventWizard = () => {
                         onChange={(val) => setCateringPrefs({ ...cateringPrefs, desserts: val })}
                         placeholder="Add custom dessert..."
                       />
+                      {/* Other Preferences with Client-Defined Headings (e.g. Salads, Soups) */}
+                      <div className="mt-8 border-t border-gray-200 pt-6">
+                        <div className="mb-4">
+                          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                            Other Preferences
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            Add custom sections (such as Salads, Soups, Breads) and add items just like dishes and juices.
+                          </p>
+                        </div>
+
+                        {/* Render existing headings created by client */}
+                        {Array.isArray(cateringPrefs.otherPreferences) && cateringPrefs.otherPreferences.map((pref: any, idx: number) => {
+                          const heading = typeof pref === 'object' && pref !== null ? (pref.heading || pref.name || `Section ${idx + 1}`) : pref;
+                          const items = typeof pref === 'object' && pref !== null && Array.isArray(pref.items) ? pref.items : [];
+                          return (
+                            <div key={idx} className="mb-5 bg-white p-4 rounded-xl border border-gray-200 shadow-xs">
+                              <CustomList
+                                title={heading}
+                                items={items}
+                                predefined={[]}
+                                onChange={(val) => {
+                                  const updated = [...cateringPrefs.otherPreferences];
+                                  updated[idx] = { heading, name: heading, items: val };
+                                  setCateringPrefs({ ...cateringPrefs, otherPreferences: updated });
+                                }}
+                                placeholder={`Add item to ${heading.toLowerCase()}...`}
+                                onRemove={() => {
+                                  const updated = cateringPrefs.otherPreferences.filter((_: any, i: number) => i !== idx);
+                                  setCateringPrefs({ ...cateringPrefs, otherPreferences: updated });
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+
+                        {/* Heading Creator Input & Quick Suggestions */}
+                        <div className="bg-gray-50/80 p-4 rounded-xl border border-dashed border-gray-300">
+                          <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+                            <Plus className="w-3.5 h-3.5 text-[#0051e5]" /> Add a Heading (e.g. Salads, Soups, Breads)
+                          </div>
+                          <div className="flex items-center gap-2 max-w-md mb-2.5">
+                            <input
+                              type="text"
+                              id="otherPrefHeadingInput"
+                              placeholder="Type heading name (e.g. Salads)..."
+                              className="rounded-lg border border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] px-3 py-2 text-sm outline-none flex-1 font-medium shadow-xs bg-white"
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const val = e.currentTarget.value.trim();
+                                  if (val) {
+                                    const current = cateringPrefs.otherPreferences || [];
+                                    if (!current.some((p: any) => (p.heading || p.name || '').toLowerCase() === val.toLowerCase())) {
+                                      setCateringPrefs({
+                                        ...cateringPrefs,
+                                        otherPreferences: [...current, { heading: val, name: val, items: [] }]
+                                      });
+                                    }
+                                    e.currentTarget.value = '';
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const input = document.getElementById('otherPrefHeadingInput') as HTMLInputElement;
+                                if (input && input.value.trim()) {
+                                  const val = input.value.trim();
+                                  const current = cateringPrefs.otherPreferences || [];
+                                  if (!current.some((p: any) => (p.heading || p.name || '').toLowerCase() === val.toLowerCase())) {
+                                    setCateringPrefs({
+                                      ...cateringPrefs,
+                                      otherPreferences: [...current, { heading: val, name: val, items: [] }]
+                                    });
+                                  }
+                                  input.value = '';
+                                }
+                              }}
+                              className="text-xs font-bold text-white bg-[#0051e5] hover:bg-blue-700 px-4 py-2.5 rounded-lg transition-colors whitespace-nowrap shadow-xs"
+                            >
+                              + Add Heading
+                            </button>
+                          </div>
+
+                          {/* Quick suggestions */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] text-gray-500 font-medium">Quick add:</span>
+                            {['Salads', 'Soups', 'Breads & Rotis', 'Live Food Counters', 'Snacks'].map(suggested => {
+                              const alreadyAdded = (cateringPrefs.otherPreferences || []).some((p: any) => (p.heading || p.name || '').toLowerCase() === suggested.toLowerCase());
+                              if (alreadyAdded) return null;
+                              return (
+                                <button
+                                  key={suggested}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = cateringPrefs.otherPreferences || [];
+                                    setCateringPrefs({
+                                      ...cateringPrefs,
+                                      otherPreferences: [...current, { heading: suggested, name: suggested, items: [] }]
+                                    });
+                                  }}
+                                  className="text-[11px] font-semibold text-gray-600 bg-white hover:bg-blue-50 hover:text-[#0051e5] hover:border-blue-200 border border-gray-200 px-2.5 py-1 rounded-md transition-colors"
+                                >
+                                  + {suggested}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -753,10 +998,19 @@ export const CreateEventWizard = () => {
                               {s.icon}
                             </div>
                             <h4 className="font-bold text-gray-900 text-sm mb-1.5">{s.id}</h4>
-                            <p className="text-[11px] text-gray-500 leading-tight">{s.desc}</p>
+                            <div className="text-[11px] text-gray-500 leading-tight">{s.desc}</div>
                           </button>
                         )
                       })}
+                    </div>
+                    <div className="px-5 pb-5 bg-gray-50/30">
+                      <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">Custom Decoration Requirements</div>
+                      <RequirementsAdder
+                        items={decorationPrefs.requirements || []}
+                        onChange={(val) => setDecorationPrefs({ ...decorationPrefs, requirements: val })}
+                        placeholderTitle="e.g. Floral Arch, Specific Colors"
+                        placeholderDesc="e.g. Use red roses, gold accents"
+                      />
                     </div>
                     <div className="px-5 pb-5 bg-gray-50/30 border-t border-gray-100 pt-5">
                       <label className="border border-dashed border-gray-300 rounded-xl p-6 text-center flex flex-col items-center justify-center bg-white hover:bg-gray-50 transition-colors cursor-pointer mb-2">
@@ -807,8 +1061,8 @@ export const CreateEventWizard = () => {
                           className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                         />
                         <div>
-                          <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Basic Photo & Video Package</p>
-                          <p className="text-[11px] text-gray-500 leading-tight">Standard coverage with 1 photographer, 1 videographer. Includes edited digital gallery.</p>
+                          <div className="font-bold text-gray-900 text-sm leading-none mb-1.5">Basic Photo & Video Package</div>
+                          <div className="text-[11px] text-gray-500 leading-tight">Standard coverage with 1 photographer, 1 videographer. Includes edited digital gallery.</div>
                         </div>
                       </label>
                       <label className={`flex items-start gap-3 p-4 rounded-xl border bg-white cursor-pointer transition-all relative ${photoPrefs.package === 'Premium Cinematic Package' ? 'border-blue-600 ring-1 ring-blue-600 shadow-sm' : 'border-gray-200 hover:border-blue-200'}`}>
@@ -821,10 +1075,19 @@ export const CreateEventWizard = () => {
                           className="mt-0.5 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                         />
                         <div>
-                          <p className="font-bold text-gray-900 text-sm leading-none mb-1.5">Premium Cinematic Package</p>
-                          <p className="text-[11px] text-gray-500 leading-tight">Multi-cam setup, drone footage, cinematic highlights, and priority editing delivery.</p>
+                          <div className="font-bold text-gray-900 text-sm leading-none mb-1.5">Premium Cinematic Package</div>
+                          <div className="text-[11px] text-gray-500 leading-tight">Multi-cam setup, drone footage, cinematic highlights, and priority editing delivery.</div>
                         </div>
                       </label>
+                    </div>
+                    <div className="px-5 pb-5 bg-gray-50/30">
+                      <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">Custom Photo & Video Requirements</div>
+                      <RequirementsAdder
+                        items={photoPrefs.requirements || []}
+                        onChange={(val) => setPhotoPrefs({ ...photoPrefs, requirements: val })}
+                        placeholderTitle="e.g. Drone Shots, Reel Editing"
+                        placeholderDesc="e.g. Need drone for 2 hours, short reels for Instagram"
+                      />
                     </div>
                   </div>
 
@@ -835,56 +1098,15 @@ export const CreateEventWizard = () => {
                         <Box className="w-5 h-5 text-blue-600" />
                         <h3 className="font-bold text-gray-900 text-sm">Special Requirements</h3>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSpecialRequirements(prev => [...prev, { title: '', description: '' }])}
-                        className="text-xs font-bold text-[#0051e5] bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                      >
-                        + Add Requirement
-                      </button>
                     </div>
-                    <div className="p-5 bg-gray-50/30 space-y-3">
-                      {specialRequirements.length === 0 ? (
-                        <p className="text-xs text-gray-400 text-center py-2">
-                          No special requirements added. Click <span className="font-bold">"+ Add Requirement"</span> to add one.
-                        </p>
-                      ) : (
-                        specialRequirements.map((req, idx) => (
-                          <div key={idx} className="flex gap-2 items-start bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-                            <div className="flex-1 space-y-2">
-                              <input
-                                type="text"
-                                value={req.title}
-                                onChange={e => {
-                                  const updated = [...specialRequirements];
-                                  updated[idx] = { ...updated[idx], title: e.target.value };
-                                  setSpecialRequirements(updated);
-                                }}
-                                className="w-full rounded-lg border border-gray-200 focus:border-[#0051e5] focus:ring-[#0051e5] px-3 py-2 text-sm font-bold outline-none"
-                                placeholder="Requirement title (e.g. Halal Food Only, Wheelchair Access)"
-                              />
-                              <input
-                                type="text"
-                                value={req.description}
-                                onChange={e => {
-                                  const updated = [...specialRequirements];
-                                  updated[idx] = { ...updated[idx], description: e.target.value };
-                                  setSpecialRequirements(updated);
-                                }}
-                                className="w-full rounded-lg border border-gray-200 focus:border-[#0051e5] focus:ring-[#0051e5] px-3 py-2 text-sm outline-none"
-                                placeholder="Description / details (optional)"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setSpecialRequirements(prev => prev.filter((_, i) => i !== idx))}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-0.5"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))
-                      )}
+                    <div className="p-5 bg-gray-50/30">
+                      <RequirementsAdder
+                        items={specialRequirements}
+                        onChange={setSpecialRequirements}
+                        addButtonText="+ Add Requirement"
+                        placeholderTitle="Requirement title (e.g. Halal Food Only, Wheelchair Access)"
+                        placeholderDesc="Description / details (optional)"
+                      />
                     </div>
                   </div>
 
@@ -913,12 +1135,12 @@ export const CreateEventWizard = () => {
           {step === 5 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 5 of 6: Budget</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 5 of 6: Budget</div>
                 <h2 className="text-2xl font-bold text-gray-900">Estimated Budget</h2>
               </div>
-              <p className="text-gray-500 max-w-xl text-sm mb-4">
+              <div className="text-gray-500 max-w-xl text-sm mb-4">
                 Providing an estimated budget helps our team curate the best quotation for your selected services. No prices are calculated instantly.
-              </p>
+              </div>
 
               <div className="max-w-md bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wider">Allocated Budget (Optional)</label>
@@ -942,9 +1164,9 @@ export const CreateEventWizard = () => {
           {step === 6 && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Step 6 of 6: Review</p>
+                <div className="text-sm font-semibold text-gray-500 mb-1">Step 6 of 6: Review</div>
                 <h2 className="text-3xl font-black text-gray-900">Review Your Event</h2>
-                <p className="text-sm text-gray-500 mt-2">Please review the details below before submitting your event request. Ensure all information is accurate.</p>
+                <div className="text-sm text-gray-500 mt-2">Please review the details below before submitting your event request. Ensure all information is accurate.</div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
@@ -981,14 +1203,14 @@ export const CreateEventWizard = () => {
                   <h3 className="text-sm font-bold text-[#0051e5] flex items-center gap-2 mb-4"><List className="w-4 h-4" /> Event Details</h3>
                   <div className="space-y-4">
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Event Type</p>
-                      <p className="font-bold text-gray-900 text-lg leading-tight">{eventType}</p>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Event Type</div>
+                      <div className="font-bold text-gray-900 text-lg leading-tight">{eventType}</div>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Date & Time</p>
-                      <p className="font-semibold text-gray-700 text-sm">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Date & Time</div>
+                      <div className="font-semibold text-gray-700 text-sm">
                         {date ? new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''} • {startTime} - {endTime}
-                      </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -998,12 +1220,12 @@ export const CreateEventWizard = () => {
                   <h3 className="text-sm font-bold text-[#0051e5] flex items-center gap-2 mb-4"><MapPin className="w-4 h-4" /> Location & Guests</h3>
                   <div className="space-y-4">
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Venue City</p>
-                      <p className="font-bold text-gray-900 text-sm leading-tight line-clamp-2">{locationState.address}</p>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Venue City</div>
+                      <div className="font-bold text-gray-900 text-sm leading-tight line-clamp-2">{locationState.address}</div>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Guest Count</p>
-                      <p className="font-semibold text-gray-700 text-sm flex items-center gap-1"><Users className="w-3 h-3" /> {guestCount} Guests</p>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Guest Count</div>
+                      <div className="font-semibold text-gray-700 text-sm flex items-center gap-1"><Users className="w-3 h-3" /> {guestCount} Guests</div>
                     </div>
                   </div>
                 </div>
@@ -1024,39 +1246,94 @@ export const CreateEventWizard = () => {
                             </div>
 
                             {name.includes('catering') && data.preferences.serviceMode && (
-                              <p className="text-xs text-gray-500 mb-2">{data.preferences.serviceMode[0]}</p>
+                              <div className="text-xs text-gray-500 mb-2">{data.preferences.serviceMode[0]}</div>
                             )}
-                            {name.includes('decoration') && data.preferences.style && (
+                            {name.includes('decoration') && (data.preferences.style || data.preferences.requirements?.length > 0) && (
                               <div className="mb-2">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Stage Style</p>
-                                <p className="text-xs text-gray-700 font-medium">{data.preferences.style} Stage Decoration</p>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Stage Style & Requirements</div>
+                                {data.preferences.style && (
+                                  <div className="text-xs text-gray-700 font-medium mb-1">
+                                    {data.preferences.style} Stage Decoration
+                                  </div>
+                                )}
+                                {data.preferences.requirements?.map((req: any, i: number) => (
+                                  <div key={i} className="text-xs text-gray-700 mt-1">
+                                    <span className="font-bold text-[#0051e5]">• </span>
+                                    <span className="font-bold">{req.title}</span>
+                                    {req.description && <span className="text-gray-500">: {req.description}</span>}
+                                  </div>
+                                ))}
                                 {referenceImages.length > 0 && (
-                                  <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                                  <div className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
                                     <Camera className="w-3 h-3" /> {referenceImages.length} Reference Image{referenceImages.length !== 1 ? 's' : ''} Attached
-                                  </p>
+                                  </div>
                                 )}
                               </div>
                             )}
-                            {name.includes('photo') && data.preferences.package && (
+                            {name.includes('photo') && (data.preferences.package || data.preferences.requirements?.length > 0) && (
                               <div className="mb-2">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Package</p>
-                                <p className="text-xs text-gray-700 font-medium">{data.preferences.package}</p>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Package & Requirements</div>
+                                {data.preferences.package && (
+                                  <div className="text-xs text-gray-700 font-medium mb-1">
+                                    {data.preferences.package}
+                                  </div>
+                                )}
+                                {data.preferences.requirements?.map((req: any, i: number) => (
+                                  <div key={i} className="text-xs text-gray-700 mt-1">
+                                    <span className="font-bold text-[#0051e5]">• </span>
+                                    <span className="font-bold">{req.title}</span>
+                                    {req.description && <span className="text-gray-500">: {req.description}</span>}
+                                  </div>
+                                ))}
                               </div>
                             )}
-                            {name.includes('catering') && (data.preferences.mainDishes || data.preferences.starters || data.preferences.juices || data.preferences.desserts) && (
+                            {name.includes('catering') && (data.preferences.mainDishes || data.preferences.starters || data.preferences.juices || data.preferences.desserts || data.preferences.otherPreferences?.length > 0 || data.preferences.otherRequirements?.length > 0) && (
                               <div className="mt-2 space-y-1">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Menu Items</p>
-                                {data.preferences.starters?.map((dish: string, i: number) => (
-                                  <p key={`s${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">Menu Items & Preferences</div>
+                                {data.preferences.starters?.map((dish: any, i: number) => (
+                                  <div key={`s${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{typeof dish === 'object' ? (dish.title || '') : dish}</div>
                                 ))}
-                                {data.preferences.mainDishes?.map((dish: string, i: number) => (
-                                  <p key={i} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                {data.preferences.mainDishes?.map((dish: any, i: number) => (
+                                  <div key={i} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{typeof dish === 'object' ? (dish.title || '') : dish}</div>
                                 ))}
-                                {data.preferences.juices?.map((dish: string, i: number) => (
-                                  <p key={`j${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                {data.preferences.juices?.map((dish: any, i: number) => (
+                                  <div key={`j${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{typeof dish === 'object' ? (dish.title || '') : dish}</div>
                                 ))}
-                                {data.preferences.desserts?.map((dish: string, i: number) => (
-                                  <p key={`d${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{dish}</p>
+                                {data.preferences.desserts?.map((dish: any, i: number) => (
+                                  <div key={`d${i}`} className="text-[11px] text-gray-600 flex items-center gap-1"><Check className="w-3 h-3 text-green-500" />{typeof dish === 'object' ? (dish.title || '') : dish}</div>
+                                ))}
+                                {data.preferences.otherPreferences?.map((pref: any, i: number) => {
+                                  if (typeof pref === 'string') {
+                                    return (
+                                      <div key={`op${i}`} className="text-[11px] text-gray-600 flex items-center gap-1">
+                                        <Check className="w-3 h-3 text-green-500" />{pref}
+                                      </div>
+                                    );
+                                  }
+                                  if (typeof pref === 'object' && pref !== null) {
+                                    const heading = pref.heading || pref.name || pref.title;
+                                    const items = Array.isArray(pref.items) ? pref.items : [];
+                                    if (items.length === 0) return null;
+                                    return (
+                                      <div key={`op${i}`} className="mt-1.5 space-y-1">
+                                        <div className="text-[10px] font-bold text-gray-500 capitalize">{heading}:</div>
+                                        {items.map((item: any, j: number) => (
+                                          <div key={`op${i}j${j}`} className="text-[11px] text-gray-600 flex items-center gap-1 pl-1">
+                                            <Check className="w-3 h-3 text-green-500" />
+                                            {typeof item === 'object' ? (item.title || item.name || '') : item}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })}
+                                {data.preferences.otherRequirements?.map((req: any, i: number) => (
+                                  <div key={`o${i}`} className="text-xs text-gray-700 mt-2 pl-1">
+                                    <span className="font-bold text-[#0051e5]">• </span>
+                                    <span className="font-bold">{req.title}</span>
+                                    {req.description && <span className="text-gray-500">: {req.description}</span>}
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -1065,7 +1342,7 @@ export const CreateEventWizard = () => {
                       })}
                     </div>
                   ) : (
-                    <p className="text-gray-500 text-sm">No services requested.</p>
+                    <div className="text-gray-500 text-sm">No services requested.</div>
                   )}
                 </div>
 
@@ -1093,17 +1370,17 @@ export const CreateEventWizard = () => {
                 <div className="md:col-span-2 bg-[#1c1c28] rounded-xl p-5 shadow-lg text-white grid md:grid-cols-3 gap-6 items-center">
                   <div className="md:col-span-1">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2"><Banknote className="w-4 h-4 text-blue-400" /> Financial Overview</h3>
-                    <p className="text-xs text-gray-400">Comparison of allocated budget vs estimated costs.</p>
+                    <div className="text-xs text-gray-400">Comparison of allocated budget vs estimated costs.</div>
                   </div>
                   <div className="md:col-span-2 flex flex-col sm:flex-row gap-6 md:gap-12 md:justify-end">
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Allocated Budget</p>
-                      <p className="font-black text-2xl">₹{budget ? budget.toLocaleString() : '0'}</p>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Allocated Budget</div>
+                      <div className="font-black text-2xl">₹{budget ? budget.toLocaleString() : '0'}</div>
                     </div>
                     <div className="hidden sm:block w-px bg-gray-700 h-10 my-auto"></div>
                     <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Estimated Cost</p>
-                      <p className="font-black text-2xl">₹{estimatedCost.toLocaleString()}</p>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Estimated Cost</div>
+                      <div className="font-black text-2xl">₹{estimatedCost.toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
@@ -1136,8 +1413,8 @@ export const CreateEventWizard = () => {
               onClick={handleNext}
               disabled={!validateStep()}
               className={`flex items-center gap-2 px-8 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm ${validateStep()
-                  ? 'bg-[#0051e5] text-white hover:bg-blue-700'
-                  : 'bg-blue-300 text-white cursor-not-allowed'
+                ? 'bg-[#0051e5] text-white hover:bg-blue-700'
+                : 'bg-blue-300 text-white cursor-not-allowed'
                 }`}
             >
               Next Step

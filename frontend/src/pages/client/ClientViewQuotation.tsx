@@ -233,13 +233,12 @@ export const ClientViewQuotation: React.FC = () => {
       {/* Dynamic Status / Decision Notification Banner */}
       {successBanner ? (
         <div
-          className={`p-4 sm:p-5 rounded-xl border flex items-start gap-3.5 print:hidden shadow-xs animate-in fade-in ${
-            successBanner.type === 'accepted'
+          className={`p-4 sm:p-5 rounded-xl border flex items-start gap-3.5 print:hidden shadow-xs animate-in fade-in ${successBanner.type === 'accepted'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
               : successBanner.type === 'changes_requested'
-              ? 'bg-purple-50 border-purple-200 text-purple-900'
-              : 'bg-red-50 border-red-200 text-red-900'
-          }`}
+                ? 'bg-purple-50 border-purple-200 text-purple-900'
+                : 'bg-red-50 border-red-200 text-red-900'
+            }`}
         >
           {successBanner.type === 'accepted' ? (
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
@@ -508,13 +507,12 @@ export const ClientViewQuotation: React.FC = () => {
                         <div className="bg-gray-50/80 rounded border border-gray-100 p-3 mt-2">
                           <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Included Inclusions</p>
                           <div
-                            className={`grid gap-3 ${
-                              item.detailedContent.length >= 3
+                            className={`grid gap-3 ${item.detailedContent.length >= 3
                                 ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'
                                 : item.detailedContent.length === 2
-                                ? 'grid-cols-1 sm:grid-cols-2'
-                                : 'grid-cols-1'
-                            }`}
+                                  ? 'grid-cols-1 sm:grid-cols-2'
+                                  : 'grid-cols-1'
+                              }`}
                           >
                             {item.detailedContent.map((section, sidx) => (
                               <div key={sidx}>

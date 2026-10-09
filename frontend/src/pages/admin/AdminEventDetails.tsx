@@ -166,14 +166,55 @@ export const AdminEventDetails = () => {
                         <div className="mb-5 bg-gray-50 rounded-lg p-4 border border-gray-100">
                           <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Client Preferences</h4>
                           <div className="grid sm:grid-cols-2 gap-y-3 gap-x-4">
-                            {Object.entries(service.preferences).map(([key, value]: [string, any]) => (
-                              <div key={key}>
-                                <span className="block text-[11px] font-medium text-gray-500 mb-0.5 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
-                                <span className="text-sm font-semibold text-gray-900">
-                                  {Array.isArray(value) ? value.join(', ') : String(value)}
-                                </span>
-                              </div>
-                            ))}
+                            {Object.entries(service.preferences).map(([key, value]: [string, any]) => {
+                              const renderVal = (v: any): React.ReactNode => {
+                                if (v === null || v === undefined) return 'None';
+                                if (Array.isArray(v)) {
+                                  if (v.length === 0) return 'None';
+                                  return (
+                                    <div className="space-y-1 mt-0.5">
+                                      {v.map((item: any, idx: number) => {
+                                        if (typeof item === 'string') {
+                                          return <div key={idx} className="text-xs text-gray-800">• {item}</div>;
+                                        }
+                                        if (typeof item === 'object' && item !== null) {
+                                          const headingName = item.heading || item.name || item.title;
+                                          if (headingName && Array.isArray(item.items)) {
+                                            return (
+                                              <div key={idx} className="text-xs text-gray-800">
+                                                <span className="font-semibold">• {headingName}:</span> {item.items.join(', ')}
+                                              </div>
+                                            );
+                                          }
+                                          const title = item.title || item.name || '';
+                                          const desc = item.description || item.details || '';
+                                          return (
+                                            <div key={idx} className="text-xs text-gray-800">
+                                              <span className="font-semibold">• {title}</span>
+                                              {desc && <span className="text-gray-500">: {desc}</span>}
+                                            </div>
+                                          );
+                                        }
+                                        return <div key={idx} className="text-xs text-gray-800">• {String(item)}</div>;
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                if (typeof v === 'object' && v !== null) {
+                                  return JSON.stringify(v);
+                                }
+                                return String(v);
+                              };
+
+                              return (
+                                <div key={key}>
+                                  <span className="block text-[11px] font-medium text-gray-500 mb-0.5 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                  <div className="text-sm font-semibold text-gray-900">
+                                    {renderVal(value)}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

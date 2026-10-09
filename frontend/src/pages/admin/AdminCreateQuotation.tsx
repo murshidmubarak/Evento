@@ -115,7 +115,18 @@ export const AdminCreateQuotation = () => {
               name: s.serviceName,
               pricingType: s.pricingType || 'per_event',
               scope: '',
-              requirements: Object.entries(s.preferences || {}).map(([k, v]) => `${k}: ${v}`).join(', '),
+              requirements: Object.entries(s.preferences || {}).map(([k, v]) => {
+                if (Array.isArray(v)) {
+                  const itemsStr = v.map((item: any) => {
+                    if (typeof item === 'object' && item !== null) {
+                      return item.title ? (item.description ? `${item.title}: ${item.description}` : item.title) : JSON.stringify(item);
+                    }
+                    return String(item);
+                  }).join(', ');
+                  return `${k}: [${itemsStr}]`;
+                }
+                return `${k}: ${v}`;
+              }).join('; '),
               quantity: isPerGuest ? (eventData.guestCount || 1) : 1,
               unitPrice: s.basePrice || 0,
               detailedContent: []

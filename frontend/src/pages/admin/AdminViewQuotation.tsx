@@ -199,21 +199,19 @@ export const AdminViewQuotation = () => {
                 <Link
                   key={rev._id}
                   to={`/admin/quotations/${rev._id}`}
-                  className={`p-3 rounded-lg border text-left transition-all ${
-                    isCurrent
+                  className={`p-3 rounded-lg border text-left transition-all ${isCurrent
                       ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/30'
                       : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-bold text-sm text-gray-900">Revision {rev.revision}</span>
-                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
-                      rev.status === 'draft' ? 'bg-gray-100 text-gray-700' :
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${rev.status === 'draft' ? 'bg-gray-100 text-gray-700' :
                         rev.status === 'sent' ? 'bg-blue-100 text-blue-700' :
                           rev.status === 'changes_requested' ? 'bg-amber-100 text-amber-800' :
                             rev.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
                               'bg-red-100 text-red-700'
-                    }`}>
+                      }`}>
                       {rev.status.replace('_', ' ')}
                     </span>
                   </div>

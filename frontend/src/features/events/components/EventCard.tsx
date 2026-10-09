@@ -43,7 +43,7 @@ export const EventCard = ({ event }: EventCardProps) => {
             <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
             <span className="truncate">{new Date(event.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
           </div>
-          
+
           <div className="flex items-center text-xs text-gray-600 gap-2.5">
             <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
             <span>{event.startTime} – {event.endTime}</span>
@@ -69,8 +69,8 @@ export const EventCard = ({ event }: EventCardProps) => {
       </div>
 
       <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-100">
-        <Link 
-          to={`/client/events/${event._id}`} 
+        <Link
+          to={`/client/events/${event._id}`}
           className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center justify-between w-full"
         >
           <span>View Details</span>

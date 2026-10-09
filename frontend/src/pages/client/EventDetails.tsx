@@ -61,6 +61,45 @@ export const EventDetails = () => {
     );
   }
 
+  const renderRequirementList = (items: any) => {
+    if (!items) return null;
+    if (typeof items === 'string') {
+      return <p className="text-gray-600">{items}</p>;
+    }
+    if (Array.isArray(items)) {
+      if (items.length === 0) return null;
+      return (
+        <div className="mt-1 space-y-1">
+          {items.map((item: any, idx: number) => {
+            if (typeof item === 'string') {
+              return (
+                <div key={idx} className="flex items-start gap-1.5 text-xs text-gray-700">
+                  <span className="font-bold text-indigo-600">•</span>
+                  <span>{item}</span>
+                </div>
+              );
+            }
+            if (typeof item === 'object' && item !== null) {
+              const title = item.title || item.name || '';
+              const desc = item.description || item.details || '';
+              return (
+                <div key={idx} className="flex items-start gap-1.5 text-xs text-gray-700">
+                  <span className="font-bold text-indigo-600">•</span>
+                  <span>
+                    <span className="font-semibold text-gray-900">{title}</span>
+                    {desc ? <span className="text-gray-500">: {desc}</span> : null}
+                  </span>
+                </div>
+              );
+            }
+            return null;
+          })}
+        </div>
+      );
+    }
+    return <p className="text-gray-600">{String(items)}</p>;
+  };
+
   const renderPreferences = (preferences: any, serviceName: string) => {
     if (!preferences || Object.keys(preferences).length === 0) {
       return <p className="text-xs text-gray-500 mt-1 italic">No special preferences specified.</p>;
@@ -77,16 +116,62 @@ export const EventDetails = () => {
             <div><span className="font-bold text-gray-900 block mb-0.5">Service Mode:</span><span className="text-gray-600">{preferences.serviceMode.join(', ')}</span></div>
           )}
           {preferences.starters?.length > 0 && (
-            <div><span className="font-bold text-gray-900 block mb-0.5">Starters:</span><span className="text-gray-600">{preferences.starters.join(', ')}</span></div>
+            <div><span className="font-bold text-gray-900 block mb-0.5">Starters:</span><span className="text-gray-600">{preferences.starters.map((d: any) => typeof d === 'object' && d !== null ? (d.title || JSON.stringify(d)) : d).join(', ')}</span></div>
           )}
           {preferences.mainDishes?.length > 0 && (
-            <div><span className="font-bold text-gray-900 block mb-0.5">Main Dishes:</span><span className="text-gray-600">{preferences.mainDishes.join(', ')}</span></div>
+            <div><span className="font-bold text-gray-900 block mb-0.5">Main Dishes:</span><span className="text-gray-600">{preferences.mainDishes.map((d: any) => typeof d === 'object' && d !== null ? (d.title || JSON.stringify(d)) : d).join(', ')}</span></div>
           )}
           {preferences.juices?.length > 0 && (
-            <div><span className="font-bold text-gray-900 block mb-0.5">Juices & Drinks:</span><span className="text-gray-600">{preferences.juices.join(', ')}</span></div>
+            <div><span className="font-bold text-gray-900 block mb-0.5">Juices & Drinks:</span><span className="text-gray-600">{preferences.juices.map((d: any) => typeof d === 'object' && d !== null ? (d.title || JSON.stringify(d)) : d).join(', ')}</span></div>
           )}
           {preferences.desserts?.length > 0 && (
-            <div><span className="font-bold text-gray-900 block mb-0.5">Desserts:</span><span className="text-gray-600">{preferences.desserts.join(', ')}</span></div>
+            <div><span className="font-bold text-gray-900 block mb-0.5">Desserts:</span><span className="text-gray-600">{preferences.desserts.map((d: any) => typeof d === 'object' && d !== null ? (d.title || JSON.stringify(d)) : d).join(', ')}</span></div>
+          )}
+          {preferences.otherPreferences?.length > 0 && (
+            <div>
+              <span className="font-bold text-gray-900 block mb-0.5">Other Preferences:</span>
+              <div className="space-y-1.5 mt-1 pl-1">
+                {preferences.otherPreferences.map((pref: any, i: number) => {
+                  if (typeof pref === 'string') {
+                    return <div key={i} className="text-gray-600 text-sm">• {pref}</div>;
+                  }
+                  if (typeof pref === 'object' && pref !== null) {
+                    const heading = pref.heading || pref.name || pref.title;
+                    const items = Array.isArray(pref.items)
+                      ? pref.items.map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)) : String(d)).join(', ')
+                      : String(pref.items || '');
+                    return (
+                      <div key={i} className="text-sm">
+                        <span className="font-semibold text-gray-800">{heading}:</span>{' '}
+                        <span className="text-gray-600">{items || 'None'}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+            </div>
+          )}
+          {preferences.customCategories?.map((cat: any, i: number) => 
+            cat.items && cat.items.length > 0 ? (
+              <div key={`cat-${i}`}>
+                <span className="font-bold text-gray-900 block mb-0.5">{cat.name}:</span>
+                <span className="text-gray-600">
+                  {Array.isArray(cat.items)
+                    ? cat.items.map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)) : String(d)).join(', ')
+                    : String(cat.items)}
+                </span>
+              </div>
+            ) : null
+          )}
+          {preferences.otherRequirements && (
+            <div>
+              <span className="font-bold text-gray-900 block mb-0.5">Other Requests:</span>
+              {renderRequirementList(preferences.otherRequirements)}
+            </div>
+          )}
+          {preferences.notes && (
+            <div><span className="font-bold text-gray-900 block mb-0.5">Notes:</span><p className="text-gray-600">{preferences.notes}</p></div>
           )}
         </div>
       );
@@ -99,6 +184,12 @@ export const EventDetails = () => {
           {(preferences.stageRequired || preferences.entranceRequired) && (
             <div><span className="font-bold text-gray-900 block mb-0.5">Requirements:</span><span className="text-gray-600">{[preferences.stageRequired && 'Stage Decoration', preferences.entranceRequired && 'Entrance Decoration'].filter(Boolean).join(', ')}</span></div>
           )}
+          {preferences.requirements && (
+            <div>
+              <span className="font-bold text-gray-900 block mb-0.5">Requirements:</span>
+              {renderRequirementList(preferences.requirements)}
+            </div>
+          )}
           {preferences.themeNotes && <div><span className="font-bold text-gray-900 block mb-0.5">Theme Notes:</span><p className="text-gray-600">{preferences.themeNotes}</p></div>}
           {preferences.additionalNotes && <div><span className="font-bold text-gray-900 block mb-0.5">Additional Notes:</span><p className="text-gray-600">{preferences.additionalNotes}</p></div>}
         </div>
@@ -109,21 +200,30 @@ export const EventDetails = () => {
       return (
         <div className="mt-2 text-xs text-gray-700 bg-white p-3.5 rounded-lg border border-gray-200 shadow-xs space-y-2">
           {preferences.package && <div><span className="font-bold text-gray-900">Package: </span><span className="text-gray-600">{preferences.package}</span></div>}
-          {preferences.requirements && <div><span className="font-bold text-gray-900 block mb-0.5">Requirements:</span><p className="text-gray-600">{preferences.requirements}</p></div>}
+          {preferences.requirements && (
+            <div>
+              <span className="font-bold text-gray-900 block mb-0.5">Requirements:</span>
+              {renderRequirementList(preferences.requirements)}
+            </div>
+          )}
         </div>
       );
     }
     return (
       <div className="mt-2 text-xs text-gray-700 bg-white p-3.5 rounded-lg border border-gray-200 shadow-xs space-y-2">
-         {Object.entries(preferences).map(([key, value]) => {
-           const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase());
-           return (
-             <div key={key}>
-               <span className="font-bold text-gray-900 block mb-0.5">{label}:</span>
-               <p className="text-gray-600">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</p>
-             </div>
-           );
-         })}
+        {Object.entries(preferences).map(([key, value]) => {
+          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase());
+          return (
+            <div key={key}>
+              <span className="font-bold text-gray-900 block mb-0.5">{label}:</span>
+              {Array.isArray(value) ? (
+                renderRequirementList(value)
+              ) : (
+                <p className="text-gray-600">{typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}</p>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -138,8 +238,8 @@ export const EventDetails = () => {
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500 pb-16">
       {/* Top Header & Breadcrumb */}
       <div>
-        <button 
-          onClick={() => navigate('/client/events')} 
+        <button
+          onClick={() => navigate('/client/events')}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors mb-3"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -161,7 +261,7 @@ export const EventDetails = () => {
         {/* Schedule */}
         <div className="bg-white rounded-xl p-5 shadow-xs border border-gray-200/90 space-y-4">
           <h2 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2">Event Schedule</h2>
-          
+
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
               <Calendar className="w-4 h-4 text-indigo-600" />
@@ -190,7 +290,7 @@ export const EventDetails = () => {
         {/* Details & Location */}
         <div className="bg-white rounded-xl p-5 shadow-xs border border-gray-200/90 space-y-4">
           <h2 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2">Venue & Scale</h2>
-          
+
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
               <MapPin className="w-4 h-4 text-emerald-600" />
@@ -227,7 +327,7 @@ export const EventDetails = () => {
         {/* Contact Info */}
         <div className="bg-white rounded-xl p-5 shadow-xs border border-gray-200/90 space-y-4 md:col-span-2 lg:col-span-1">
           <h2 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2">Client Information</h2>
-          
+
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0">
               <User className="w-4 h-4 text-gray-600" />
@@ -282,7 +382,7 @@ export const EventDetails = () => {
                 </div>
 
                 {renderPreferences(svc.preferences, svc.serviceName || '')}
-                
+
                 {/* Reference Images Gallery */}
                 {svc.referenceImages && svc.referenceImages.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-gray-200/60">
@@ -291,17 +391,17 @@ export const EventDetails = () => {
                     </span>
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
                       {svc.referenceImages.map((img: any, i: number) => (
-                        <a 
-                          key={i} 
-                          href={img.url} 
-                          target="_blank" 
+                        <a
+                          key={i}
+                          href={img.url}
+                          target="_blank"
                           rel="noopener noreferrer"
                           className="block relative aspect-square rounded-lg border border-gray-200 overflow-hidden bg-white shadow-xs hover:ring-2 hover:ring-indigo-500 transition-all cursor-pointer group"
                         >
-                          <img 
-                            src={img.url} 
-                            alt={img.fileName || 'Reference image'} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                          <img
+                            src={img.url}
+                            alt={img.fileName || 'Reference image'}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                             loading="lazy"
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="%23f3f4f6"><rect width="100%" height="100%"/></svg>';
