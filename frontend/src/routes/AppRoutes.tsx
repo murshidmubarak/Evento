@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import Home from '../pages/Home';
+import { RootRedirect } from './RootRedirect';
 import { Login } from '../pages/Login';
 import { Signup } from '../pages/Signup';
 import { VerifyEmail } from '../pages/VerifyEmail';
@@ -32,7 +32,7 @@ import { WorkerDashboard } from '../pages/worker/WorkerDashboard';
 export const AppRoutes = () => {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
@@ -78,6 +78,9 @@ export const AppRoutes = () => {
           </Route>
         </Route>
       </Route>
+
+      {/* Catch-all fallback */}
+      <Route path="*" element={<RootRedirect />} />
     </Routes>
   );
 };

@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import authReducer from '../features/auth/authSlice';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
 import { RoleRoute } from '../routes/RoleRoute';
+import { RootRedirect } from '../routes/RootRedirect';
 
 const renderWithProviders = (
   ui: React.ReactElement,
@@ -124,5 +125,102 @@ describe('Auth Routing', () => {
     );
 
     expect(screen.getByText('Client Content')).toBeDefined();
+  });
+
+  describe('RootRedirect behavior', () => {
+    it('redirects unauthenticated user to /login when visiting root /', () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/login" element={<div>Login Page</div>} />
+        </Routes>,
+        {
+          initialEntries: ['/'],
+          preloadedState: {
+            auth: {
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: null,
+            },
+          },
+        }
+      );
+
+      expect(screen.getByText('Login Page')).toBeDefined();
+    });
+
+    it('redirects authenticated client to /client when visiting root /', () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/client" element={<div>Client Dashboard</div>} />
+        </Routes>,
+        {
+          initialEntries: ['/'],
+          preloadedState: {
+            auth: {
+              user: { id: 'c1', name: 'Client User', email: 'c@test.com', role: 'client', isActive: true, createdAt: '', updatedAt: '' },
+              token: 'valid',
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            },
+          },
+        }
+      );
+
+      expect(screen.getByText('Client Dashboard')).toBeDefined();
+    });
+
+    it('redirects authenticated admin to /admin when visiting root /', () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/admin" element={<div>Admin Dashboard</div>} />
+        </Routes>,
+        {
+          initialEntries: ['/'],
+          preloadedState: {
+            auth: {
+              user: { id: 'a1', name: 'Admin User', email: 'a@test.com', role: 'admin', isActive: true, createdAt: '', updatedAt: '' },
+              token: 'valid',
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            },
+          },
+        }
+      );
+
+      expect(screen.getByText('Admin Dashboard')).toBeDefined();
+    });
+
+    it('redirects user with expired token to /login and clears session', () => {
+      // JWT with exp in the past: {"alg":"none"}.{"exp":1000,"userId":"u1","role":"client"}.sig
+      const expiredJwt = 'eyJhbGciOiJub25lIn0.eyJleHAiOjEwMDAsInVzZXJJZCI6InUxIiwicm9sZSI6ImNsaWVudCJ9.sig';
+
+      renderWithProviders(
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/login" element={<div>Login Page</div>} />
+        </Routes>,
+        {
+          initialEntries: ['/'],
+          preloadedState: {
+            auth: {
+              user: null,
+              token: expiredJwt,
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            },
+          },
+        }
+      );
+
+      expect(screen.getByText('Login Page')).toBeDefined();
+    });
   });
 });

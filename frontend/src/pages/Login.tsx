@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { login, clearError } from '../features/auth/authSlice';
+import { login, clearError, fetchCurrentUser, forceLogout } from '../features/auth/authSlice';
+import { isTokenExpired } from '../utils/localStorage';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,11 +11,18 @@ export const Login: React.FC = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isLoading, error, isAuthenticated, user } = useAppSelector((state) => state.auth);
+  const { isLoading, error, isAuthenticated, user, token } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
     dispatch(clearError());
-  }, [dispatch]);
+    if (token && !user && !isLoading) {
+      if (isTokenExpired(token)) {
+        dispatch(forceLogout());
+      } else {
+        dispatch(fetchCurrentUser());
+      }
+    }
+  }, [dispatch, token, user, isLoading]);
 
   useEffect(() => {
     if (isAuthenticated && user) {
