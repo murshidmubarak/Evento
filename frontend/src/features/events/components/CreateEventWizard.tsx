@@ -161,7 +161,12 @@ const RequirementsAdder = ({
         </div>
         <button
           type="button"
-          onClick={() => onChange([...items, { title: '', description: '' }])}
+          onClick={() => {
+            const hasEmpty = items.some(it => !it.title.trim() && !it.description.trim());
+            if (!hasEmpty) {
+              onChange([...items, { title: '', description: '' }]);
+            }
+          }}
           className="text-xs font-bold text-[#0051e5] bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ml-auto"
         >
           {addButtonText}
@@ -275,19 +280,26 @@ export const CreateEventWizard = () => {
 
     // Catering
     const catService = availableServices.find(s => s.name.toLowerCase().match(/catering|food|dining/));
+    const cleanOtherReqs = (cateringPrefs.otherRequirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+
     const hasCateringData = (cateringPrefs.serviceMode && cateringPrefs.serviceMode.length > 0) ||
       (cateringPrefs.starters && cateringPrefs.starters.length > 0) ||
       (cateringPrefs.mainDishes && cateringPrefs.mainDishes.length > 0) ||
       (cateringPrefs.juices && cateringPrefs.juices.length > 0) ||
       (cateringPrefs.desserts && cateringPrefs.desserts.length > 0) ||
       (cateringPrefs.otherPreferences && cateringPrefs.otherPreferences.some((p: any) => (p.items && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0))) ||
-      (cateringPrefs.otherRequirements && cateringPrefs.otherRequirements.length > 0);
+      (cleanOtherReqs.length > 0);
 
     const targetCatId = catService?._id || (catService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('cater'))?._id || availableServices[0]?._id;
     if (targetCatId && hasCateringData) {
       list.push({
         serviceId: targetCatId,
-        preferences: { ...cateringPrefs },
+        preferences: {
+          ...cateringPrefs,
+          otherRequirements: cleanOtherReqs.length > 0 ? cleanOtherReqs : undefined
+        },
         name: catService?.name || 'Catering Service',
         basePrice: catService?.basePrice || 0
       });
@@ -296,10 +308,17 @@ export const CreateEventWizard = () => {
     // Decoration
     const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
     const targetDecId = decService?._id || (decService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('decor'))?._id || availableServices[1]?._id;
-    if (targetDecId && (decorationPrefs.style || decorationPrefs.requirements?.length > 0 || decorationPrefs.notes || referenceImages.length > 0)) {
+    const cleanDecReqs = (decorationPrefs.requirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+
+    if (targetDecId && (decorationPrefs.style || cleanDecReqs.length > 0 || decorationPrefs.notes || referenceImages.length > 0)) {
       list.push({
         serviceId: targetDecId,
-        preferences: { ...decorationPrefs },
+        preferences: {
+          ...decorationPrefs,
+          requirements: cleanDecReqs
+        },
         name: decService?.name || 'Stage Decoration Service',
         basePrice: decService?.basePrice || 0
       });
@@ -308,10 +327,17 @@ export const CreateEventWizard = () => {
     // Photography
     const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/));
     const targetPhotoId = photoService?._id || (photoService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('photo'))?._id || availableServices[2]?._id;
-    if (targetPhotoId && (photoPrefs.package || photoPrefs.requirements?.length > 0)) {
+    const cleanPhotoReqs = (photoPrefs.requirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+
+    if (targetPhotoId && (photoPrefs.package || cleanPhotoReqs.length > 0)) {
       list.push({
         serviceId: targetPhotoId,
-        preferences: { ...photoPrefs },
+        preferences: {
+          ...photoPrefs,
+          requirements: cleanPhotoReqs
+        },
         name: photoService?.name || 'Photography & Videography',
         basePrice: photoService?.basePrice || 0
       });
@@ -335,7 +361,25 @@ export const CreateEventWizard = () => {
     setReferenceImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleNext = () => setStep(s => Math.min(s + 1, 6));
+  const handleNext = () => {
+    // Clean up empty requirements from state when moving forward
+    setDecorationPrefs((prev: any) => ({
+      ...prev,
+      requirements: (prev.requirements || []).filter((r: any) => (r.title || '').trim() || (r.description || '').trim())
+    }));
+    setPhotoPrefs((prev: any) => ({
+      ...prev,
+      requirements: (prev.requirements || []).filter((r: any) => (r.title || '').trim() || (r.description || '').trim())
+    }));
+    setSpecialRequirements((prev: any) =>
+      prev.filter((r: any) => (r.title || '').trim() || (r.description || '').trim())
+    );
+    setCateringPrefs((prev: any) => ({
+      ...prev,
+      otherRequirements: (prev.otherRequirements || []).filter((r: any) => (r.title || '').trim() || (r.description || '').trim())
+    }));
+    setStep(s => Math.min(s + 1, 6));
+  };
   const handlePrev = () => setStep(s => Math.max(s - 1, 1));
 
   const validateStep = () => {
@@ -365,10 +409,25 @@ export const CreateEventWizard = () => {
     setIsSubmitting(true);
     setError('');
 
-    const formattedServices = getSelectedServicesList().map(s => ({
-      serviceId: s.serviceId,
-      preferences: Object.keys(s.preferences).length > 0 ? s.preferences : undefined
-    }));
+    const formattedServices = getSelectedServicesList().map(s => {
+      const prefs: any = { ...s.preferences };
+      if (Array.isArray(prefs.requirements)) {
+        prefs.requirements = prefs.requirements
+          .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+          .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+        if (prefs.requirements.length === 0) delete prefs.requirements;
+      }
+      if (Array.isArray(prefs.otherRequirements)) {
+        prefs.otherRequirements = prefs.otherRequirements
+          .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+          .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+        if (prefs.otherRequirements.length === 0) delete prefs.otherRequirements;
+      }
+      return {
+        serviceId: s.serviceId,
+        preferences: Object.keys(prefs).length > 0 ? prefs : undefined
+      };
+    });
 
     const specialReqText = specialRequirements
       .filter(r => r.title.trim())
@@ -1248,7 +1307,7 @@ export const CreateEventWizard = () => {
                             {name.includes('catering') && data.preferences.serviceMode && (
                               <div className="text-xs text-gray-500 mb-2">{data.preferences.serviceMode[0]}</div>
                             )}
-                            {name.includes('decoration') && (data.preferences.style || data.preferences.requirements?.length > 0) && (
+                            {name.includes('decoration') && (data.preferences.style || data.preferences.requirements?.some((r: any) => (r.title || '').trim() || (r.description || '').trim())) && (
                               <div className="mb-2">
                                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Stage Style & Requirements</div>
                                 {data.preferences.style && (
@@ -1256,7 +1315,7 @@ export const CreateEventWizard = () => {
                                     {data.preferences.style} Stage Decoration
                                   </div>
                                 )}
-                                {data.preferences.requirements?.map((req: any, i: number) => (
+                                {data.preferences.requirements?.filter((req: any) => (req.title || '').trim() || (req.description || '').trim()).map((req: any, i: number) => (
                                   <div key={i} className="text-xs text-gray-700 mt-1">
                                     <span className="font-bold text-[#0051e5]">• </span>
                                     <span className="font-bold">{req.title}</span>
@@ -1270,7 +1329,7 @@ export const CreateEventWizard = () => {
                                 )}
                               </div>
                             )}
-                            {name.includes('photo') && (data.preferences.package || data.preferences.requirements?.length > 0) && (
+                            {name.includes('photo') && (data.preferences.package || data.preferences.requirements?.some((r: any) => (r.title || '').trim() || (r.description || '').trim())) && (
                               <div className="mb-2">
                                 <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">Package & Requirements</div>
                                 {data.preferences.package && (
@@ -1278,7 +1337,7 @@ export const CreateEventWizard = () => {
                                     {data.preferences.package}
                                   </div>
                                 )}
-                                {data.preferences.requirements?.map((req: any, i: number) => (
+                                {data.preferences.requirements?.filter((req: any) => (req.title || '').trim() || (req.description || '').trim()).map((req: any, i: number) => (
                                   <div key={i} className="text-xs text-gray-700 mt-1">
                                     <span className="font-bold text-[#0051e5]">• </span>
                                     <span className="font-bold">{req.title}</span>

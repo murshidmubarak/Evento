@@ -43,10 +43,31 @@ export class EventService {
       location: data.location,
       guestCount: data.guestCount,
       budget: data.budget,
-      selectedServices: (data.selectedServices || []).map((s: any) => ({
-        serviceId: s.serviceId,
-        preferences: s.preferences || {}
-      })),
+      selectedServices: (data.selectedServices || []).map((s: any) => {
+        const preferences = s.preferences ? { ...s.preferences } : {};
+        if (Array.isArray(preferences.requirements)) {
+          preferences.requirements = preferences.requirements
+            .map((r: any) => typeof r === 'object' && r !== null ? {
+              title: (r.title || '').trim(),
+              description: (r.description || '').trim()
+            } : r)
+            .filter((r: any) => typeof r === 'string' ? r.trim().length > 0 : Boolean(r && (r.title || r.description)));
+          if (preferences.requirements.length === 0) delete preferences.requirements;
+        }
+        if (Array.isArray(preferences.otherRequirements)) {
+          preferences.otherRequirements = preferences.otherRequirements
+            .map((r: any) => typeof r === 'object' && r !== null ? {
+              title: (r.title || '').trim(),
+              description: (r.description || '').trim()
+            } : r)
+            .filter((r: any) => typeof r === 'string' ? r.trim().length > 0 : Boolean(r && (r.title || r.description)));
+          if (preferences.otherRequirements.length === 0) delete preferences.otherRequirements;
+        }
+        return {
+          serviceId: s.serviceId,
+          preferences
+        };
+      }),
       status: 'requested',
     };
 

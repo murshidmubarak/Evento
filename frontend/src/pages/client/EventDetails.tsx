@@ -80,8 +80,9 @@ export const EventDetails = () => {
               );
             }
             if (typeof item === 'object' && item !== null) {
-              const title = item.title || item.name || '';
-              const desc = item.description || item.details || '';
+              const title = (item.title || item.name || '').trim();
+              const desc = (item.description || item.details || '').trim();
+              if (!title && !desc) return null;
               return (
                 <div key={idx} className="flex items-start gap-1.5 text-xs text-gray-700">
                   <span className="font-bold text-indigo-600">•</span>

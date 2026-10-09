@@ -107,6 +107,22 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
                   errors.push(`preferences cannot contain protected or pricing field: ${key}`);
                 }
               }
+              if (Array.isArray(item.preferences.requirements)) {
+                item.preferences.requirements = item.preferences.requirements
+                  .map((r: any) => typeof r === 'object' && r !== null ? {
+                    title: (r.title || '').trim(),
+                    description: (r.description || '').trim()
+                  } : r)
+                  .filter((r: any) => typeof r === 'string' ? r.trim().length > 0 : Boolean(r && (r.title || r.description)));
+              }
+              if (Array.isArray(item.preferences.otherRequirements)) {
+                item.preferences.otherRequirements = item.preferences.otherRequirements
+                  .map((r: any) => typeof r === 'object' && r !== null ? {
+                    title: (r.title || '').trim(),
+                    description: (r.description || '').trim()
+                  } : r)
+                  .filter((r: any) => typeof r === 'string' ? r.trim().length > 0 : Boolean(r && (r.title || r.description)));
+              }
             }
           }
         } else {

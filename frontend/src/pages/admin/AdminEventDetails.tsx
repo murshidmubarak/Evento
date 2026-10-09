@@ -186,8 +186,9 @@ export const AdminEventDetails = () => {
                                               </div>
                                             );
                                           }
-                                          const title = item.title || item.name || '';
-                                          const desc = item.description || item.details || '';
+                                          const title = (item.title || item.name || '').trim();
+                                          const desc = (item.description || item.details || '').trim();
+                                          if (!title && !desc) return null;
                                           return (
                                             <div key={idx} className="text-xs text-gray-800">
                                               <span className="font-semibold">• {title}</span>
