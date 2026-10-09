@@ -4,17 +4,21 @@ import { useAppSelector } from '../store/hooks';
 import type { UserRole } from '../types/auth';
 
 interface RoleRouteProps {
-  allowedRole: UserRole;
+  allowedRole?: UserRole;
+  allowedRoles?: UserRole[];
 }
 
-export const RoleRoute: React.FC<RoleRouteProps> = ({ allowedRole }) => {
+export const RoleRoute: React.FC<RoleRouteProps> = ({ allowedRole, allowedRoles }) => {
   const { user } = useAppSelector((state) => state.auth);
 
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.role !== allowedRole) {
+  const roles = allowedRoles || (allowedRole ? [allowedRole] : []);
+  const isAllowed = roles.length === 0 || roles.includes(user.role);
+
+  if (!isAllowed) {
     // Redirect unauthorized user to their respective dashboard
     const redirects: Record<UserRole, string> = {
       admin: '/admin',

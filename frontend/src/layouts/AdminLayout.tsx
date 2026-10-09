@@ -45,7 +45,7 @@ export const AdminLayout: React.FC = () => {
           </button>
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
+            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -81,7 +81,7 @@ export const AdminLayout: React.FC = () => {
         <div className="px-6 py-5 border-b border-gray-100 hidden md:flex items-center justify-between">
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
+            <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
           </div>
         </div>
 
@@ -89,7 +89,7 @@ export const AdminLayout: React.FC = () => {
         <div className="px-5 py-4 border-b border-gray-100 flex md:hidden items-center justify-between">
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
+            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
           </div>
           <button
             onClick={() => setMobileMenuOpen(false)}

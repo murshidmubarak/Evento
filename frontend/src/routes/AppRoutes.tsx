@@ -39,8 +39,8 @@ export const AppRoutes = () => {
       
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>
-        {/* Admin Routes */}
-        <Route element={<RoleRoute allowedRole="admin" />}>
+        {/* Admin & Event Manager Routes */}
+        <Route element={<RoleRoute allowedRoles={['admin', 'event_manager']} />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="events" element={<AdminRequestedEvents />} />

@@ -4,9 +4,267 @@ import { getEventById } from '../../features/events/eventsApi';
 import { createQuotation, sendQuotation, getQuotationById, updateQuotation } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment, Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw } from 'lucide-react';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+export const extractServiceDetails = (
+  service: {
+    serviceName?: string;
+    name?: string;
+    preferences?: Record<string, any>;
+    referenceImages?: any[];
+  },
+  guestCount?: number
+) => {
+  const serviceName = (service.serviceName || service.name || '').toLowerCase();
+  const prefs = service.preferences || {};
+  const detailedContent: Array<{ sectionName: string; items: string[] }> = [];
+  const reqParts: string[] = [];
+  let scope = '';
+
+  const isCatering = serviceName.match(/catering|food|dining/);
+  const isDecoration = serviceName.match(/decoration|stage|decor/);
+  const isPhoto = serviceName.match(/photo|video|camera/);
+
+  if (isCatering) {
+    scope = guestCount ? `${guestCount} Guests Catering Menu` : 'Full Catering Service';
+
+    // 1. Service Style
+    if (Array.isArray(prefs.serviceMode) && prefs.serviceMode.length > 0) {
+      const modes = prefs.serviceMode.map((m: any) => String(m).trim()).filter(Boolean);
+      if (modes.length > 0) {
+        detailedContent.push({ sectionName: 'Service Style', items: modes });
+        reqParts.push(`Service Mode: ${modes.join(', ')}`);
+      }
+    }
+
+    // 2. Starters
+    if (Array.isArray(prefs.starters) && prefs.starters.length > 0) {
+      const starters = prefs.starters
+        .map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)).trim() : String(d).trim())
+        .filter(Boolean);
+      if (starters.length > 0) {
+        detailedContent.push({ sectionName: 'Starters', items: starters });
+        reqParts.push(`Starters: ${starters.join(', ')}`);
+      }
+    }
+
+    // 3. Main Course / Main Dishes
+    if (Array.isArray(prefs.mainDishes) && prefs.mainDishes.length > 0) {
+      const mains = prefs.mainDishes
+        .map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)).trim() : String(d).trim())
+        .filter(Boolean);
+      if (mains.length > 0) {
+        detailedContent.push({ sectionName: 'Main Course', items: mains });
+        reqParts.push(`Main Course: ${mains.join(', ')}`);
+      }
+    }
+
+    // 4. Juices & Beverages
+    if (Array.isArray(prefs.juices) && prefs.juices.length > 0) {
+      const juices = prefs.juices
+        .map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)).trim() : String(d).trim())
+        .filter(Boolean);
+      if (juices.length > 0) {
+        detailedContent.push({ sectionName: 'Juices & Beverages', items: juices });
+        reqParts.push(`Juices: ${juices.join(', ')}`);
+      }
+    }
+
+    // 5. Desserts
+    if (Array.isArray(prefs.desserts) && prefs.desserts.length > 0) {
+      const desserts = prefs.desserts
+        .map((d: any) => typeof d === 'object' && d !== null ? (d.title || d.name || JSON.stringify(d)).trim() : String(d).trim())
+        .filter(Boolean);
+      if (desserts.length > 0) {
+        detailedContent.push({ sectionName: 'Desserts', items: desserts });
+        reqParts.push(`Desserts: ${desserts.join(', ')}`);
+      }
+    }
+
+    // 6. Other Preferences (Client custom headings like Salads, Soups, etc.)
+    if (Array.isArray(prefs.otherPreferences) && prefs.otherPreferences.length > 0) {
+      const genericItems: string[] = [];
+      prefs.otherPreferences.forEach((pref: any) => {
+        if (typeof pref === 'string' && pref.trim()) {
+          genericItems.push(pref.trim());
+        } else if (typeof pref === 'object' && pref !== null) {
+          const heading = (pref.heading || pref.name || pref.title || '').trim();
+          const items = Array.isArray(pref.items)
+            ? pref.items
+                .map((it: any) => typeof it === 'object' && it !== null ? (it.title || it.name || JSON.stringify(it)).trim() : String(it).trim())
+                .filter(Boolean)
+            : (pref.items ? [String(pref.items).trim()] : []);
+          if (heading && items.length > 0) {
+            detailedContent.push({ sectionName: heading, items });
+            reqParts.push(`${heading}: ${items.join(', ')}`);
+          } else if (items.length > 0) {
+            genericItems.push(...items);
+          }
+        }
+      });
+      if (genericItems.length > 0) {
+        detailedContent.push({ sectionName: 'Other Preferences', items: genericItems });
+        reqParts.push(`Other: ${genericItems.join(', ')}`);
+      }
+    }
+
+    // 7. Custom Categories (legacy fallback)
+    if (Array.isArray(prefs.customCategories) && prefs.customCategories.length > 0) {
+      prefs.customCategories.forEach((cat: any) => {
+        const heading = (cat.name || cat.heading || '').trim();
+        const items = Array.isArray(cat.items) ? cat.items.map((x: any) => String(x).trim()).filter(Boolean) : [];
+        if (heading && items.length > 0) {
+          detailedContent.push({ sectionName: heading, items });
+          reqParts.push(`${heading}: ${items.join(', ')}`);
+        }
+      });
+    }
+
+    // 8. Other Requirements / Special Requests
+    if (Array.isArray(prefs.otherRequirements) && prefs.otherRequirements.length > 0) {
+      const specialItems = prefs.otherRequirements
+        .map((r: any) => {
+          if (typeof r === 'string') return r.trim();
+          if (typeof r === 'object' && r !== null) {
+            const t = (r.title || r.name || '').trim();
+            const d = (r.description || r.details || '').trim();
+            if (t && d) return `${t}: ${d}`;
+            return t || d;
+          }
+          return '';
+        })
+        .filter(Boolean);
+
+      if (specialItems.length > 0) {
+        detailedContent.push({ sectionName: 'Special Requests', items: specialItems });
+        reqParts.push(`Special Requests: ${specialItems.join('; ')}`);
+      }
+    }
+
+    // 9. Notes
+    if (prefs.notes && typeof prefs.notes === 'string' && prefs.notes.trim()) {
+      detailedContent.push({ sectionName: 'Catering Notes', items: [prefs.notes.trim()] });
+      reqParts.push(`Notes: ${prefs.notes.trim()}`);
+    }
+  } else if (isDecoration) {
+    scope = 'Stage & Venue Decoration Setup';
+
+    // 1. Stage Decoration Style
+    if (prefs.style && typeof prefs.style === 'string' && prefs.style.trim()) {
+      detailedContent.push({ sectionName: 'Stage Decoration Style', items: [`${prefs.style.trim()} Stage Decoration`] });
+      reqParts.push(`Style: ${prefs.style.trim()}`);
+    }
+
+    // 2. Decoration Requirements
+    if (Array.isArray(prefs.requirements) && prefs.requirements.length > 0) {
+      const decReqs = prefs.requirements
+        .map((r: any) => {
+          if (typeof r === 'string') return r.trim();
+          if (typeof r === 'object' && r !== null) {
+            const t = (r.title || r.name || '').trim();
+            const d = (r.description || r.details || '').trim();
+            if (t && d) return `${t}: ${d}`;
+            return t || d;
+          }
+          return '';
+        })
+        .filter(Boolean);
+
+      if (decReqs.length > 0) {
+        detailedContent.push({ sectionName: 'Decoration Requirements', items: decReqs });
+        reqParts.push(`Requirements: ${decReqs.join('; ')}`);
+      }
+    }
+
+    // 3. Notes
+    if (prefs.notes && typeof prefs.notes === 'string' && prefs.notes.trim()) {
+      detailedContent.push({ sectionName: 'Theme & Notes', items: [prefs.notes.trim()] });
+      reqParts.push(`Notes: ${prefs.notes.trim()}`);
+    }
+
+    // 4. Reference Images
+    const refCount = (service.referenceImages && service.referenceImages.length) || 0;
+    if (refCount > 0) {
+      detailedContent.push({ sectionName: 'Reference Design', items: [`${refCount} client reference image(s) provided`] });
+    }
+  } else if (isPhoto) {
+    scope = 'Event Photography & Videography Coverage';
+
+    // 1. Package
+    if (prefs.package && typeof prefs.package === 'string' && prefs.package.trim()) {
+      detailedContent.push({ sectionName: 'Photography Package', items: [`${prefs.package.trim()} Package Coverage`] });
+      reqParts.push(`Package: ${prefs.package.trim()}`);
+    }
+
+    // 2. Coverage Requirements
+    if (Array.isArray(prefs.requirements) && prefs.requirements.length > 0) {
+      const photoReqs = prefs.requirements
+        .map((r: any) => {
+          if (typeof r === 'string') return r.trim();
+          if (typeof r === 'object' && r !== null) {
+            const t = (r.title || r.name || '').trim();
+            const d = (r.description || r.details || '').trim();
+            if (t && d) return `${t}: ${d}`;
+            return t || d;
+          }
+          return '';
+        })
+        .filter(Boolean);
+
+      if (photoReqs.length > 0) {
+        detailedContent.push({ sectionName: 'Coverage Requirements', items: photoReqs });
+        reqParts.push(`Requirements: ${photoReqs.join('; ')}`);
+      }
+    }
+
+    // 3. Notes
+    if (prefs.notes && typeof prefs.notes === 'string' && prefs.notes.trim()) {
+      detailedContent.push({ sectionName: 'Photography Notes', items: [prefs.notes.trim()] });
+      reqParts.push(`Notes: ${prefs.notes.trim()}`);
+    }
+  } else {
+    // Generic / other service
+    scope = `${service.serviceName || service.name || 'Service'} Setup`;
+    Object.entries(prefs).forEach(([key, val]) => {
+      const sectionTitle = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+      if (Array.isArray(val) && val.length > 0) {
+        const strItems = val
+          .map((item: any) => {
+            if (typeof item === 'string') return item.trim();
+            if (typeof item === 'object' && item !== null) {
+              const t = (item.title || item.name || '').trim();
+              const d = (item.description || item.details || '').trim();
+              if (t && d) return `${t}: ${d}`;
+              return t || d || JSON.stringify(item);
+            }
+            return String(item);
+          })
+          .filter(Boolean);
+
+        if (strItems.length > 0) {
+          detailedContent.push({ sectionName: sectionTitle, items: strItems });
+          reqParts.push(`${sectionTitle}: ${strItems.join(', ')}`);
+        }
+      } else if (typeof val === 'string' && val.trim()) {
+        detailedContent.push({ sectionName: sectionTitle, items: [val.trim()] });
+        reqParts.push(`${sectionTitle}: ${val.trim()}`);
+      }
+    });
+  }
+
+  // If detailedContent is empty, provide a clean default
+  if (detailedContent.length === 0) {
+    detailedContent.push({ sectionName: 'Service Scope', items: ['Standard service delivery'] });
+  }
+
+  return {
+    scope: scope || 'Service Delivery',
+    requirements: reqParts.join('. ') || '',
+    detailedContent
+  };
+};
 
 export const AdminCreateQuotation = () => {
   const { id } = useParams<{ id: string }>();
@@ -67,16 +325,21 @@ export const AdminCreateQuotation = () => {
 
           // Populate form from existing quotation
           if (qtnData.items && qtnData.items.length > 0) {
-            const mappedItems = qtnData.items.map(item => ({
-              serviceId: item.serviceId,
-              name: item.name,
-              pricingType: item.pricingType || 'per_event',
-              scope: item.scope || '',
-              requirements: item.requirements || '',
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              detailedContent: item.detailedContent || []
-            }));
+            const mappedItems = qtnData.items.map(item => {
+              const matchedService = eventData.selectedServices?.find((s: any) => s.serviceId === item.serviceId);
+              const extracted = matchedService ? extractServiceDetails(matchedService, eventData.guestCount) : null;
+              const hasExistingContent = Array.isArray(item.detailedContent) && item.detailedContent.length > 0;
+              return {
+                serviceId: item.serviceId,
+                name: item.name,
+                pricingType: item.pricingType || 'per_event',
+                scope: item.scope || extracted?.scope || '',
+                requirements: item.requirements || extracted?.requirements || '',
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                detailedContent: hasExistingContent ? item.detailedContent : (extracted?.detailedContent || [])
+              };
+            });
             setItems(mappedItems);
             setExpandedService(mappedItems[0].serviceId);
           }
@@ -110,26 +373,16 @@ export const AdminCreateQuotation = () => {
         } else if (eventData.selectedServices) {
           const initialItems = eventData.selectedServices.map(s => {
             const isPerGuest = s.pricingType === 'per_guest';
+            const extracted = extractServiceDetails(s, eventData.guestCount);
             return {
               serviceId: s.serviceId,
               name: s.serviceName,
               pricingType: s.pricingType || 'per_event',
-              scope: '',
-              requirements: Object.entries(s.preferences || {}).map(([k, v]) => {
-                if (Array.isArray(v)) {
-                  const itemsStr = v.map((item: any) => {
-                    if (typeof item === 'object' && item !== null) {
-                      return item.title ? (item.description ? `${item.title}: ${item.description}` : item.title) : JSON.stringify(item);
-                    }
-                    return String(item);
-                  }).join(', ');
-                  return `${k}: [${itemsStr}]`;
-                }
-                return `${k}: ${v}`;
-              }).join('; '),
+              scope: extracted.scope,
+              requirements: extracted.requirements,
               quantity: isPerGuest ? (eventData.guestCount || 1) : 1,
               unitPrice: s.basePrice || 0,
-              detailedContent: []
+              detailedContent: extracted.detailedContent
             };
           });
           setItems(initialItems);
@@ -588,17 +841,43 @@ export const AdminCreateQuotation = () => {
 
                       {/* Detailed Content */}
                       <div>
-                        <div className="flex justify-between items-center mb-3">
-                          <label className="block text-sm font-bold text-gray-900">Detailed Scope / Sub-items</label>
-                          <button
-                            className="text-indigo-600 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
-                            onClick={() => {
-                              const newContent = [...(item.detailedContent || []), { sectionName: '', items: [''] }];
-                              updateItem(index, 'detailedContent', newContent);
-                            }}
-                          >
-                            <Plus className="w-3 h-3" /> Add Section
-                          </button>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                          <div>
+                            <label className="block text-sm font-bold text-gray-900">Detailed Scope & Client Choices</label>
+                            <p className="text-xs text-gray-500">Auto-filled from client preferences. You can rename headings, edit items, add or delete sections.</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1 shadow-xs"
+                              onClick={() => {
+                                const matchedService = event?.selectedServices?.find(s => s.serviceId === item.serviceId);
+                                if (matchedService) {
+                                  const extracted = extractServiceDetails(matchedService, event?.guestCount);
+                                  updateItem(index, 'detailedContent', extracted.detailedContent);
+                                  if (!item.requirements || !item.requirements.trim()) {
+                                    updateItem(index, 'requirements', extracted.requirements);
+                                  }
+                                  if (!item.scope || !item.scope.trim()) {
+                                    updateItem(index, 'scope', extracted.scope);
+                                  }
+                                }
+                              }}
+                              title="Reload client selections into this service"
+                            >
+                              <RotateCcw className="w-3 h-3 text-gray-500" /> Auto-fill from Client
+                            </button>
+                            <button
+                              type="button"
+                              className="text-indigo-600 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
+                              onClick={() => {
+                                const newContent = [...(item.detailedContent || []), { sectionName: '', items: [''] }];
+                                updateItem(index, 'detailedContent', newContent);
+                              }}
+                            >
+                              <Plus className="w-3 h-3" /> Add Section
+                            </button>
+                          </div>
                         </div>
 
                         <div className="space-y-4">
