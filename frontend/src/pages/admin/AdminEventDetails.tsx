@@ -25,7 +25,8 @@ export const AdminEventDetails = () => {
           try {
             const quotationsData = await getQuotations(id);
             if (quotationsData && quotationsData.length > 0) {
-              setQuotation(quotationsData[0]);
+              const sorted = [...quotationsData].sort((a, b) => b.revision - a.revision);
+              setQuotation(sorted[0]);
             }
           } catch (qErr) {
             console.error('Failed to fetch quotation for this event', qErr);

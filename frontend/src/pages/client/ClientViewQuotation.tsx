@@ -20,6 +20,10 @@ import {
   AlertTriangle,
   ArrowRight,
   Info,
+  MapPin,
+  Users,
+  Calendar,
+  Sparkles,
 } from 'lucide-react';
 
 export const ClientViewQuotation: React.FC = () => {
@@ -77,6 +81,27 @@ export const ClientViewQuotation: React.FC = () => {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const toTitleCase = (str?: string) => {
+    if (!str) return '—';
+    return str
+      .split(' ')
+      .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : ''))
+      .join(' ');
+  };
+
+  const cleanRequirementText = (text?: string) => {
+    if (!text) return '';
+    return text
+      .replace(/serviceMode:\s*/gi, 'Service Mode: ')
+      .replace(/starters:\s*/gi, 'Starters: ')
+      .replace(/mainDishes:\s*/gi, 'Main Courses: ')
+      .replace(/desserts:\s*/gi, 'Desserts: ')
+      .replace(/style:\s*/gi, 'Style: ')
+      .replace(/coverage:\s*/gi, 'Coverage: ')
+      .replace(/deliverables:\s*/gi, 'Deliverables: ')
+      .replace(/package:\s*/gi, 'Package: ');
   };
 
   const isExpired = (validUntil?: string) => {
@@ -368,61 +393,66 @@ export const ClientViewQuotation: React.FC = () => {
         </div>
       )}
 
-      {/* Main Quotation Document Container */}
-      <div className="bg-white shadow-xl sm:rounded-md print:shadow-none print:rounded-none overflow-hidden text-[13px] font-sans text-gray-800 border border-gray-200 print:border-none relative min-h-[1056px]">
-        {/* Top Dark Bar */}
-        <div className="h-8 bg-[#172542] w-full flex items-center justify-between px-6 sm:px-10">
-          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase">EventOps ERP</span>
-          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase hidden sm:inline">
-            Official Quotation Document
-          </span>
-        </div>
-
-        <div className="p-6 sm:p-10 sm:px-14 sm:py-12">
-          {/* Header Section */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-8">
-            <div className="flex flex-col gap-4">
-              {/* Branding */}
+      {/* ======================================================== */}
+      {/* Professional Quotation Document Container (Printable A4) */}
+      {/* ======================================================== */}
+      <div className="bg-white shadow-sm rounded-xl border border-slate-200/90 print:border-none print:shadow-none print:rounded-none overflow-hidden text-slate-800 relative">
+        <div className="p-8 sm:p-12 space-y-8">
+          {/* Masthead Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b border-slate-200 pb-8">
+            <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-[#172542] rounded-lg flex items-center justify-center text-white shadow-xs shrink-0">
-                  <Calculator className="w-6 h-6" />
+                <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xs">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-[#172542] tracking-tight leading-none mb-1">EventOps</h2>
-                  <p className="text-gray-400 font-medium text-[10px] tracking-widest uppercase">
-                    Event Management ERP
+                  <h2 className="text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                    EVENTO
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Bespoke Event Experiences & Production
                   </p>
                 </div>
               </div>
-              <div className="space-y-0.5 text-gray-500 text-[11px]">
-                <p>EventOps Operations Headquarters</p>
-                <p>contact@eventops.example.com</p>
-                <p>+91 (800) 123-4567</p>
+              <div className="text-xs text-slate-500 space-y-0.5 pl-0.5">
+                <p>Evento Events & Production Studio</p>
+                <p>concierge@evento.com · +91 (800) 123-4567</p>
+                {quotation.tax?.customerGstin && (
+                  <p className="text-slate-600">Client GSTIN: {quotation.tax.customerGstin}</p>
+                )}
               </div>
             </div>
 
             <div className="text-left sm:text-right flex flex-col items-start sm:items-end w-full sm:w-auto">
-              <h1 className="text-3xl sm:text-4xl font-black text-[#172542] tracking-wide mb-3 sm:mb-4">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-3">
                 QUOTATION
               </h1>
-              <div className="bg-gray-50/90 rounded-md p-3.5 w-full sm:min-w-[240px] border border-gray-100">
-                <table className="w-full text-left text-[11px]">
-                  <tbody>
+              <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-3.5 w-full sm:min-w-[260px] text-xs">
+                <table className="w-full text-left">
+                  <tbody className="divide-y divide-slate-100">
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Quotation No:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{quotation.quotationNumber}</td>
+                      <td className="py-1 text-slate-500 font-medium">Quotation No</td>
+                      <td className="py-1 font-bold text-slate-900 text-right">
+                        {quotation.quotationNumber}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Revision:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">Rev {quotation.revision}</td>
+                      <td className="py-1 text-slate-500 font-medium">Revision</td>
+                      <td className="py-1 font-semibold text-slate-800 text-right">
+                        Rev {quotation.revision}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Date Issued:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{formatDate(quotation.createdAt)}</td>
+                      <td className="py-1 text-slate-500 font-medium">Date Issued</td>
+                      <td className="py-1 font-medium text-slate-800 text-right">
+                        {formatDate(quotation.createdAt)}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Valid Until:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{formatDate(quotation.validUntil)}</td>
+                      <td className="py-1 text-slate-500 font-medium">Valid Until</td>
+                      <td className="py-1 font-medium text-slate-800 text-right">
+                        {formatDate(quotation.validUntil)}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -430,147 +460,196 @@ export const ClientViewQuotation: React.FC = () => {
             </div>
           </div>
 
-          <div className="w-full h-px bg-gray-200 mb-8" />
-
-          {/* Client & Event Info Section (Read-Only) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 mb-10">
-            <div>
-              <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Prepared For</h3>
-              <p className="text-base font-bold text-gray-900 mb-1">{quotation.eventSnapshot?.clientName || 'Valued Client'}</p>
-              {quotation.eventSnapshot?.location?.address ? (
-                <p className="text-gray-500 text-xs leading-relaxed">{quotation.eventSnapshot.location.address}</p>
-              ) : (
-                <p className="text-gray-400 text-xs italic">Location specified in event brief</p>
-              )}
+          {/* Client & Event Specifications Brief */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-b border-slate-200 pb-8">
+            {/* Client Info */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Prepared For
+              </h3>
+              <p className="text-lg font-bold text-slate-900">
+                {toTitleCase(quotation.eventSnapshot?.clientName || 'Valued Client')}
+              </p>
+              <div className="flex items-start gap-1.5 text-xs text-slate-600 mt-1">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                <span>
+                  {quotation.eventSnapshot?.location?.address ||
+                    quotation.eventSnapshot?.location ||
+                    'Venue details as specified in event plan'}
+                </span>
+              </div>
             </div>
 
-            <div>
-              <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Event Information</h3>
-              <p className="text-base font-bold text-gray-900 mb-2">{quotation.eventSnapshot?.title || 'Event'}</p>
-
-              <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs">
-                <div className="flex">
-                  <span className="text-gray-400 w-14 font-medium">Type:</span>
-                  <span className="font-semibold text-gray-800 capitalize">{quotation.eventSnapshot?.eventType || 'Standard'}</span>
+            {/* Event Info */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Event Specifications
+              </h3>
+              <p className="text-lg font-bold text-slate-900">
+                {toTitleCase(quotation.eventSnapshot?.title || 'Private Event')}
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Sparkles className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Type: <strong className="text-slate-800">{toTitleCase(quotation.eventSnapshot?.eventType || 'Event')}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-14 font-medium">Time:</span>
-                  <span className="font-semibold text-gray-800">
-                    {quotation.eventSnapshot?.startTime || 'TBD'} - {quotation.eventSnapshot?.endTime || 'TBD'}
-                  </span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Date: <strong className="text-slate-800">{formatDate(quotation.eventSnapshot?.date)}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-14 font-medium">Date:</span>
-                  <span className="font-semibold text-gray-800">{formatDate(quotation.eventSnapshot?.date)}</span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Time: <strong className="text-slate-800">{quotation.eventSnapshot?.startTime || '—'} – {quotation.eventSnapshot?.endTime || '—'}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-14 font-medium">Guests:</span>
-                  <span className="font-semibold text-gray-800">{quotation.eventSnapshot?.guestCount || 'N/A'}</span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Guests: <strong className="text-slate-800">{quotation.eventSnapshot?.guestCount || '—'} Expected</strong></span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Services & Pricing Heading */}
-          <h2 className="text-base font-bold text-[#172542] mb-3 uppercase tracking-wider text-[11px]">
-            Services & Pricing Breakdown
-          </h2>
-
           {/* Line Items Table */}
-          <div className="mb-10 overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
-            <table className="w-full text-left min-w-[540px]">
-              <thead className="bg-[#172542] text-white">
-                <tr>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest w-[55%]">Item & Description</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-center w-[12%]">Qty</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-right w-[16%]">Unit Price</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-right w-[17%]">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {quotation.items.map((item, index) => (
-                  <tr key={index} className="align-top">
-                    <td className="px-4 py-4">
-                      <p className="font-semibold text-gray-900 text-sm mb-0.5">{item.name}</p>
-                      {item.description && (
-                        <p className="text-gray-500 text-xs mb-2 leading-relaxed">{item.description}</p>
-                      )}
-                      {item.requirements && (
-                        <p className="text-xs text-indigo-900 bg-indigo-50/60 p-2 rounded mb-2 border border-indigo-100/60">
-                          <span className="font-semibold">Scope: </span>
-                          {item.requirements}
-                        </p>
-                      )}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+              Scope of Services & Deliverables
+            </h3>
 
-                      {/* Detailed Content / Nested Specs (e.g. Menu Items, Decor, Photography) */}
-                      {item.detailedContent && item.detailedContent.length > 0 && (
-                        <div className="bg-gray-50/80 rounded border border-gray-100 p-3 mt-2">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Included Inclusions</p>
-                          <div
-                            className={`grid gap-3 ${item.detailedContent.length >= 3
-                                ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'
-                                : item.detailedContent.length === 2
-                                  ? 'grid-cols-1 sm:grid-cols-2'
-                                  : 'grid-cols-1'
-                              }`}
-                          >
-                            {item.detailedContent.map((section, sidx) => (
-                              <div key={sidx}>
-                                <p className="font-semibold text-gray-800 text-[11px] mb-1">{section.sectionName}</p>
-                                <ul className="space-y-0.5 ml-3 list-[circle] text-gray-500 text-[11px] marker:text-gray-300">
-                                  {section.items.map((listItem, lidx) => (
-                                    <li key={lidx} className="pl-0.5">{listItem}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-center font-medium text-gray-700 text-xs">{item.quantity}</td>
-                    <td className="px-4 py-4 text-right font-medium text-gray-700 text-xs">{formatCurrency(item.unitPrice)}</td>
-                    <td className="px-4 py-4 text-right font-bold text-gray-900 text-xs">{formatCurrency(item.amount)}</td>
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200">
+                    <th className="px-4 py-3 font-semibold text-slate-700 w-[50%]">
+                      Service & Specifications
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-center w-[12%]">
+                      Qty
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-right w-[18%]">
+                      Unit Rate
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-right w-[20%]">
+                      Total
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {quotation.items.map((item, idx) => {
+                    const hasDetailed = item.detailedContent && item.detailedContent.length > 0;
+
+                    return (
+                      <tr key={idx} className="align-top hover:bg-slate-50/40 transition-colors">
+                        <td className="px-4 py-4 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-slate-900 text-sm">
+                              {item.name}
+                            </span>
+                            {item.scope && (
+                              <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-700 rounded border border-slate-200/60">
+                                {item.scope}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Render structured detailed content if available (without raw duplicate text) */}
+                          {hasDetailed ? (
+                            <div className="mt-2 bg-slate-50/80 border border-slate-200/70 rounded-lg p-3 space-y-2.5">
+                              <span className="text-[11px] font-semibold text-slate-600 block">
+                                Inclusions & Deliverables:
+                              </span>
+                              <div
+                                className={`grid gap-3 ${
+                                  item.detailedContent!.length >= 3
+                                    ? 'grid-cols-1 sm:grid-cols-3'
+                                    : item.detailedContent!.length === 2
+                                    ? 'grid-cols-1 sm:grid-cols-2'
+                                    : 'grid-cols-1'
+                                }`}
+                              >
+                                {item.detailedContent!.map((section, sidx) => (
+                                  <div key={sidx} className="text-xs space-y-1">
+                                    <p className="font-semibold text-slate-800 text-[11px]">
+                                      {section.sectionName}
+                                    </p>
+                                    <ul className="space-y-0.5 text-slate-600">
+                                      {section.items.map((it, lidx) => (
+                                        <li key={lidx} className="flex items-start gap-1">
+                                          <span className="text-slate-400">•</span>
+                                          <span>{it}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : item.requirements ? (
+                            <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200/50 leading-relaxed whitespace-pre-wrap">
+                              {cleanRequirementText(item.requirements)}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-4 text-center font-medium text-slate-700 tabular-nums">
+                          {item.quantity}
+                        </td>
+                        <td className="px-4 py-4 text-right font-medium text-slate-700 tabular-nums">
+                          {formatCurrency(item.unitPrice)}
+                        </td>
+                        <td className="px-4 py-4 text-right font-semibold text-slate-900 tabular-nums">
+                          {formatCurrency(item.amount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Bottom Columns: Payment Schedule & Terms + Financial Summary */}
-          <div className="flex flex-col md:flex-row justify-between items-start gap-8 md:gap-10">
-            {/* Left Side: Payment Schedule & Terms */}
-            <div className="flex-1 space-y-8 w-full">
+          {/* Payment Plan & Commercial Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-4 border-t border-slate-200">
+            {/* Left Column: Payment Milestones & Terms (7 cols) */}
+            <div className="lg:col-span-7 space-y-6">
               {/* Payment Schedule */}
               {quotation.paymentPlan && quotation.paymentPlan.length > 0 && (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">
-                    Payment Schedule
-                  </h3>
-                  <div className="space-y-2.5">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    Milestone Payment Schedule
+                  </h4>
+                  <div className="space-y-2">
                     {quotation.paymentPlan.map((plan, idx) => (
                       <div
                         key={idx}
-                        className="flex justify-between items-start p-3 bg-gray-50/70 rounded border border-gray-100 text-xs"
+                        className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg flex items-center justify-between gap-4 text-xs"
                       >
-                        <div>
-                          <p className="font-bold text-gray-900">{plan.title}</p>
-                          <div className="flex flex-wrap items-center gap-x-2 text-gray-500 text-[11px] mt-0.5">
-                            {plan.dueDate && (
-                              <span className="text-indigo-600 font-medium">
-                                Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900">
+                              {plan.title}
+                            </span>
+                            {plan.percentage && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-200/80 text-slate-700">
+                                {plan.percentage}%
                               </span>
                             )}
-                            {plan.dueDate && plan.dueDateDescription && <span>•</span>}
-                            {plan.dueDateDescription && <span>{plan.dueDateDescription}</span>}
                           </div>
-                          {plan.percentage && (
-                            <span className="text-[10px] text-indigo-600 font-semibold mt-0.5 inline-block">
-                              {plan.percentage}% of total
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2 text-slate-500 text-[11px]">
+                            {plan.dueDate && (
+                              <span className="inline-flex items-center gap-1 text-slate-700">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                {new Date(plan.dueDate).toLocaleDateString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                            )}
+                            {plan.dueDateDescription && <span>• {plan.dueDateDescription}</span>}
+                          </div>
                         </div>
-                        <p className="font-bold text-gray-900">{formatCurrency(plan.amount)}</p>
+                        <span className="font-bold text-slate-900 tabular-nums text-sm shrink-0">
+                          {formatCurrency(plan.amount)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -579,137 +658,164 @@ export const ClientViewQuotation: React.FC = () => {
 
               {/* Terms & Conditions */}
               {quotation.structuredTerms && quotation.structuredTerms.length > 0 ? (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">
-                    Terms & Conditions
-                  </h3>
-                  <ul className="list-[circle] marker:text-gray-300 space-y-1.5 ml-4 text-xs">
+                <div className="space-y-2.5 pt-2">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    Commercial Terms & Conditions
+                  </h4>
+                  <div className="bg-slate-50/50 border border-slate-200/80 rounded-lg p-3.5 space-y-2 text-xs">
                     {quotation.structuredTerms.map((term, idx) => (
-                      <li key={idx} className="text-gray-600 pl-0.5 leading-relaxed">
-                        <span className="font-semibold text-gray-800">{term.title}: </span>
-                        {term.content}
-                      </li>
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-slate-400 font-semibold">{idx + 1}.</span>
+                        <div className="leading-relaxed">
+                          <strong className="text-slate-800">{term.title}: </strong>
+                          <span className="text-slate-600">{term.content}</span>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               ) : quotation.terms ? (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                <div className="space-y-2 pt-2">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
                     Terms & Conditions
-                  </h3>
-                  <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{quotation.terms}</p>
+                  </h4>
+                  <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200/60 leading-relaxed whitespace-pre-wrap">
+                    {quotation.terms}
+                  </p>
                 </div>
               ) : null}
 
-              {/* Additional Notes */}
+              {/* Notes */}
               {quotation.notes && (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-                    Notes
-                  </h3>
-                  <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{quotation.notes}</p>
+                <div className="space-y-1.5 pt-1">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    Special Notes
+                  </h4>
+                  <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200/60 leading-relaxed whitespace-pre-wrap">
+                    {quotation.notes}
+                  </p>
                 </div>
               )}
             </div>
 
-            {/* Right Side: Financial Summary */}
-            <div className="w-full md:w-[350px] shrink-0">
-              <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-                <div className="p-4 sm:p-5">
-                  <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-                    Financial Summary
-                  </h3>
-                  <table className="w-full text-xs">
-                    <tbody className="divide-y divide-gray-100">
-                      <tr>
-                        <td className="py-2 text-gray-500 font-medium">Subtotal</td>
-                        <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.subtotal)}</td>
-                      </tr>
-                      {quotation.discount > 0 && (
-                        <tr>
-                          <td className="py-2 text-gray-500 font-medium">Discount</td>
-                          <td className="py-2 text-right font-bold text-red-600">-{formatCurrency(quotation.discount)}</td>
-                        </tr>
-                      )}
-                      {quotation.discount > 0 && (
-                        <tr>
-                          <td className="py-2 text-gray-500 font-medium">Taxable Amount</td>
-                          <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.taxableAmount)}</td>
-                        </tr>
-                      )}
-                      {quotation.tax && quotation.tax.taxType !== 'none' && (
-                        <>
-                          <tr>
-                            <td className="py-2 text-gray-500 font-medium">
-                              Tax ({quotation.tax.taxType.toUpperCase()} @ {quotation.tax.taxRate}%)
-                            </td>
-                            <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.tax.taxAmount)}</td>
-                          </tr>
-                          {quotation.tax.cgst > 0 && (
-                            <tr>
-                              <td className="py-1 text-gray-400 text-[11px] pl-3">CGST</td>
-                              <td className="py-1 text-right text-gray-600 text-[11px]">{formatCurrency(quotation.tax.cgst)}</td>
-                            </tr>
-                          )}
-                          {quotation.tax.sgst > 0 && (
-                            <tr>
-                              <td className="py-1 text-gray-400 text-[11px] pl-3">SGST</td>
-                              <td className="py-1 text-right text-gray-600 text-[11px]">{formatCurrency(quotation.tax.sgst)}</td>
-                            </tr>
-                          )}
-                          {quotation.tax.igst > 0 && (
-                            <tr>
-                              <td className="py-1 text-gray-400 text-[11px] pl-3">IGST</td>
-                              <td className="py-1 text-right text-gray-600 text-[11px]">{formatCurrency(quotation.tax.igst)}</td>
-                            </tr>
-                          )}
-                        </>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+            {/* Right Column: Financial Totals Breakdown (5 cols) */}
+            <div className="lg:col-span-5 space-y-4">
+              <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                Financial Summary
+              </h4>
 
-                {/* Final Total Amount Box */}
-                <div className="bg-[#172542] text-white p-5 m-1 rounded-md">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-white/80 uppercase tracking-widest">
-                      Total Quotation Amount
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Subtotal</span>
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {formatCurrency(quotation.subtotal)}
                     </span>
                   </div>
-                  <span className="text-2xl sm:text-3xl font-bold tracking-tight block">
-                    {formatCurrency(quotation.finalAmount)}
-                  </span>
 
-                  {/* Advance Required Row */}
-                  <div className="mt-3 pt-3 border-t border-white/15 flex items-center justify-between text-xs">
-                    <span className="text-white/80 font-medium">Advance Due to Confirm:</span>
-                    <span className="font-bold text-emerald-400">{formatCurrency(quotation.advanceAmount)}</span>
+                  {quotation.discount > 0 && (
+                    <div className="flex justify-between items-center text-rose-600 font-medium">
+                      <span>Applied Discount</span>
+                      <span className="tabular-nums">
+                        -{formatCurrency(quotation.discount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {quotation.discount > 0 && (
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>Taxable Subtotal</span>
+                      <span className="font-semibold text-slate-900 tabular-nums">
+                        {formatCurrency(quotation.taxableAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {quotation.tax?.taxType && quotation.tax.taxType !== 'none' && (
+                    <div className="space-y-1 pt-1 border-t border-slate-200/70">
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>
+                          Tax ({quotation.tax.taxType.toUpperCase()} @ {quotation.tax.taxRate}%)
+                        </span>
+                        <span className="font-semibold text-slate-900 tabular-nums">
+                          {formatCurrency(quotation.tax.taxAmount)}
+                        </span>
+                      </div>
+                      {quotation.tax.gstTreatment === 'intra_state' && quotation.tax.cgst > 0 && (
+                        <div className="flex justify-between items-center text-[11px] text-slate-500 pl-2">
+                          <span>CGST ({(quotation.tax.taxRate / 2).toFixed(1)}%) + SGST ({(quotation.tax.taxRate / 2).toFixed(1)}%)</span>
+                          <span>{formatCurrency(quotation.tax.cgst)} + {formatCurrency(quotation.tax.sgst)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Final Total Investment Box */}
+                <div className="bg-slate-900 text-white rounded-lg p-3.5 space-y-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-medium text-slate-300">
+                      Total Quotation Value
+                    </span>
+                    <span className="text-xl font-bold tracking-tight tabular-nums">
+                      {formatCurrency(quotation.finalAmount)}
+                    </span>
                   </div>
+                  <p className="text-[10px] text-slate-400">
+                    Inclusive of specified line items, services, and taxes.
+                  </p>
+                </div>
 
-                  {/* Remaining Balance Row */}
-                  <div className="mt-1 flex items-center justify-between text-xs text-white/70">
-                    <span>Remaining Balance:</span>
-                    <span>{formatCurrency(quotation.remainingAmount)}</span>
+                {/* Retainer & Remaining Balance */}
+                <div className="pt-2 border-t border-slate-200/80 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-slate-700">Advance Deposit Due:</span>
+                    <span className="font-bold text-slate-900 tabular-nums">
+                      {formatCurrency(quotation.advanceAmount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Balance Remaining:</span>
+                    <span className="font-semibold text-slate-700 tabular-nums">
+                      {formatCurrency(quotation.remainingAmount)}
+                    </span>
                   </div>
                 </div>
-              </div>
-
-              {/* Authorized Signatory */}
-              <div className="mt-8 text-center">
-                <p className="text-gray-400 text-[10px] mb-0.5">Authorized Signatory</p>
-                <p className="font-bold text-[#172542] uppercase text-[11px] tracking-wider">
-                  EventOps Management
-                </p>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Footer Note */}
-        <div className="relative md:absolute bottom-5 w-full text-center mt-8 md:mt-0 px-4">
-          <p className="text-[10px] text-gray-400">
-            Thank you for choosing EventOps ERP. For any inquiries, reach us at support@eventops.example.com
-          </p>
+          {/* Signatures & Execution Section */}
+          <div className="pt-8 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs">
+            <div className="border border-dashed border-slate-300 rounded-lg p-4 space-y-3 bg-slate-50/30">
+              <p className="font-semibold text-slate-800">Client Acceptance</p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Accepted by {toTitleCase(quotation.eventSnapshot?.clientName || 'Client')} in accordance with the specified deliverables and commercial milestones.
+              </p>
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-500">
+                <span>Signature / Confirmation</span>
+                <span>{quotation.status === 'accepted' ? 'Digitally Accepted' : 'Pending'}</span>
+              </div>
+            </div>
+
+            <div className="border border-dashed border-slate-300 rounded-lg p-4 space-y-3 bg-slate-50/30">
+              <p className="font-semibold text-slate-800">Evento Event Operations</p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Issued by authorized production management for Evento. Confirmation is subject to milestone retainer payment.
+              </p>
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-500">
+                <span>Authorized Signatory</span>
+                <span>Evento Management</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer Note */}
+          <div className="pt-4 text-center text-[11px] text-slate-400 border-t border-slate-100">
+            <p>
+              Thank you for trusting Evento with your event. For questions, adjustments, or concierge assistance, reach our team at concierge@evento.com.
+            </p>
+          </div>
         </div>
       </div>
 

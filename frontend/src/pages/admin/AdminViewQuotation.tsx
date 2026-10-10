@@ -2,7 +2,23 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getQuotationById, getQuotations } from '../../features/quotations/quotationApi';
 import type { Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, ArrowLeft, Printer, Download, Calculator, Edit3, History, AlertCircle } from 'lucide-react';
+import {
+  Loader2,
+  ArrowLeft,
+  Printer,
+  Download,
+  Edit3,
+  History,
+  AlertCircle,
+  Calendar,
+  Clock,
+  MapPin,
+  Users,
+  CheckCircle2,
+  ArrowRight,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 
 export const AdminViewQuotation = () => {
   const { id } = useParams<{ id: string }>();
@@ -22,7 +38,7 @@ export const AdminViewQuotation = () => {
           if (data.eventId) {
             try {
               const revs = await getQuotations(data.eventId);
-              // Sort by revision ascending
+              // Sort ascending by revision number
               setAllRevisions(revs.sort((a, b) => a.revision - b.revision));
             } catch (revErr) {
               console.error('Failed to load revision history', revErr);
@@ -47,8 +63,33 @@ export const AdminViewQuotation = () => {
   };
 
   const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const toTitleCase = (str?: string) => {
+    if (!str) return '—';
+    return str
+      .split(' ')
+      .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : ''))
+      .join(' ');
+  };
+
+  const cleanRequirementText = (text?: string) => {
+    if (!text) return '';
+    return text
+      .replace(/serviceMode:\s*/gi, 'Service Mode: ')
+      .replace(/starters:\s*/gi, 'Starters: ')
+      .replace(/mainDishes:\s*/gi, 'Main Courses: ')
+      .replace(/desserts:\s*/gi, 'Desserts: ')
+      .replace(/style:\s*/gi, 'Style: ')
+      .replace(/coverage:\s*/gi, 'Coverage: ')
+      .replace(/deliverables:\s*/gi, 'Deliverables: ')
+      .replace(/package:\s*/gi, 'Package: ');
   };
 
   const handlePrint = () => {
@@ -58,70 +99,96 @@ export const AdminViewQuotation = () => {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="w-12 h-12 animate-spin text-indigo-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
       </div>
     );
   }
 
   if (error || !quotation) {
     return (
-      <div className="bg-red-50 text-red-700 p-6 rounded-2xl border border-red-100 max-w-2xl mx-auto mt-8 shadow-sm">
-        <h2 className="text-xl font-bold mb-2">Error</h2>
-        <p>{error || 'Quotation not found'}</p>
-        <Link to="/admin/quotations" className="inline-block mt-4 text-indigo-600 hover:underline font-medium">
-          ← Back to Quotations
+      <div className="bg-rose-50 text-rose-700 p-6 rounded-xl border border-rose-200 max-w-2xl mx-auto mt-8 shadow-xs">
+        <h2 className="text-lg font-bold mb-2">Error</h2>
+        <p className="text-sm">{error || 'Quotation not found'}</p>
+        <Link
+          to="/admin/quotations"
+          className="inline-flex items-center gap-1.5 mt-4 text-slate-900 hover:text-slate-700 font-medium text-sm underline"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to Quotations
         </Link>
       </div>
     );
   }
 
+  // Determine latest revision and whether editing is permitted
+  const latestRevision =
+    allRevisions.length > 0 ? allRevisions[allRevisions.length - 1] : quotation;
+  const isLatestRevision = quotation._id === latestRevision?._id;
+  const isHistorical = !isLatestRevision;
+
+  // Editing is ONLY allowed on the latest revision when it is in draft or changes_requested.
+  // Once issued ('sent' or 'awaiting_approval'), editing options are removed.
   const isChangesRequested = quotation.status === 'changes_requested';
   const isDraft = quotation.status === 'draft';
+  const canReviewChanges = isLatestRevision && isChangesRequested;
+  const canEditDraft = isLatestRevision && isDraft;
 
   return (
-    <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 print:p-0 print:m-0 print:space-y-0">
-
+    <div className="max-w-[1020px] mx-auto space-y-6 pb-20 print:p-0 print:m-0 print:space-y-0">
       {/* Top Action Bar (Hidden when printing) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden mb-2">
         <div className="flex items-start sm:items-center gap-3 min-w-0">
-          <Link to="/admin/quotations" className="p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors shadow-sm shrink-0 mt-0.5 sm:mt-0">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          <Link
+            to="/admin/quotations"
+            className="p-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors shadow-2xs shrink-0 mt-0.5 sm:mt-0 text-slate-600 hover:text-slate-900"
+            title="Back to Quotations list"
+          >
+            <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                 Quotation {quotation.quotationNumber}
               </h1>
-              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-bold rounded-md border border-gray-200">
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md border border-slate-200">
                 Rev {quotation.revision}
               </span>
-              <span className={`px-2.5 py-1 text-[10px] font-bold rounded-md uppercase tracking-wider
-                ${quotation.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                  quotation.status === 'sent' || quotation.status === 'awaiting_approval' ? 'bg-blue-100 text-blue-800' :
-                    quotation.status === 'changes_requested' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
-                      quotation.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
-                        'bg-red-100 text-red-800'}`}
+              <span
+                className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${
+                  quotation.status === 'draft'
+                    ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                    : quotation.status === 'sent' || quotation.status === 'awaiting_approval'
+                    ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                    : quotation.status === 'changes_requested'
+                    ? 'bg-amber-50 text-amber-800 border border-amber-300'
+                    : quotation.status === 'accepted'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
               >
-                {quotation.status.replace('_', ' ')}
+                {quotation.status === 'sent' || quotation.status === 'awaiting_approval'
+                  ? 'Issued · Awaiting Approval'
+                  : quotation.status.replace('_', ' ')}
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 self-start sm:self-center shrink-0 flex-wrap">
-          {isChangesRequested && (
+
+        <div className="flex items-center gap-2 self-start sm:self-center shrink-0 flex-wrap">
+          {/* Edit options only visible when permitted */}
+          {canReviewChanges && (
             <Link
               to={`/admin/events/${quotation.eventId}/quotation/create?revise=${quotation._id}`}
-              className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors shadow-sm font-bold text-xs sm:text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors shadow-xs font-medium text-xs sm:text-sm"
             >
               <Edit3 className="w-4 h-4" />
               Review & Edit Quotation
             </Link>
           )}
 
-          {isDraft && (
+          {canEditDraft && (
             <Link
               to={`/admin/events/${quotation.eventId}/quotation/create?draftId=${quotation._id}`}
-              className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-[#172542] hover:bg-[#0f192d] text-white rounded-xl transition-colors shadow-sm font-semibold text-xs sm:text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors shadow-xs font-medium text-xs sm:text-sm"
             >
               <Edit3 className="w-4 h-4" />
               Continue Editing Draft
@@ -130,102 +197,170 @@ export const AdminViewQuotation = () => {
 
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors shadow-sm font-medium text-xs sm:text-sm"
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs font-medium text-xs sm:text-sm"
           >
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-[#172542] text-white rounded-xl hover:bg-[#0f192d] transition-colors shadow-sm font-medium text-xs sm:text-sm">
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors shadow-xs font-medium text-xs sm:text-sm"
+          >
             <Download className="w-4 h-4" />
             Download PDF
           </button>
         </div>
       </div>
 
-      {/* Prominent Client Change Request Panel (if changes_requested) */}
+      {/* Historical Revision Banner (if viewing an older revision) */}
+      {isHistorical && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs print:hidden">
+          <div className="flex items-center gap-2 text-slate-700">
+            <History className="w-4 h-4 text-slate-500 shrink-0" />
+            <span>
+              You are viewing historical <strong>Revision {quotation.revision}</strong> (Read-only).
+              Edits are locked because a newer revision exists.
+            </span>
+          </div>
+          <Link
+            to={`/admin/quotations/${latestRevision._id}`}
+            className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
+          >
+            Switch to Active Revision (Rev {latestRevision.revision}) <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
+
+      {/* Client Change Request Panel (if changes_requested) */}
       {isChangesRequested && (
-        <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-6 shadow-sm print:hidden animate-in fade-in duration-300">
+        <div className="bg-amber-50/90 border-2 border-amber-300 rounded-xl p-5 shadow-2xs print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4 pb-4 border-b border-amber-200">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-amber-200/70 text-amber-900 rounded-xl shrink-0 mt-0.5">
+              <div className="p-2 bg-amber-200/70 text-amber-900 rounded-lg shrink-0 mt-0.5">
                 <AlertCircle className="w-5 h-5 text-amber-700" />
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-amber-900 uppercase tracking-wider bg-amber-200 px-2 py-0.5 rounded">
-                    Action Required
+                  <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider bg-amber-200 px-2 py-0.5 rounded">
+                    {canReviewChanges ? 'Action Required' : 'Historical Request'}
                   </span>
-                  <span className="text-xs font-semibold text-amber-800">
+                  <span className="text-xs font-medium text-amber-800">
                     Revision {quotation.revision}
                   </span>
                 </div>
-                <h2 className="text-lg font-bold text-gray-900 mt-1">Client Requested Changes</h2>
-                <p className="text-xs text-gray-600">
-                  Requested by <strong className="text-gray-900">{quotation.eventSnapshot?.clientName || 'Client'}</strong> on {formatDate(quotation.updatedAt)}
+                <h2 className="text-base font-bold text-slate-900 mt-1">Client Requested Changes</h2>
+                <p className="text-xs text-slate-600">
+                  Requested by{' '}
+                  <strong className="text-slate-900">
+                    {quotation.eventSnapshot?.clientName || 'Client'}
+                  </strong>{' '}
+                  on {formatDate(quotation.updatedAt)}
                 </p>
               </div>
             </div>
-            <Link
-              to={`/admin/events/${quotation.eventId}/quotation/create?revise=${quotation._id}`}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm self-start sm:self-auto shrink-0"
-            >
-              <Edit3 className="w-4 h-4" />
-              Review & Edit Quotation
-            </Link>
+
+            {canReviewChanges ? (
+              <Link
+                to={`/admin/events/${quotation.eventId}/quotation/create?revise=${quotation._id}`}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs self-start sm:self-auto shrink-0"
+              >
+                <Edit3 className="w-4 h-4" />
+                Review & Edit Quotation
+              </Link>
+            ) : (
+              <span className="text-xs font-medium text-amber-900 bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg shrink-0">
+                Resolved in Rev {latestRevision.revision}
+              </span>
+            )}
           </div>
 
-          <div className="bg-white rounded-xl border border-amber-200 p-4">
-            <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-              Client's Request Message:
+          <div className="bg-white rounded-lg border border-amber-200 p-3.5">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">
+              Client's Note / Request:
             </h4>
-            <p className="text-sm font-medium text-gray-900 leading-relaxed whitespace-pre-wrap">
+            <p className="text-sm text-slate-900 leading-relaxed whitespace-pre-wrap">
               {quotation.clientNotes || 'No specific note was provided by the client.'}
             </p>
           </div>
         </div>
       )}
 
-      {/* Revision History Card (if multiple revisions exist) */}
+      {/* Revision History Section (when multiple revisions exist) */}
       {allRevisions.length > 1 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm print:hidden">
-          <div className="flex items-center gap-2 mb-3">
-            <History className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-sm font-bold text-gray-900">Quotation Revision History</h3>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs print:hidden">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-slate-600" />
+              <h3 className="text-sm font-semibold text-slate-900">Quotation Revision History</h3>
+            </div>
+            <span className="text-xs text-slate-500 font-medium">
+              {allRevisions.length} total revisions
+            </span>
           </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {allRevisions.map((rev) => {
+            {allRevisions.map((rev, index) => {
               const isCurrent = rev._id === quotation._id;
+              const isLatestInThread = index === allRevisions.length - 1;
+
               return (
                 <Link
                   key={rev._id}
                   to={`/admin/quotations/${rev._id}`}
-                  className={`p-3 rounded-lg border text-left transition-all ${isCurrent
-                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/30'
-                      : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50'
-                    }`}
+                  className={`p-3.5 rounded-lg border text-left transition-all relative ${
+                    isCurrent
+                      ? 'border-slate-900 ring-2 ring-slate-900/10 bg-slate-50/60'
+                      : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50'
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="font-bold text-sm text-gray-900">Revision {rev.revision}</span>
-                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${rev.status === 'draft' ? 'bg-gray-100 text-gray-700' :
-                        rev.status === 'sent' ? 'bg-blue-100 text-blue-700' :
-                          rev.status === 'changes_requested' ? 'bg-amber-100 text-amber-800' :
-                            rev.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' :
-                              'bg-red-100 text-red-700'
-                      }`}>
-                      {rev.status.replace('_', ' ')}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-sm text-slate-900">
+                        Revision {rev.revision}
+                      </span>
+                      {isLatestInThread && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                        rev.status === 'draft'
+                          ? 'bg-slate-100 text-slate-700'
+                          : rev.status === 'sent' || rev.status === 'awaiting_approval'
+                          ? 'bg-sky-50 text-sky-700'
+                          : rev.status === 'changes_requested'
+                          ? 'bg-amber-50 text-amber-800'
+                          : rev.status === 'accepted'
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : 'bg-rose-50 text-rose-700'
+                      }`}
+                    >
+                      {rev.status === 'sent' || rev.status === 'awaiting_approval'
+                        ? 'Issued'
+                        : rev.status.replace('_', ' ')}
                     </span>
                   </div>
-                  <p className="text-xs font-semibold text-gray-700 mb-1">{formatCurrency(rev.finalAmount)}</p>
-                  <p className="text-[11px] text-gray-400">{formatDate(rev.createdAt)}</p>
+
+                  <p className="text-xs font-semibold text-slate-800 tabular-nums">
+                    {formatCurrency(rev.finalAmount)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {formatDate(rev.createdAt)}
+                  </p>
+
                   {rev.clientNotes && (
                     <p className="text-[11px] text-amber-800 truncate mt-1 italic">
                       "{rev.clientNotes}"
                     </p>
                   )}
+
                   {isCurrent && (
-                    <span className="inline-block mt-1 text-[10px] font-bold text-indigo-600">
-                      ● Currently Viewing
-                    </span>
+                    <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center gap-1 text-[11px] font-semibold text-slate-900">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+                      Currently Viewing
+                    </div>
                   )}
                 </Link>
               );
@@ -234,53 +369,66 @@ export const AdminViewQuotation = () => {
         </div>
       )}
 
-      {/* A4 Document Container */}
-      <div className="bg-white shadow-xl sm:rounded-md print:shadow-none print:rounded-none overflow-hidden text-[13px] font-sans text-gray-800 border border-gray-200 print:border-none relative min-h-[1056px]">
-
-        {/* Top Dark Bar */}
-        <div className="h-8 bg-[#172542] w-full flex items-center justify-between px-6 sm:px-10">
-          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase">EventOps ERP SYSTEM</span>
-          <span className="text-white/80 text-[9px] font-medium tracking-widest uppercase hidden sm:inline">Premium Event Experience</span>
-        </div>
-
-        <div className="p-6 sm:p-10 sm:px-14 sm:py-12">
-
-          {/* Header Section */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-8">
-            <div className="flex flex-col gap-5">
-              {/* Company Logo / Branding */}
+      {/* ======================================================== */}
+      {/* Professional Quotation Document Container (Printable A4) */}
+      {/* ======================================================== */}
+      <div className="bg-white shadow-sm rounded-xl border border-slate-200/90 print:border-none print:shadow-none print:rounded-none overflow-hidden text-slate-800 relative">
+        <div className="p-8 sm:p-12 space-y-8">
+          {/* Masthead Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b border-slate-200 pb-8">
+            <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-[#172542] rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
-                  <Calculator className="w-6 h-6" />
+                <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xs">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-[#172542] tracking-tight leading-none mb-1">EventOps ERP</h2>
-                  <p className="text-gray-400 font-medium text-[10px] tracking-widest uppercase">Event Management</p>
+                  <h2 className="text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                    EVENTO
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Bespoke Event Experiences & Production
+                  </p>
                 </div>
               </div>
-              <div className="space-y-1 text-gray-500 text-[11px]">
-                <p>123 Business Avenue, Suite 100</p>
-                <p>contact@eventops.example.com</p>
-                <p>+1 (555) 123-4567</p>
+              <div className="text-xs text-slate-500 space-y-0.5 pl-0.5">
+                <p>Evento Events & Production Studio</p>
+                <p>concierge@evento.com · +91 (800) 123-4567</p>
+                {quotation.tax?.customerGstin && (
+                  <p className="text-slate-600">Client GSTIN: {quotation.tax.customerGstin}</p>
+                )}
               </div>
             </div>
 
             <div className="text-left sm:text-right flex flex-col items-start sm:items-end w-full sm:w-auto">
-              <h1 className="text-3xl sm:text-4xl font-black text-[#172542] tracking-wide mb-4 sm:mb-6">QUOTATION</h1>
-              <div className="bg-gray-50/80 rounded-md p-4 w-full sm:min-w-[240px]">
-                <table className="w-full text-left text-[11px]">
-                  <tbody>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-3">
+                QUOTATION
+              </h1>
+              <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-3.5 w-full sm:min-w-[260px] text-xs">
+                <table className="w-full text-left">
+                  <tbody className="divide-y divide-slate-100">
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Quotation No:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{quotation.quotationNumber}</td>
+                      <td className="py-1 text-slate-500 font-medium">Quotation No</td>
+                      <td className="py-1 font-bold text-slate-900 text-right">
+                        {quotation.quotationNumber}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Date:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{formatDate(quotation.createdAt)}</td>
+                      <td className="py-1 text-slate-500 font-medium">Revision</td>
+                      <td className="py-1 font-semibold text-slate-800 text-right">
+                        Rev {quotation.revision}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="text-gray-500 py-1 font-medium">Valid Until:</td>
-                      <td className="font-semibold text-gray-900 text-right py-1">{formatDate(quotation.validUntil)}</td>
+                      <td className="py-1 text-slate-500 font-medium">Date Issued</td>
+                      <td className="py-1 font-medium text-slate-800 text-right">
+                        {formatDate(quotation.createdAt)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 text-slate-500 font-medium">Valid Until</td>
+                      <td className="py-1 font-medium text-slate-800 text-right">
+                        {formatDate(quotation.validUntil)}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -288,202 +436,342 @@ export const AdminViewQuotation = () => {
             </div>
           </div>
 
-          <div className="w-full h-px bg-gray-200 mb-8"></div>
-
-          {/* Client & Event Info Section */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 mb-10">
-            <div>
-              <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Prepared For</h3>
-              <p className="text-lg font-bold text-gray-900 mb-1">{quotation.eventSnapshot?.clientName || 'Client Name'}</p>
-              {quotation.eventSnapshot?.location?.address ? (
-                <p className="text-gray-500 leading-relaxed pr-0 sm:pr-8">
-                  {quotation.eventSnapshot.location.address}
-                </p>
-              ) : (
-                <p className="text-gray-400 italic">No address provided</p>
-              )}
+          {/* Client & Event Specifications Brief */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-b border-slate-200 pb-8">
+            {/* Client Info */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Prepared For
+              </h3>
+              <p className="text-lg font-bold text-slate-900">
+                {toTitleCase(quotation.eventSnapshot?.clientName || 'Valued Client')}
+              </p>
+              <div className="flex items-start gap-1.5 text-xs text-slate-600 mt-1">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                <span>
+                  {quotation.eventSnapshot?.location?.address ||
+                    quotation.eventSnapshot?.location ||
+                    'Venue details as specified in event plan'}
+                </span>
+              </div>
             </div>
 
-            <div>
-              <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Event Details</h3>
-              <p className="text-lg font-bold text-gray-900 mb-3">{quotation.eventSnapshot?.title || 'Event Title'}</p>
-
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4">
-                <div className="flex">
-                  <span className="text-gray-400 w-12 font-medium">Type:</span>
-                  <span className="font-semibold text-gray-800">{quotation.eventSnapshot?.eventType || 'N/A'}</span>
+            {/* Event Info */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Event Specifications
+              </h3>
+              <p className="text-lg font-bold text-slate-900">
+                {toTitleCase(quotation.eventSnapshot?.title || 'Private Event')}
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Sparkles className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Type: <strong className="text-slate-800">{toTitleCase(quotation.eventSnapshot?.eventType || 'Event')}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-12 font-medium">Time:</span>
-                  <span className="font-semibold text-gray-800">{quotation.eventSnapshot?.startTime} - {quotation.eventSnapshot?.endTime}</span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Date: <strong className="text-slate-800">{formatDate(quotation.eventSnapshot?.date)}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-12 font-medium">Date:</span>
-                  <span className="font-semibold text-gray-800">{formatDate(quotation.eventSnapshot?.date)}</span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Time: <strong className="text-slate-800">{quotation.eventSnapshot?.startTime || '—'} – {quotation.eventSnapshot?.endTime || '—'}</strong></span>
                 </div>
-                <div className="flex">
-                  <span className="text-gray-400 w-12 font-medium">Guests:</span>
-                  <span className="font-semibold text-gray-800">{quotation.eventSnapshot?.guestCount || 'N/A'}</span>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Guests: <strong className="text-slate-800">{quotation.eventSnapshot?.guestCount || '—'} Expected</strong></span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Services & Pricing Heading */}
-          <h2 className="text-lg font-bold text-[#172542] mb-3">Services & pricing</h2>
-
           {/* Line Items Table */}
-          <div className="mb-10 overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
-            <table className="w-full text-left min-w-[500px]">
-              <thead className="bg-[#172542] text-white">
-                <tr>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest w-[55%]">Item & Description</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-center w-[15%]">Qty</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-right w-[15%]">Rate</th>
-                  <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-right w-[15%]">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {quotation.items.map((item, index) => (
-                  <tr key={index} className="align-top">
-                    <td className="px-4 py-5">
-                      <p className="font-semibold text-gray-900 text-[14px] mb-1">{item.name}</p>
-                      {item.requirements && (
-                        <p className="text-gray-500 mb-4">{item.requirements}</p>
-                      )}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+              Scope of Services & Deliverables
+            </h3>
 
-                      {/* Nested Detailed Content */}
-                      {item.detailedContent && item.detailedContent.length > 0 && (
-                        <div className="bg-gray-50/80 rounded border border-gray-100 p-4 mt-2">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Included Services</p>
-
-                          {/* We try to format it in columns if there are multiple sections */}
-                          <div className={`grid gap-4 ${item.detailedContent.length >= 3 ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3' : item.detailedContent.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                            {item.detailedContent.map((section, sidx) => (
-                              <div key={sidx}>
-                                <p className="font-semibold text-gray-800 text-[11px] mb-2">{section.sectionName}</p>
-                                <ul className="space-y-1 ml-3 list-[circle] text-gray-500 text-[11px] marker:text-gray-300">
-                                  {section.items.map((listItem, lidx) => (
-                                    <li key={lidx} className="pl-1">{listItem}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-5 text-center font-medium text-gray-700">{item.quantity}</td>
-                    <td className="px-4 py-5 text-right font-medium text-gray-700">{formatCurrency(item.unitPrice)}</td>
-                    <td className="px-4 py-5 text-right font-semibold text-gray-900">{formatCurrency(item.amount)}</td>
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200">
+                    <th className="px-4 py-3 font-semibold text-slate-700 w-[50%]">
+                      Service & Specifications
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-center w-[12%]">
+                      Qty
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-right w-[18%]">
+                      Unit Rate
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 text-right w-[20%]">
+                      Total
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {quotation.items.map((item, idx) => {
+                    const hasDetailed = item.detailedContent && item.detailedContent.length > 0;
 
-          {/* Bottom Section */}
-          <div className="flex flex-col md:flex-row justify-between items-start gap-8 md:gap-10">
-
-            {/* Left Side: Payment Schedule & Terms */}
-            <div className="flex-1 space-y-8 w-full">
-              {quotation.paymentPlan && quotation.paymentPlan.length > 0 && (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Payment Schedule</h3>
-                  <div className="space-y-4">
-                    {quotation.paymentPlan.map((plan, idx) => (
-                      <div key={idx} className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-gray-900">{plan.title}</p>
-                          <div className="flex flex-wrap items-center gap-x-2 text-gray-500 text-[11px] mt-0.5">
-                            {plan.dueDate && (
-                              <span className="text-indigo-600 font-medium">
-                                Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    return (
+                      <tr key={idx} className="align-top hover:bg-slate-50/40 transition-colors">
+                        <td className="px-4 py-4 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-slate-900 text-sm">
+                              {item.name}
+                            </span>
+                            {item.scope && (
+                              <span className="px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-700 rounded border border-slate-200/60">
+                                {item.scope}
                               </span>
                             )}
-                            {plan.dueDate && plan.dueDateDescription && <span>•</span>}
-                            {plan.dueDateDescription && <span>{plan.dueDateDescription}</span>}
+                          </div>
+
+                          {/* Render structured detailed content if available (without raw duplicate text) */}
+                          {hasDetailed ? (
+                            <div className="mt-2 bg-slate-50/80 border border-slate-200/70 rounded-lg p-3 space-y-2.5">
+                              <span className="text-[11px] font-semibold text-slate-600 block">
+                                Inclusions & Deliverables:
+                              </span>
+                              <div
+                                className={`grid gap-3 ${
+                                  item.detailedContent!.length >= 3
+                                    ? 'grid-cols-1 sm:grid-cols-3'
+                                    : item.detailedContent!.length === 2
+                                    ? 'grid-cols-1 sm:grid-cols-2'
+                                    : 'grid-cols-1'
+                                }`}
+                              >
+                                {item.detailedContent!.map((section, sidx) => (
+                                  <div key={sidx} className="text-xs space-y-1">
+                                    <p className="font-semibold text-slate-800 text-[11px]">
+                                      {section.sectionName}
+                                    </p>
+                                    <ul className="space-y-0.5 text-slate-600">
+                                      {section.items.map((it, lidx) => (
+                                        <li key={lidx} className="flex items-start gap-1">
+                                          <span className="text-slate-400">•</span>
+                                          <span>{it}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : item.requirements ? (
+                            <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200/50 leading-relaxed whitespace-pre-wrap">
+                              {cleanRequirementText(item.requirements)}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-4 text-center font-medium text-slate-700 tabular-nums">
+                          {item.quantity}
+                        </td>
+                        <td className="px-4 py-4 text-right font-medium text-slate-700 tabular-nums">
+                          {formatCurrency(item.unitPrice)}
+                        </td>
+                        <td className="px-4 py-4 text-right font-semibold text-slate-900 tabular-nums">
+                          {formatCurrency(item.amount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Payment Plan & Commercial Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-4 border-t border-slate-200">
+            {/* Left Column: Payment Milestones & Terms (7 cols) */}
+            <div className="lg:col-span-7 space-y-6">
+              {/* Payment Schedule */}
+              {quotation.paymentPlan && quotation.paymentPlan.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    Milestone Payment Schedule
+                  </h4>
+                  <div className="space-y-2">
+                    {quotation.paymentPlan.map((plan, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 bg-slate-50/70 border border-slate-200 rounded-lg flex items-center justify-between gap-4 text-xs"
+                      >
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900">
+                              {plan.title}
+                            </span>
+                            {plan.percentage && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-200/80 text-slate-700">
+                                {plan.percentage}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-slate-500 text-[11px]">
+                            {plan.dueDate && (
+                              <span className="inline-flex items-center gap-1 text-slate-700">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                {new Date(plan.dueDate).toLocaleDateString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                            )}
+                            {plan.dueDateDescription && <span>• {plan.dueDateDescription}</span>}
                           </div>
                         </div>
-                        <p className="font-bold text-gray-900">{formatCurrency(plan.amount)}</p>
+                        <span className="font-bold text-slate-900 tabular-nums text-sm shrink-0">
+                          {formatCurrency(plan.amount)}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
+              {/* Terms & Conditions */}
               {quotation.structuredTerms && quotation.structuredTerms.length > 0 && (
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 mt-8">Terms & Conditions</h3>
-                  <ul className="list-[circle] marker:text-gray-300 space-y-2 ml-4">
+                <div className="space-y-2.5 pt-2">
+                  <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    Commercial Terms & Conditions
+                  </h4>
+                  <div className="bg-slate-50/50 border border-slate-200/80 rounded-lg p-3.5 space-y-2 text-xs">
                     {quotation.structuredTerms.map((term, idx) => (
-                      <li key={idx} className="text-gray-600 text-[11px] pl-1">
-                        {term.title} {term.content && `- ${term.content}`}
-                      </li>
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-slate-400 font-semibold">{idx + 1}.</span>
+                        <div className="leading-relaxed">
+                          <strong className="text-slate-800">{term.title}: </strong>
+                          <span className="text-slate-600">{term.content}</span>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Right Side: Totals Summary */}
-            <div className="w-full md:w-[340px] shrink-0">
-              <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-                <div className="p-5">
-                  <h3 className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-4">Quotation Summary</h3>
-                  <table className="w-full">
-                    <tbody className="divide-y divide-gray-100">
-                      <tr>
-                        <td className="py-2 text-gray-500 font-medium">Subtotal</td>
-                        <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.subtotal)}</td>
-                      </tr>
-                      {quotation.discount > 0 && (
-                        <tr>
-                          <td className="py-2 text-gray-500 font-medium">Discount</td>
-                          <td className="py-2 text-right font-bold text-red-600">-{formatCurrency(quotation.discount)}</td>
-                        </tr>
+            {/* Right Column: Financial Totals Breakdown (5 cols) */}
+            <div className="lg:col-span-5 space-y-4">
+              <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                Financial Summary
+              </h4>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Subtotal</span>
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {formatCurrency(quotation.subtotal)}
+                    </span>
+                  </div>
+
+                  {quotation.discount > 0 && (
+                    <div className="flex justify-between items-center text-rose-600 font-medium">
+                      <span>Applied Discount</span>
+                      <span className="tabular-nums">
+                        -{formatCurrency(quotation.discount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {quotation.discount > 0 && (
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>Taxable Subtotal</span>
+                      <span className="font-semibold text-slate-900 tabular-nums">
+                        {formatCurrency(quotation.taxableAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {quotation.tax?.taxType && quotation.tax.taxType !== 'none' && (
+                    <div className="space-y-1 pt-1 border-t border-slate-200/70">
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>
+                          Tax ({quotation.tax.taxType.toUpperCase()} @ {quotation.tax.taxRate}%)
+                        </span>
+                        <span className="font-semibold text-slate-900 tabular-nums">
+                          {formatCurrency(quotation.tax.taxAmount)}
+                        </span>
+                      </div>
+                      {quotation.tax.gstTreatment === 'intra_state' && quotation.tax.cgst > 0 && (
+                        <div className="flex justify-between items-center text-[11px] text-slate-500 pl-2">
+                          <span>CGST ({(quotation.tax.taxRate / 2).toFixed(1)}%) + SGST ({(quotation.tax.taxRate / 2).toFixed(1)}%)</span>
+                          <span>{formatCurrency(quotation.tax.cgst)} + {formatCurrency(quotation.tax.sgst)}</span>
+                        </div>
                       )}
-                      {quotation.discount > 0 && (
-                        <tr>
-                          <td className="py-2 text-gray-500 font-medium">Taxable Amount</td>
-                          <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.taxableAmount)}</td>
-                        </tr>
-                      )}
-                      {quotation.tax.taxType !== 'none' && (
-                        <tr>
-                          <td className="py-2 text-gray-500 font-medium flex items-center gap-1">
-                            Tax <span className="bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded text-[9px] font-bold">{quotation.tax.taxType.toUpperCase()} @ {quotation.tax.taxRate}%</span>
-                          </td>
-                          <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(quotation.tax.taxAmount)}</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
                 </div>
 
-                <div className="bg-[#172542] text-white p-5 m-1 rounded-md flex flex-col justify-center">
-                  <span className="text-[10px] font-bold text-white/80 uppercase tracking-widest mb-1">Total Amount</span>
-                  <span className="text-3xl font-bold tracking-tight">{formatCurrency(quotation.finalAmount)}</span>
+                {/* Final Total Investment Box */}
+                <div className="bg-slate-900 text-white rounded-lg p-3.5 space-y-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-medium text-slate-300">
+                      Total Quotation Value
+                    </span>
+                    <span className="text-xl font-bold tracking-tight tabular-nums">
+                      {formatCurrency(quotation.finalAmount)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Inclusive of specified line items, services, and taxes.
+                  </p>
                 </div>
-              </div>
 
-              {/* Authorized Signature */}
-              <div className="mt-12 md:mt-16 text-center">
-                <p className="text-gray-400 text-[10px] mb-1">Authorized Signatory</p>
-                <p className="font-bold text-[#172542] uppercase text-[11px] tracking-wider">EventOps Management</p>
+                {/* Retainer & Remaining Balance */}
+                <div className="pt-2 border-t border-slate-200/80 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-slate-700">Advance Deposit Due:</span>
+                    <span className="font-bold text-slate-900 tabular-nums">
+                      {formatCurrency(quotation.advanceAmount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Balance Remaining:</span>
+                    <span className="font-semibold text-slate-700 tabular-nums">
+                      {formatCurrency(quotation.remainingAmount)}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-        </div>
+          {/* Signatures & Execution Section */}
+          <div className="pt-8 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs">
+            <div className="border border-dashed border-slate-300 rounded-lg p-4 space-y-3 bg-slate-50/30">
+              <p className="font-semibold text-slate-800">Client Acceptance</p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Accepted by {toTitleCase(quotation.eventSnapshot?.clientName || 'Client')} in accordance with the specified deliverables and commercial milestones.
+              </p>
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-500">
+                <span>Signature / Confirmation</span>
+                <span>{quotation.status === 'accepted' ? 'Digitally Accepted' : 'Pending'}</span>
+              </div>
+            </div>
 
-        {/* Footer Note */}
-        <div className="relative md:absolute bottom-6 w-full text-center mt-8 md:mt-0 px-4">
-          <p className="text-[10px] text-gray-400">
-            Thank you for choosing EventOps ERP. For any inquiries, reach out at: support@eventops.example.com
-          </p>
-        </div>
+            <div className="border border-dashed border-slate-300 rounded-lg p-4 space-y-3 bg-slate-50/30">
+              <p className="font-semibold text-slate-800">Evento Event Operations</p>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Issued by authorized production management for Evento. Confirmation is subject to milestone retainer payment.
+              </p>
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-slate-500">
+                <span>Authorized Signatory</span>
+                <span>Evento Management</span>
+              </div>
+            </div>
+          </div>
 
+          {/* Footer Note */}
+          <div className="pt-4 text-center text-[11px] text-slate-400 border-t border-slate-100">
+            <p>
+              Thank you for trusting Evento with your event. For questions, adjustments, or concierge assistance, reach our team at concierge@evento.com.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

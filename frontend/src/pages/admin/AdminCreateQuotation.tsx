@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
-import { createQuotation, sendQuotation, getQuotationById, updateQuotation } from '../../features/quotations/quotationApi';
+import { createQuotation, sendQuotation, getQuotationById, updateQuotation, getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment, Quotation } from '../../features/quotations/quotation.types';
 import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw, Calendar } from 'lucide-react';
@@ -322,6 +322,21 @@ export const AdminCreateQuotation = () => {
         if (targetQuotationId) {
           const qtnData = await getQuotationById(targetQuotationId);
           setBaseQuotation(qtnData);
+
+          if (reviseId) {
+            try {
+              const allQtns = await getQuotations(id);
+              const sorted = allQtns.sort((a, b) => b.revision - a.revision);
+              const latest = sorted[0];
+              if (latest && (latest._id !== qtnData._id || latest.status !== 'changes_requested')) {
+                setError(`A revised quotation (Revision ${latest.revision}) has already been issued for this event. Quotations cannot be edited after issuing.`);
+                setIsLoading(false);
+                return;
+              }
+            } catch (checkErr) {
+              console.error('Failed to verify quotation revision status', checkErr);
+            }
+          }
 
           // Populate form from existing quotation
           if (qtnData.items && qtnData.items.length > 0) {
