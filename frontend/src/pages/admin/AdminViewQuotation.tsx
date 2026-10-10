@@ -14,9 +14,7 @@ import {
   Clock,
   MapPin,
   Users,
-  CheckCircle2,
   ArrowRight,
-  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 
