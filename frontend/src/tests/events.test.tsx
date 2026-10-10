@@ -291,4 +291,99 @@ describe('CreateEventWizard Component', () => {
     expect((screen.getByPlaceholderText('e.g. Grand Ballroom, XYZ Convention Centre, MG Road...') as HTMLTextAreaElement).value).toBe('Saved Venue Address');
     expect((screen.getByPlaceholderText('e.g. 500') as HTMLInputElement).value).toBe('150');
   });
+
+  it('validates Step 1: "Other" requires custom event type text', async () => {
+    renderWithProviders(<CreateEventWizard />);
+    await waitFor(() => screen.getByText('What type of event are you planning?'));
+
+    const nextBtn = screen.getByText('Next Step').closest('button') as HTMLButtonElement;
+    expect(nextBtn.disabled).toBe(true);
+
+    // Select 'Other'
+    fireEvent.click(screen.getByText('Other'));
+    // Should still be disabled because customEventType is empty
+    expect(nextBtn.disabled).toBe(true);
+    expect(screen.getByText(/Specify Event Type/i)).toBeDefined();
+
+    // Type custom event type
+    const customInput = screen.getByPlaceholderText(/e\.g\. Anniversary, Housewarming/i);
+    fireEvent.change(customInput, { target: { value: 'Silver Jubilee' } });
+    expect(nextBtn.disabled).toBe(false);
+  });
+
+  it('validates Step 2: time ordering end time after start time', async () => {
+    const { container } = renderWithProviders(<CreateEventWizard />);
+    await waitFor(() => screen.getByText('What type of event are you planning?'));
+    fireEvent.click(screen.getByText('Wedding'));
+    fireEvent.click(screen.getByText('Next Step'));
+
+    await waitFor(() => screen.getByText('Event Name'));
+    const nextBtn = screen.getByText('Next Step').closest('button') as HTMLButtonElement;
+    expect(nextBtn.disabled).toBe(true);
+
+    // Fill valid name & date
+    fireEvent.change(screen.getByPlaceholderText("e.g. Ameen & Fathima Wedding"), { target: { value: 'My Wedding' } });
+    const inputs = container.querySelectorAll('input');
+    const dateInput = Array.from(inputs).find(input => input.type === 'date');
+    const timeInputs = Array.from(inputs).filter(input => input.type === 'time');
+    if (dateInput) fireEvent.change(dateInput, { target: { value: '2026-12-12' } });
+
+    // Invalid times: start 18:00, end 10:00
+    if (timeInputs.length >= 2) {
+      fireEvent.change(timeInputs[0], { target: { value: '18:00' } });
+      fireEvent.change(timeInputs[1], { target: { value: '10:00' } });
+    }
+    expect(nextBtn.disabled).toBe(true);
+
+    // Fix times: start 10:00, end 18:00
+    if (timeInputs.length >= 2) {
+      fireEvent.change(timeInputs[0], { target: { value: '10:00' } });
+      fireEvent.change(timeInputs[1], { target: { value: '18:00' } });
+    }
+    expect(nextBtn.disabled).toBe(false);
+  });
+
+  it('validates Step 4: requires at least one service and requires food items for Full Service Catering', async () => {
+    (servicesApi.getActiveServices as any).mockResolvedValue([
+      { _id: 's1', name: 'Catering Service', category: 'catering', basePrice: 1000, isActive: true },
+      { _id: 's2', name: 'Stage Decoration', category: 'decoration', basePrice: 2000, isActive: true }
+    ]);
+
+    const { container } = renderWithProviders(<CreateEventWizard />);
+    await waitFor(() => screen.getByText('What type of event are you planning?'));
+    fireEvent.click(screen.getByText('Wedding'));
+    fireEvent.click(screen.getByText('Next Step'));
+
+    await waitFor(() => screen.getByText('Event Name'));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Ameen & Fathima Wedding"), { target: { value: 'Wedding' } });
+    const inputs = container.querySelectorAll('input');
+    const dateInput = Array.from(inputs).find(input => input.type === 'date');
+    const timeInputs = Array.from(inputs).filter(input => input.type === 'time');
+    if (dateInput) fireEvent.change(dateInput, { target: { value: '2026-12-12' } });
+    if (timeInputs.length >= 2) {
+      fireEvent.change(timeInputs[0], { target: { value: '10:00' } });
+      fireEvent.change(timeInputs[1], { target: { value: '18:00' } });
+    }
+    fireEvent.click(screen.getByText('Next Step'));
+
+    await waitFor(() => screen.getByText('Event Location'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Grand Ballroom, XYZ Convention Centre, MG Road...'), { target: { value: 'Main Hall' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. 500'), { target: { value: '100' } });
+    fireEvent.click(screen.getByText('Next Step'));
+
+    // Step 4
+    await waitFor(() => screen.getByText('Choose the services you need'));
+    const nextBtn = screen.getByText('Next Step').closest('button') as HTMLButtonElement;
+
+    // Initially no services selected -> disabled
+    expect(nextBtn.disabled).toBe(true);
+
+    // Select Full Service Catering -> still disabled until at least one food item is selected
+    fireEvent.click(screen.getByText('Full Service Catering'));
+    expect(nextBtn.disabled).toBe(true);
+
+    // Add a starter item
+    fireEvent.click(screen.getByText('Chicken Tikka'));
+    expect(nextBtn.disabled).toBe(false);
+  });
 });

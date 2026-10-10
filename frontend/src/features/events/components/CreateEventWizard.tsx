@@ -229,11 +229,13 @@ export const CreateEventWizard = () => {
 
   // Form State
   const [eventType, setEventType] = useState<EventType | ''>('');
+  const [customEventType, setCustomEventType] = useState('');
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [notes, setNotes] = useState('');
+  const [touchedSteps, setTouchedSteps] = useState<Record<number, boolean>>({});
 
   // Client Contact Info (Step 2) — name & phone are editable; email pre-filled from auth
   const [clientName, setClientName] = useState(authUser?.name ?? '');
@@ -361,7 +363,191 @@ export const CreateEventWizard = () => {
     setReferenceImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  const getTodayDateString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getStep1Errors = () => {
+    const errors: { eventType?: string; customEventType?: string } = {};
+    if (!eventType) {
+      errors.eventType = 'Please select an event type';
+    } else if (eventType === 'Other' && !customEventType.trim()) {
+      errors.customEventType = 'Please specify the event type';
+    }
+    return errors;
+  };
+
+  const getStep2Errors = () => {
+    const errors: { title?: string; date?: string; startTime?: string; endTime?: string; timeRange?: string } = {};
+    if (!title.trim()) {
+      errors.title = 'Event name is required';
+    }
+    const today = getTodayDateString();
+    if (!date) {
+      errors.date = 'Event date is required';
+    } else if (date < today) {
+      errors.date = 'Event date cannot be in the past';
+    }
+    if (!startTime) {
+      errors.startTime = 'Start time is required';
+    }
+    if (!endTime) {
+      errors.endTime = 'End time is required';
+    }
+    if (startTime && endTime && startTime >= endTime) {
+      errors.timeRange = 'End time must be after start time';
+    }
+    return errors;
+  };
+
+  const getStep3Errors = () => {
+    const errors: { location?: string; guestCount?: string } = {};
+    if (!locationState.address.trim()) {
+      errors.location = 'Event location address is required';
+    }
+    if (guestCount === '' || guestCount === null || guestCount === undefined) {
+      errors.guestCount = 'Guest count is required';
+    } else if (typeof guestCount !== 'number' || !Number.isInteger(guestCount) || guestCount <= 0) {
+      errors.guestCount = 'Guest count must be a positive whole number (at least 1)';
+    }
+    return errors;
+  };
+
+  const getStep4Errors = () => {
+    const errors: { services?: string; foodItems?: string } = {};
+
+    const cleanOtherReqs = (cateringPrefs.otherRequirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+
+    const hasCateringData = (cateringPrefs.serviceMode && cateringPrefs.serviceMode.length > 0) ||
+      (cateringPrefs.starters && cateringPrefs.starters.length > 0) ||
+      (cateringPrefs.mainDishes && cateringPrefs.mainDishes.length > 0) ||
+      (cateringPrefs.juices && cateringPrefs.juices.length > 0) ||
+      (cateringPrefs.desserts && cateringPrefs.desserts.length > 0) ||
+      (cateringPrefs.otherPreferences && cateringPrefs.otherPreferences.some((p: any) => (p.items && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0))) ||
+      (cleanOtherReqs.length > 0);
+
+    const cleanDecReqs = (decorationPrefs.requirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+    const hasDecorationData = Boolean(decorationPrefs.style) || cleanDecReqs.length > 0 || Boolean(decorationPrefs.notes) || referenceImages.length > 0;
+
+    const cleanPhotoReqs = (photoPrefs.requirements || [])
+      .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter((r: any) => r.title.length > 0 || r.description.length > 0);
+    const hasPhotoData = Boolean(photoPrefs.package) || cleanPhotoReqs.length > 0;
+
+    const cleanSpecialReqs = (specialRequirements || [])
+      .map(r => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
+      .filter(r => r.title.length > 0 || r.description.length > 0);
+    const hasSpecialReq = cleanSpecialReqs.length > 0;
+    const hasCustomRequest = otherCustomRequests.trim().length > 0;
+
+    const hasAtLeastOneService = hasCateringData || hasDecorationData || hasPhotoData || hasSpecialReq || hasCustomRequest;
+
+    if (!hasAtLeastOneService) {
+      errors.services = 'Please select at least one service (Catering, Stage Decoration, Photography) or add a special request';
+    }
+
+    const modes = cateringPrefs.serviceMode || [];
+    const requiresFood = modes.includes('Full Service Catering') || modes.includes('Food Preparation Only');
+    if (requiresFood) {
+      const foodItemsCount =
+        (cateringPrefs.starters?.length || 0) +
+        (cateringPrefs.mainDishes?.length || 0) +
+        (cateringPrefs.juices?.length || 0) +
+        (cateringPrefs.desserts?.length || 0) +
+        (cateringPrefs.otherPreferences?.reduce((sum: number, p: any) => {
+          if (typeof p === 'object' && p !== null && Array.isArray(p.items)) {
+            return sum + p.items.length;
+          }
+          if (typeof p === 'string' && p.trim().length > 0) return sum + 1;
+          return sum;
+        }, 0) || 0);
+
+      if (foodItemsCount === 0) {
+        errors.foodItems = 'At least one food or beverage item must be selected for Full Service Catering / Food Preparation';
+      }
+    }
+
+    return errors;
+  };
+
+  const getStep5Errors = () => {
+    const errors: { budget?: string } = {};
+    if (budget !== '' && (typeof budget !== 'number' || budget < 0)) {
+      errors.budget = 'Budget must be a non-negative number';
+    }
+    return errors;
+  };
+
+  const getStep6Errors = () => {
+    const errors: { confirmed?: string } = {};
+    if (!confirmed) {
+      errors.confirmed = 'Please confirm that the event details are correct';
+    }
+    return errors;
+  };
+
+  const validateStep = (s = step): boolean => {
+    switch (s) {
+      case 1:
+        return Object.keys(getStep1Errors()).length === 0;
+      case 2:
+        return Object.keys(getStep2Errors()).length === 0;
+      case 3:
+        return Object.keys(getStep3Errors()).length === 0;
+      case 4:
+        return Object.keys(getStep4Errors()).length === 0;
+      case 5:
+        return Object.keys(getStep5Errors()).length === 0;
+      case 6:
+        return Object.keys(getStep6Errors()).length === 0;
+      default:
+        return true;
+    }
+  };
+
+  const getStepValidationMessage = (s = step): string => {
+    switch (s) {
+      case 1: {
+        const errs = getStep1Errors();
+        return errs.customEventType || errs.eventType || 'Please select an event type to continue.';
+      }
+      case 2: {
+        const errs = getStep2Errors();
+        return errs.title || errs.date || errs.startTime || errs.endTime || errs.timeRange || 'Please fill in all required event details.';
+      }
+      case 3: {
+        const errs = getStep3Errors();
+        return errs.location || errs.guestCount || 'Please provide event location and guest count.';
+      }
+      case 4: {
+        const errs = getStep4Errors();
+        return errs.foodItems || errs.services || 'Please configure at least one service.';
+      }
+      case 5: {
+        const errs = getStep5Errors();
+        return errs.budget || 'Please enter a valid budget or leave blank.';
+      }
+      case 6: {
+        const errs = getStep6Errors();
+        return errs.confirmed || 'Please confirm the event details to submit.';
+      }
+      default:
+        return 'Please complete the required fields.';
+    }
+  };
+
   const handleNext = () => {
+    setTouchedSteps(prev => ({ ...prev, [step]: true }));
+    if (!validateStep(step)) return;
+
     // Clean up empty requirements from state when moving forward
     setDecorationPrefs((prev: any) => ({
       ...prev,
@@ -378,34 +564,14 @@ export const CreateEventWizard = () => {
       ...prev,
       otherRequirements: (prev.otherRequirements || []).filter((r: any) => (r.title || '').trim() || (r.description || '').trim())
     }));
+    setError('');
     setStep(s => Math.min(s + 1, 6));
   };
   const handlePrev = () => setStep(s => Math.max(s - 1, 1));
 
-  const validateStep = () => {
-    switch (step) {
-      case 1:
-        return eventType !== '';
-      case 2: {
-        const today = new Date().toISOString().split('T')[0];
-        const isValidDate = date !== '' && date >= today;
-        return title.trim() !== '' && isValidDate && startTime !== '' && endTime !== '' && startTime < endTime;
-      }
-      case 3:
-        return locationState.address.trim() !== '' && typeof guestCount === 'number' && guestCount > 0;
-      case 4:
-        return true;
-      case 5:
-        return budget === '' || (typeof budget === 'number' && budget >= 0);
-      case 6:
-        return confirmed;
-      default:
-        return true;
-    }
-  };
-
   const handleSubmit = async () => {
-    if (!validateStep()) return;
+    setTouchedSteps(prev => ({ ...prev, 6: true }));
+    if (!validateStep(6)) return;
     setIsSubmitting(true);
     setError('');
 
@@ -450,15 +616,16 @@ export const CreateEventWizard = () => {
       : undefined;
 
     const payload: CreateEventRequest = {
-      title,
+      title: title.trim(),
       eventType: eventType as EventType,
+      customEventType: eventType === 'Other' && customEventType.trim() ? customEventType.trim() : undefined,
       date,
       startTime,
       endTime,
       notes: combinedNotes.trim() !== '' ? combinedNotes : undefined,
       clientInfo: clientInfoPayload,
       location: locationState,
-      guestCount: guestCount as number,
+      guestCount: Number(guestCount),
       budget: typeof budget === 'number' ? budget : undefined,
       selectedServices: formattedServices
     };
@@ -485,7 +652,12 @@ export const CreateEventWizard = () => {
 
       setSuccessData(created);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to submit event request');
+      const errList = err.response?.data?.error?.errors || err.response?.data?.errors;
+      if (Array.isArray(errList) && errList.length > 0) {
+        setError(errList.join('. '));
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to submit event request');
+      }
       setIsSubmitting(false);
     }
   };
@@ -533,7 +705,11 @@ export const CreateEventWizard = () => {
         <div className="grid md:grid-cols-2 gap-4 w-full max-w-2xl mb-8">
           <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2"><List className="w-3 h-3" /> EVENT SUMMARY</div>
-            <div className="font-bold text-gray-900 text-lg mb-1">{successData.eventType}</div>
+            <div className="font-bold text-gray-900 text-lg mb-1">
+              {successData.eventType === 'Other' && (successData.customEventType || customEventType)
+                ? `Other (${successData.customEventType || customEventType})`
+                : successData.eventType}
+            </div>
             <div className="text-sm text-gray-600 flex items-center gap-2"><Calendar className="w-4 h-4" /> {new Date(successData.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
           </div>
           <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
@@ -640,13 +816,17 @@ export const CreateEventWizard = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
                 <div className="text-sm font-semibold text-gray-500 mb-1">Step 1 of 6: Event Type</div>
-                <h2 className="text-2xl font-bold text-gray-900">What type of event are you planning?</h2>
+                <h2 className="text-2xl font-bold text-gray-900">What type of event are you planning? <span className="text-red-500">*</span></h2>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {EVENT_TYPES.map(type => (
                   <button
                     key={type}
-                    onClick={() => setEventType(type)}
+                    type="button"
+                    onClick={() => {
+                      setEventType(type);
+                      setTouchedSteps(prev => ({ ...prev, 1: true }));
+                    }}
                     className={`p-5 rounded-xl border-2 text-left transition-all ${eventType === type
                       ? 'border-[#0051e5] bg-blue-50/50 text-[#0051e5] shadow-sm'
                       : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
@@ -656,6 +836,39 @@ export const CreateEventWizard = () => {
                   </button>
                 ))}
               </div>
+
+              {/* Custom Event Type Input for 'Other' */}
+              {eventType === 'Other' && (
+                <div className="mt-4 p-5 bg-blue-50/50 rounded-xl border border-blue-200 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <label htmlFor="customEventTypeInput" className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
+                    Specify Event Type <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="customEventTypeInput"
+                    type="text"
+                    value={customEventType}
+                    onChange={e => setCustomEventType(e.target.value)}
+                    onBlur={() => setTouchedSteps(prev => ({ ...prev, 1: true }))}
+                    placeholder="e.g. Anniversary, Housewarming, Reunion, Exhibition..."
+                    className={`w-full rounded-lg bg-white p-3 border text-sm outline-none transition-colors ${
+                      touchedSteps[1] && !customEventType.trim()
+                        ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                        : 'border-gray-300 focus:border-[#0051e5] focus:ring-1 focus:ring-[#0051e5]'
+                    }`}
+                  />
+                  {touchedSteps[1] && !customEventType.trim() && (
+                    <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                      <Info className="w-3.5 h-3.5 flex-shrink-0" /> Please specify your event type when "Other" is selected.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {touchedSteps[1] && !eventType && (
+                <p className="text-xs text-red-600 font-medium flex items-center gap-1 mt-2">
+                  <Info className="w-3.5 h-3.5 flex-shrink-0" /> Please select an event type to continue.
+                </p>
+              )}
             </div>
           )}
 
@@ -672,53 +885,113 @@ export const CreateEventWizard = () => {
                 </div>
                 <div className="p-5 space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Event Name</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
+                      Event Name <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="text"
                       value={title}
                       onChange={e => setTitle(e.target.value)}
-                      className="w-full rounded-lg border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-2.5 border text-sm outline-none"
+                      onBlur={() => setTouchedSteps(prev => ({ ...prev, 2: true }))}
+                      className={`w-full rounded-lg p-2.5 border text-sm outline-none transition-colors ${
+                        touchedSteps[2] && !title.trim()
+                          ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                          : 'border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5]'
+                      }`}
                       placeholder="e.g. Ameen & Fathima Wedding"
                     />
+                    {touchedSteps[2] && !title.trim() && (
+                      <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                        <Info className="w-3.5 h-3.5 flex-shrink-0" /> Event name is required.
+                      </p>
+                    )}
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="col-span-1">
-                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Event Date</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
+                        Event Date <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative">
                         <Calendar className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 pointer-events-none" />
                         <input
                           type="date"
-                          min={new Date().toISOString().split('T')[0]}
+                          min={getTodayDateString()}
                           value={date}
                           onChange={e => setDate(e.target.value)}
-                          className="w-full pl-9 rounded-lg border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-2.5 border text-sm outline-none"
+                          onBlur={() => setTouchedSteps(prev => ({ ...prev, 2: true }))}
+                          className={`w-full pl-9 rounded-lg p-2.5 border text-sm outline-none transition-colors ${
+                            touchedSteps[2] && (!date || date < getTodayDateString())
+                              ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                              : 'border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5]'
+                          }`}
                         />
                       </div>
+                      {touchedSteps[2] && !date && (
+                        <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0" /> Event date is required.
+                        </p>
+                      )}
+                      {touchedSteps[2] && date && date < getTodayDateString() && (
+                        <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0" /> Event date cannot be in the past.
+                        </p>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Start Time</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
+                        Start Time <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative">
                         <Clock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 pointer-events-none" />
                         <input
                           type="time"
                           value={startTime}
                           onChange={e => setStartTime(e.target.value)}
-                          className="w-full pl-9 rounded-lg border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-2.5 border text-sm outline-none"
+                          onBlur={() => setTouchedSteps(prev => ({ ...prev, 2: true }))}
+                          className={`w-full pl-9 rounded-lg p-2.5 border text-sm outline-none transition-colors ${
+                            touchedSteps[2] && !startTime
+                              ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                              : 'border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5]'
+                          }`}
                         />
                       </div>
+                      {touchedSteps[2] && !startTime && (
+                        <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0" /> Start time is required.
+                        </p>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">End Time</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
+                        End Time <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative">
                         <Clock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 pointer-events-none" />
                         <input
                           type="time"
                           value={endTime}
                           onChange={e => setEndTime(e.target.value)}
-                          className="w-full pl-9 rounded-lg border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-2.5 border text-sm outline-none"
+                          onBlur={() => setTouchedSteps(prev => ({ ...prev, 2: true }))}
+                          className={`w-full pl-9 rounded-lg p-2.5 border text-sm outline-none transition-colors ${
+                            touchedSteps[2] && (!endTime || (startTime && endTime && startTime >= endTime))
+                              ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                              : 'border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5]'
+                          }`}
                         />
                       </div>
+                      {touchedSteps[2] && !endTime && (
+                        <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0" /> End time is required.
+                        </p>
+                      )}
                     </div>
+                    {touchedSteps[2] && startTime && endTime && startTime >= endTime && (
+                      <div className="md:col-span-3">
+                        <p className="text-xs text-red-600 font-medium flex items-center gap-1.5 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                          <Info className="w-4 h-4 flex-shrink-0 text-red-500" /> End time must be later than start time.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -804,19 +1077,32 @@ export const CreateEventWizard = () => {
               </div>
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm md:col-span-2">
-                  <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-[#0051e5]" />
-                    <h3 className="font-bold text-gray-900">Event Location</h3>
+                  <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-5 h-5 text-[#0051e5]" />
+                      <h3 className="font-bold text-gray-900">Event Location <span className="text-red-500">*</span></h3>
+                    </div>
                   </div>
                   <div className="p-5">
-                    <LocationMapSelector location={locationState} onChange={setLocationState} />
+                    <LocationMapSelector
+                      location={locationState}
+                      onChange={(loc) => {
+                        setLocationState(loc);
+                        setTouchedSteps(prev => ({ ...prev, 3: true }));
+                      }}
+                    />
+                    {touchedSteps[3] && !locationState.address.trim() && (
+                      <p className="text-xs text-red-600 mt-2 font-medium flex items-center gap-1">
+                        <Info className="w-3.5 h-3.5 flex-shrink-0" /> Event location address is required.
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm h-fit">
                   <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2">
                     <Users className="w-5 h-5 text-[#0051e5]" />
-                    <h3 className="font-bold text-gray-900">Guest Count</h3>
+                    <h3 className="font-bold text-gray-900">Guest Count <span className="text-red-500">*</span></h3>
                   </div>
                   <div className="p-5">
                     <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Total Guests Expected</label>
@@ -825,9 +1111,24 @@ export const CreateEventWizard = () => {
                       min="1"
                       value={guestCount}
                       onChange={e => setGuestCount(e.target.value === '' ? '' : parseInt(e.target.value))}
-                      className="w-full rounded-lg border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-3 border text-sm outline-none"
+                      onBlur={() => setTouchedSteps(prev => ({ ...prev, 3: true }))}
+                      className={`w-full rounded-lg p-3 border text-sm outline-none transition-colors ${
+                        touchedSteps[3] && (guestCount === '' || typeof guestCount !== 'number' || guestCount <= 0 || !Number.isInteger(guestCount))
+                          ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/10'
+                          : 'border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5]'
+                      }`}
                       placeholder="e.g. 500"
                     />
+                    {touchedSteps[3] && guestCount === '' && (
+                      <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                        <Info className="w-3.5 h-3.5 flex-shrink-0" /> Guest count is required.
+                      </p>
+                    )}
+                    {touchedSteps[3] && guestCount !== '' && (typeof guestCount !== 'number' || guestCount <= 0 || !Number.isInteger(guestCount)) && (
+                      <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                        <Info className="w-3.5 h-3.5 flex-shrink-0" /> Guest count must be a positive whole number (at least 1).
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -838,8 +1139,21 @@ export const CreateEventWizard = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="mb-6">
                 <div className="text-sm font-semibold text-gray-500 mb-1">Step 4 of 6: Choose the services you need</div>
-                <h2 className="text-2xl font-bold text-gray-900">Choose the services you need</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Choose the services you need <span className="text-red-500">*</span></h2>
+                <p className="text-xs text-gray-500 mt-1">Select at least one service (Catering, Stage Decoration, Photography) or enter special requirements.</p>
               </div>
+
+              {touchedSteps[4] && getStep4Errors().services && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 flex items-start gap-3 shadow-xs">
+                  <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-sm font-bold">At least one service required</div>
+                    <div className="text-xs text-amber-800 mt-0.5">
+                      Please select at least one service (Catering, Stage Decoration, Photography) or add a special request to proceed.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isLoadingServices ? (
                 <div className="flex justify-center py-12">
@@ -870,6 +1184,7 @@ export const CreateEventWizard = () => {
                               onChange={() => {
                                 const newModes = isSelected ? cateringPrefs.serviceMode.filter((mode: string) => mode !== m.id) : [...(cateringPrefs.serviceMode || []), m.id];
                                 setCateringPrefs({ ...cateringPrefs, serviceMode: newModes });
+                                setTouchedSteps(prev => ({ ...prev, 4: true }));
                               }}
                               className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                             />
@@ -890,6 +1205,32 @@ export const CreateEventWizard = () => {
                       <h3 className="font-bold text-gray-900">Food & Beverage Menu Selection</h3>
                     </div>
                     <div className="p-6 bg-gray-50/30">
+                      {/* Notice for Full Service or Food Preparation Only */}
+                      {(cateringPrefs.serviceMode?.includes('Full Service Catering') || cateringPrefs.serviceMode?.includes('Food Preparation Only')) && (
+                        <div className={`p-4 rounded-xl mb-6 border transition-colors ${
+                          getStep4Errors().foodItems && touchedSteps[4]
+                            ? 'bg-red-50/80 border-red-300 text-red-900'
+                            : getStep4Errors().foodItems
+                            ? 'bg-amber-50 border-amber-300 text-amber-900'
+                            : 'bg-green-50 border-green-200 text-green-900'
+                        }`}>
+                          <div className="flex items-center gap-2 font-bold text-xs">
+                            <Utensils className="w-4 h-4" />
+                            <span>
+                              {getStep4Errors().foodItems ? (
+                                <span>Menu Item Selection Required for {cateringPrefs.serviceMode?.filter((m: string) => m === 'Full Service Catering' || m === 'Food Preparation Only').join(' & ')}</span>
+                              ) : (
+                                <span className="text-green-700">Food & beverage items selected</span>
+                              )}
+                            </span>
+                          </div>
+                          {getStep4Errors().foodItems && (
+                            <div className="text-xs mt-1">
+                              At least one food or beverage item (from Starters, Main Dishes, Juices, Desserts, or Other Preferences) must be selected or added below.
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <CustomList
                         title="Starters"
                         items={cateringPrefs.starters || []}
@@ -1263,7 +1604,9 @@ export const CreateEventWizard = () => {
                   <div className="space-y-4">
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Event Type</div>
-                      <div className="font-bold text-gray-900 text-lg leading-tight">{eventType}</div>
+                      <div className="font-bold text-gray-900 text-lg leading-tight">
+                        {eventType === 'Other' && customEventType ? `Other (${customEventType})` : eventType}
+                      </div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Date & Time</div>
@@ -1448,48 +1791,76 @@ export const CreateEventWizard = () => {
 
               <div className="mt-8 border-t border-gray-200 pt-6">
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} className="w-5 h-5 rounded border-gray-300 text-[#0051e5] focus:ring-[#0051e5] cursor-pointer" />
-                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">I confirm that the above details are correct.</span>
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={e => {
+                      setConfirmed(e.target.checked);
+                      setTouchedSteps(prev => ({ ...prev, 6: true }));
+                    }}
+                    className="w-5 h-5 rounded border-gray-300 text-[#0051e5] focus:ring-[#0051e5] cursor-pointer"
+                  />
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">
+                    I confirm that the above details are correct.
+                  </span>
                 </label>
+                {touchedSteps[6] && !confirmed && (
+                  <p className="text-xs text-red-600 mt-2 font-medium flex items-center gap-1">
+                    <Info className="w-3.5 h-3.5 flex-shrink-0" /> Please confirm that the above details are correct before submitting.
+                  </p>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        <div className="mt-12 flex justify-between">
-          {step > 1 ? (
-            <button
-              onClick={handlePrev}
-              disabled={isSubmitting}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 shadow-sm"
-            >
-              Back
-            </button>
-          ) : <div></div>}
+        <div className="mt-12 flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            {step > 1 ? (
+              <button
+                type="button"
+                onClick={handlePrev}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 shadow-sm"
+              >
+                Back
+              </button>
+            ) : <div></div>}
 
-          {step < 6 ? (
-            <button
-              onClick={handleNext}
-              disabled={!validateStep()}
-              className={`flex items-center gap-2 px-8 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm ${validateStep()
-                ? 'bg-[#0051e5] text-white hover:bg-blue-700'
-                : 'bg-blue-300 text-white cursor-not-allowed'
-                }`}
-            >
-              Next Step
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting || !validateStep()}
-              className="flex items-center gap-2 px-8 py-2.5 rounded-lg text-sm font-bold bg-[#0051e5] text-white hover:bg-blue-700 transition-all shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : null}
-              Submit Event Request
-            </button>
+            {step < 6 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={!validateStep()}
+                className={`flex items-center gap-2 px-8 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm ${validateStep()
+                  ? 'bg-[#0051e5] text-white hover:bg-blue-700'
+                  : 'bg-blue-300 text-white cursor-not-allowed opacity-80'
+                  }`}
+              >
+                Next Step
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting || !validateStep()}
+                className="flex items-center gap-2 px-8 py-2.5 rounded-lg text-sm font-bold bg-[#0051e5] text-white hover:bg-blue-700 transition-all shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Submit Event Request
+              </button>
+            )}
+          </div>
+          {!validateStep() && (
+            <div className="flex justify-end">
+              <span className="text-xs text-amber-800 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 font-medium flex items-center gap-1.5 shadow-2xs">
+                <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                {getStepValidationMessage(step)}
+              </span>
+            </div>
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../../../utils/ApiError.js';
 
 export const validateCreateEvent = (req: Request, _res: Response, next: NextFunction): void => {
-  const { title, eventType, date, startTime, endTime, location, guestCount, budget, selectedServices } = req.body;
+  const { title, eventType, customEventType, date, startTime, endTime, location, guestCount, budget, selectedServices } = req.body;
   const errors: string[] = [];
 
   if (!title || typeof title !== 'string' || title.trim().length === 0) {
@@ -12,14 +12,27 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
   const validEventTypes = ['Nikah', 'Wedding', 'Reception', 'Engagement', 'Birthday', 'Corporate', 'Other'];
   if (!eventType || !validEventTypes.includes(eventType)) {
     errors.push('Event type must be one of: ' + validEventTypes.join(', '));
+  } else if (eventType === 'Other') {
+    if (!customEventType || typeof customEventType !== 'string' || customEventType.trim().length === 0) {
+      errors.push('Please specify the event type when "Other" is selected');
+    }
   }
 
   if (!date || isNaN(Date.parse(date))) {
     errors.push('A valid date is required');
   } else {
-    const eventDate = new Date(date);
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    let eventDate: Date;
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const [year, month, day] = date.split('-').map(Number);
+      eventDate = new Date(year, month - 1, day);
+    } else {
+      eventDate = new Date(date);
+      eventDate.setHours(0, 0, 0, 0);
+    }
+
     if (eventDate < today) {
       errors.push('Event date cannot be in the past');
     }
@@ -122,6 +135,22 @@ export const validateCreateEvent = (req: Request, _res: Response, next: NextFunc
                     description: (r.description || '').trim()
                   } : r)
                   .filter((r: any) => typeof r === 'string' ? r.trim().length > 0 : Boolean(r && (r.title || r.description)));
+              }
+              if (item.preferences.serviceMode && Array.isArray(item.preferences.serviceMode)) {
+                const requiresFood = item.preferences.serviceMode.includes('Full Service Catering') ||
+                                     item.preferences.serviceMode.includes('Food Preparation Only');
+                if (requiresFood) {
+                  const hasStarters = Array.isArray(item.preferences.starters) && item.preferences.starters.length > 0;
+                  const hasMain = Array.isArray(item.preferences.mainDishes) && item.preferences.mainDishes.length > 0;
+                  const hasJuices = Array.isArray(item.preferences.juices) && item.preferences.juices.length > 0;
+                  const hasDesserts = Array.isArray(item.preferences.desserts) && item.preferences.desserts.length > 0;
+                  const hasOther = Array.isArray(item.preferences.otherPreferences) && item.preferences.otherPreferences.some((p: any) =>
+                    (p && Array.isArray(p.items) && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0)
+                  );
+                  if (!hasStarters && !hasMain && !hasJuices && !hasDesserts && !hasOther) {
+                    errors.push('At least one food or beverage item must be selected for catering service');
+                  }
+                }
               }
             }
           }

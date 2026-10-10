@@ -464,4 +464,75 @@ describe('Event Requests API', () => {
   it('32. Event deletion or status update works based on roles', async () => {
     assert.ok(true);
   });
+
+  it('33. Event type "Other" requires customEventType', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ ...validPayload, eventType: 'Other' }),
+    });
+    assert.equal(res.status, 400);
+    const data = await res.json() as any;
+    const errList = data.error?.errors || data.errors || [];
+    assert.ok(errList.some((e: string) => e.includes('Other')));
+  });
+
+  it('34. Event type "Other" with valid customEventType succeeds', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ ...validPayload, eventType: 'Other', customEventType: 'Anniversary Celebration' }),
+    });
+    assert.equal(res.status, 201);
+    const data = await res.json() as any;
+    assert.equal(data.data.event.eventType, 'Other');
+    assert.equal(data.data.event.customEventType, 'Anniversary Celebration');
+  });
+
+  it('35. Event date in the past is rejected', async () => {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 5);
+    const res = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({ ...validPayload, date: pastDate.toISOString().split('T')[0] }),
+    });
+    assert.equal(res.status, 400);
+    const data = await res.json() as any;
+    const errList = data.error?.errors || data.errors || [];
+    assert.ok(errList.some((e: string) => e.toLowerCase().includes('past')));
+  });
+
+  it('36. Catering with Full Service Catering or Food Preparation Only requires food items', async () => {
+    // Fails with no food items
+    const failRes = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({
+        ...validPayload,
+        selectedServices: [{
+          serviceId: activeServiceId,
+          preferences: { serviceMode: ['Full Service Catering'] }
+        }]
+      }),
+    });
+    assert.equal(failRes.status, 400);
+
+    // Succeeds with food items
+    const passRes = await fetch(`http://127.0.0.1:${port}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clientToken1}` },
+      body: JSON.stringify({
+        ...validPayload,
+        selectedServices: [{
+          serviceId: activeServiceId,
+          preferences: {
+            serviceMode: ['Full Service Catering'],
+            mainDishes: ['Chicken Biryani']
+          }
+        }]
+      }),
+    });
+    assert.equal(passRes.status, 201);
+  });
 });

@@ -21,6 +21,7 @@ export interface ClientEvent {
   clientId: string;
   title: string;
   eventType: EventType;
+  customEventType?: string;
   date: string;
   startTime: string;
   endTime: string;
@@ -47,6 +48,7 @@ export interface ClientEvent {
 export interface CreateEventRequest {
   title: string;
   eventType: EventType;
+  customEventType?: string;
   date: string;
   startTime: string;
   endTime: string;

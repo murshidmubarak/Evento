@@ -35,6 +35,7 @@ export class EventService {
       clientId: clientId as any, // Cast appropriately
       title: data.title,
       eventType: data.eventType,
+      customEventType: data.eventType === 'Other' && data.customEventType ? String(data.customEventType).trim() : undefined,
       date: new Date(data.date),
       startTime: data.startTime,
       endTime: data.endTime,

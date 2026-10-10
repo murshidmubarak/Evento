@@ -8,6 +8,7 @@ export interface IEvent extends Document {
   eventManagerId?: Types.ObjectId;
   title: string;
   eventType: EventType;
+  customEventType?: string;
   date: Date;
   startTime: string;
   endTime: string;
@@ -40,6 +41,7 @@ const eventSchema = new Schema<IEvent>(
       enum: ['Nikah', 'Wedding', 'Reception', 'Engagement', 'Birthday', 'Corporate', 'Other'],
       required: true,
     },
+    customEventType: { type: String, trim: true },
     date: { type: Date, required: true },
     startTime: { type: String, required: true },
     endTime: { type: String, required: true },
