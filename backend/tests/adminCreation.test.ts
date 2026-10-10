@@ -17,6 +17,7 @@ describe('Admin Creation Bootstrap Flow', () => {
 
   after(async () => {
     await User.deleteMany({ email: /@admintest\.com$/ });
+    await mongoose.disconnect();
   });
 
   beforeEach(async () => {
@@ -54,7 +55,7 @@ describe('Admin Creation Bootstrap Flow', () => {
     assert.notEqual(dbAdmin.password, rawPassword);
     
     // Verify hash
-    const isValid = await bcrypt.compare(rawPassword, dbAdmin.password);
+    const isValid = await bcrypt.compare(rawPassword, dbAdmin.password || '');
     assert.equal(isValid, true);
   });
 

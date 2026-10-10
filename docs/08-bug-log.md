@@ -412,4 +412,64 @@ When saving or issuing a quotation from `AdminCreateQuotation.tsx`, the submissi
 ### Rule
 
 Never mark subdocument detail fields as `required: true` in Mongoose schemas if they can be omitted in user forms. Always sanitize array inputs on both client and service layers before persistence.
+
+---
+
+## BUG-009 — Accidental Development Database Deletion During Test Execution and TypeScript Overload Error
+
+### Date
+
+2026-10-10
+
+### Affected Modules
+
+- `backend/tests/adminCreation.test.ts`
+- `backend/tests/profile.test.ts`
+- `backend/tests/authRegistration.test.ts`
+- `backend/tests/eventMedia.test.ts`
+- `backend/tests/setup.ts`
+- `backend/src/config/db.ts`
+- `backend/src/config/env.ts`
+
+### Severity
+
+Critical
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. **TypeScript Overload Error in `adminCreation.test.ts`:**
+   ```
+   No overload matches this call.
+     Overload 1 of 2, '(password: string, hash: string): Promise<boolean>', gave the following error.
+       Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+   ```
+2. **Accidental Database Wiping:**
+   Running tests unintentionally wiped users, admins, and documents in the local development database (`eventops`).
+
+### Root Cause
+
+1. In `adminCreation.test.ts`, `dbAdmin.password` has type `string | undefined` because `IUser.password` is optional. Passing it to `bcrypt.compare(rawPassword, dbAdmin.password)` caused a TypeScript overload mismatch.
+2. `profile.test.ts`, `authRegistration.test.ts`, and `eventMedia.test.ts` did not import `./setup.js`.
+3. In `profile.test.ts`, `await mongoose.connect(env.mongodbUri)` was called with `await User.deleteMany({})`. Because `setup.js` had not run, `env.mongodbUri` was pointed to `mongodb://127.0.0.1:27017/eventops`, wiping the developer's live database.
+4. `env.mongodbUri` was a static string property evaluated at load time, causing stale database URI references if `env.ts` was loaded before `process.env.MONGODB_URI` was updated.
+5. `connectDB()` lacked a check preventing tests from connecting to non-test databases.
+
+### Solution
+
+1. In `adminCreation.test.ts`, passed `dbAdmin.password || ''` to satisfy the `string` requirement of `bcrypt.compare`.
+2. Added `import './setup.js'` to `authRegistration.test.ts`, `eventMedia.test.ts`, and `profile.test.ts`.
+3. Switched `env.mongodbUri`, `env.nodeEnv`, `env.isDevelopment`, and `env.isProduction` to dynamic ES getters in `env.ts`.
+4. Added a hard safety guard in `src/config/db.ts` that immediately throws an error and aborts if `NODE_ENV === 'test'` and the URI does not contain `_test`.
+5. Preloaded `./tests/setup.ts` via `--import ./tests/setup.ts` in `package.json` test script.
+6. Hooked `mongoose.disconnect` in `tests/setup.ts` to automatically drop the isolated test database (`eventops_test`) before disconnecting.
+7. Documented the complete test isolation architecture in `docs/10-test-database-isolation.md`.
+
+### Rule
+
+Never connect to a development database during tests. All tests must run strictly against isolated test databases ending in `_test`, which must be automatically dropped upon test completion.
+
 

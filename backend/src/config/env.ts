@@ -34,10 +34,18 @@ for (const key of requiredEnvVars) {
 
 export const env = {
   port: parseInt(process.env.PORT as string, 10),
-  mongodbUri: process.env.MONGODB_URI as string,
-  nodeEnv: process.env.NODE_ENV as string,
-  isDevelopment: process.env.NODE_ENV === 'development',
-  isProduction: process.env.NODE_ENV === 'production',
+  get mongodbUri(): string {
+    return process.env.MONGODB_URI as string;
+  },
+  get nodeEnv(): string {
+    return (process.env.NODE_ENV as string) || 'development';
+  },
+  get isDevelopment(): boolean {
+    return process.env.NODE_ENV === 'development';
+  },
+  get isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
+  },
   jwtSecret: process.env.JWT_SECRET as string,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN as import('jsonwebtoken').SignOptions['expiresIn'],
   passwordResetExpiresInMins: parseInt(process.env.PASSWORD_RESET_EXPIRES_IN_MINS as string, 10),

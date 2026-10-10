@@ -1,7 +1,9 @@
+import './setup.js';
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import mongoose from 'mongoose';
 import { env } from '../src/config/env.js';
+import { connectDB } from '../src/config/db.js';
 import app from '../src/app.js';
 import { User } from '../src/modules/auth/model/user.model.js';
 import { Sequence } from '../src/modules/users/model/sequence.model.js';
@@ -19,8 +21,8 @@ describe('Profile Management Endpoints', () => {
   let managerUserId: string;
 
   before(async () => {
-    // 1. Connect to MongoDB
-    await mongoose.connect(env.mongodbUri);
+    // 1. Connect to MongoDB (isolated test DB)
+    await connectDB();
     await User.deleteMany({});
     await Sequence.deleteMany({});
 

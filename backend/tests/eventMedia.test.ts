@@ -1,3 +1,4 @@
+import './setup.js';
 import test, { describe, it, before, after, mock } from 'node:test';
 import assert from 'node:assert';
 import request from 'supertest';

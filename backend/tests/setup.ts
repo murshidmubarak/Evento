@@ -54,19 +54,32 @@ if (!process.env.JWT_SECRET) {
  * Only drops if the database name ends with '_test'.
  */
 export const cleanupTestDatabase = async () => {
-  const mongoose = (await import('mongoose')).default;
-  if (mongoose.connection.readyState === 1 && mongoose.connection.name.endsWith('_test')) {
-    await mongoose.connection.dropDatabase();
-  }
-};
-
-// Automatic cleanup hook on test process completion
-process.on('beforeExit', async () => {
   try {
     const mongoose = (await import('mongoose')).default;
     if (mongoose.connection.readyState === 1 && mongoose.connection.name.endsWith('_test')) {
+      const dbName = mongoose.connection.name;
       await mongoose.connection.dropDatabase();
+      console.log(`🧹 Dropped isolated test database: ${dbName}`);
     }
+  } catch (err) {
+    console.error('Failed to drop test database:', err);
+  }
+};
+
+// Automatically drop test database whenever mongoose.disconnect() is called in test teardown
+(async () => {
+  const mongoose = (await import('mongoose')).default;
+  const originalDisconnect = mongoose.disconnect.bind(mongoose);
+  mongoose.disconnect = async function () {
+    await cleanupTestDatabase();
+    return originalDisconnect();
+  };
+})();
+
+// Automatic cleanup hook on test process completion in case disconnect was not invoked
+process.on('beforeExit', async () => {
+  try {
+    await cleanupTestDatabase();
   } catch {
     // Ignore teardown errors
   }
