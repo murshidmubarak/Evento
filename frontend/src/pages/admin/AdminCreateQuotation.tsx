@@ -4,7 +4,7 @@ import { getEventById } from '../../features/events/eventsApi';
 import { createQuotation, sendQuotation, getQuotationById, updateQuotation } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment, Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw, Calendar } from 'lucide-react';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -368,7 +368,12 @@ export const AdminCreateQuotation = () => {
             setSchedules(qtnData.schedules);
           }
           if (qtnData.paymentPlan && qtnData.paymentPlan.length > 0) {
-            setPaymentPlan(qtnData.paymentPlan);
+            setPaymentPlan(
+              qtnData.paymentPlan.map(p => ({
+                ...p,
+                dueDate: p.dueDate ? p.dueDate.split('T')[0] : '',
+              }))
+            );
           }
         } else if (eventData.selectedServices) {
           const initialItems = eventData.selectedServices.map(s => {
@@ -427,10 +432,69 @@ export const AdminCreateQuotation = () => {
 
   const handleSave = async (issue: boolean = false) => {
     if (isSaving) return;
+    setSaveError('');
+    setSaveErrors([]);
+
+    // Client-side pre-validations
+    const validationErrors: string[] = [];
+
+    // 1. Line items / Services & Pricing (Decoration, Photography, Catering, etc.)
+    if (!items || items.length === 0) {
+      validationErrors.push('At least one service is required in the quotation.');
+    } else {
+      for (const item of items) {
+        if (!item.unitPrice || Number(item.unitPrice) <= 0) {
+          validationErrors.push(`Price for service "${item.name}" must be greater than 0.`);
+        }
+        if (!item.quantity || Number(item.quantity) < 1) {
+          validationErrors.push(`Quantity for service "${item.name}" must be at least 1.`);
+        }
+      }
+    }
+
+    // 2. Quotation Validity date
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const eventDateStr = event?.date ? new Date(event.date).toLocaleDateString('en-CA') : '';
+    const formattedEventDate = event?.date
+      ? new Date(event.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+      : '';
+
+    if (!validUntil || !validUntil.trim()) {
+      validationErrors.push('Quotation validity date (Valid Until) is required.');
+    } else {
+      const selectedDate = validUntil.trim().split('T')[0];
+      if (selectedDate < todayStr) {
+        validationErrors.push("Quotation validity date cannot be less than today's date.");
+      } else if (eventDateStr && selectedDate > eventDateStr) {
+        validationErrors.push(`Quotation validity date cannot be after the event date (${formattedEventDate || eventDateStr}).`);
+      }
+    }
+
+    // 3. Payment Plan
+    if (!paymentPlan || paymentPlan.length === 0) {
+      validationErrors.push('A payment plan with at least one installment is required.');
+    } else {
+      for (const [idx, p] of paymentPlan.entries()) {
+        const title = (p.title || '').trim();
+        if (!title) {
+          validationErrors.push(`Payment installment #${idx + 1} requires a title.`);
+        }
+        if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
+          validationErrors.push(`Payment installment "${title || `#${idx + 1}`}" amount must be greater than 0.`);
+        }
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setSaveError('Please resolve the following required fields before proceeding:');
+      setSaveErrors(validationErrors);
+      setShowIssueConfirm(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     try {
       setIsSaving(true);
-      setSaveError('');
-      setSaveErrors([]);
 
       const sanitizedItems = items.map(i => ({
         serviceId: i.serviceId,
@@ -461,11 +525,12 @@ export const AdminCreateQuotation = () => {
         }));
 
       const sanitizedPaymentPlan = paymentPlan
-        .filter(p => p.title?.trim() || (Number(p.amount) > 0))
+        .filter(p => p.title?.trim() && Number(p.amount) > 0)
         .map(p => ({
-          title: (p.title || 'Installment').trim(),
+          title: p.title.trim(),
           amount: Math.max(0, Number(p.amount) || 0),
           dueDateDescription: (p.dueDateDescription || '').trim(),
+          dueDate: p.dueDate ? p.dueDate : undefined,
           percentage: p.percentage,
           purpose: p.purpose || [],
           status: p.status || 'Pending'
@@ -514,9 +579,10 @@ export const AdminCreateQuotation = () => {
       }
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to save quotation';
-      const details: string[] = err.response?.data?.error?.errors || [];
+      const details: string[] = err.response?.data?.error?.errors || err.response?.data?.errors || [];
       setSaveError(msg);
       setSaveErrors(details);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsSaving(false);
       setShowIssueConfirm(false);
@@ -772,7 +838,7 @@ export const AdminCreateQuotation = () => {
                     className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer hover:bg-gray-100"
                     onClick={() => setExpandedService(expandedService === item.serviceId ? null : item.serviceId)}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
                       <span className="font-bold text-sm text-gray-900">{item.name}</span>
                       <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold rounded uppercase tracking-widest">{item.pricingType?.replace('_', ' ') || 'Service'}</span>
                     </div>
@@ -825,7 +891,7 @@ export const AdminCreateQuotation = () => {
                             Unit Price {item.pricingType === 'per_guest' ? '(Per Guest)' : ''}
                           </label>
                           <input
-                            type="number" min="0"
+                            type="number" min="0" step="any"
                             className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             value={item.unitPrice}
                             onChange={e => updateItem(index, 'unitPrice', Number(e.target.value) || 0)}
@@ -1095,7 +1161,7 @@ export const AdminCreateQuotation = () => {
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Payment Plan</h2>
               <button
-                onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDateDescription: '', purpose: [] }])}
+                onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDate: '', dueDateDescription: '', purpose: [] }])}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add Installment
@@ -1103,7 +1169,19 @@ export const AdminCreateQuotation = () => {
             </div>
             <div className="p-6">
               {paymentPlan.length === 0 ? (
-                <p className="text-gray-500 italic text-sm text-center py-2">No payment installments added.</p>
+                <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-5 text-center">
+                  <div className="flex items-center justify-center gap-1.5 text-amber-800 font-bold text-sm">
+                    <AlertCircle className="w-4 h-4 text-amber-600" /> Payment Plan Required
+                  </div>
+                  <p className="text-amber-700 text-xs mt-1">Please add at least one installment before saving or issuing this quotation.</p>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentPlan([...paymentPlan, { title: 'Booking Advance', amount: advanceAmount > 0 ? advanceAmount : Math.round(finalAmount * 0.3) || 0, dueDate: '', dueDateDescription: 'Immediate upon acceptance', purpose: [] }])}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Initial Installment
+                  </button>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {paymentPlan.map((plan, idx) => (
@@ -1111,7 +1189,9 @@ export const AdminCreateQuotation = () => {
                       <div className="flex-1 space-y-3">
                         <div className="flex gap-3">
                           <div className="flex-1">
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Title</label>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                              Title
+                            </label>
                             <input
                               type="text" placeholder="e.g. Booking Advance"
                               className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -1123,11 +1203,13 @@ export const AdminCreateQuotation = () => {
                               }}
                             />
                           </div>
-                          <div className="w-32">
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Amount (₹)</label>
+                          <div className="w-36">
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                              Amount (₹)
+                            </label>
                             <input
                               type="number" placeholder="0" min="0"
-                              className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold text-gray-900"
+                              className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 font-semibold text-gray-900 focus:ring-indigo-500"
                               value={plan.amount}
                               onChange={e => {
                                 const newP = [...paymentPlan];
@@ -1137,18 +1219,35 @@ export const AdminCreateQuotation = () => {
                             />
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Due Condition</label>
-                          <input
-                            type="text" placeholder="e.g. Immediate upon acceptance"
-                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                            value={plan.dueDateDescription}
-                            onChange={e => {
-                              const newP = [...paymentPlan];
-                              newP[idx].dueDateDescription = e.target.value;
-                              setPaymentPlan(newP);
-                            }}
-                          />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-indigo-500" /> Due Date
+                            </label>
+                            <input
+                              type="date"
+                              className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                              value={plan.dueDate ? plan.dueDate.split('T')[0] : ''}
+                              onChange={e => {
+                                const newP = [...paymentPlan];
+                                newP[idx].dueDate = e.target.value;
+                                setPaymentPlan(newP);
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Due Condition / Description</label>
+                            <input
+                              type="text" placeholder="e.g. Immediate upon acceptance"
+                              className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              value={plan.dueDateDescription || ''}
+                              onChange={e => {
+                                const newP = [...paymentPlan];
+                                newP[idx].dueDateDescription = e.target.value;
+                                setPaymentPlan(newP);
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => setPaymentPlan(paymentPlan.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-md transition-colors h-fit border border-transparent hover:border-red-100">
@@ -1156,6 +1255,14 @@ export const AdminCreateQuotation = () => {
                       </button>
                     </div>
                   ))}
+
+                  <div className="mt-4 pt-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+                    <div>
+                      <span>Total Planned: </span>
+                      <strong className="text-gray-900 font-bold">{formatCurrency(paymentPlan.reduce((acc, p) => acc + (Number(p.amount) || 0), 0))}</strong>
+                      <span className="text-gray-400 ml-1">/ {formatCurrency(finalAmount)}</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1336,13 +1443,25 @@ export const AdminCreateQuotation = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">Valid Until</label>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 flex items-center justify-between">
+                    <span>Valid Until <span className="text-red-500">*</span></span>
+                    {event?.date && (
+                      <span className="text-[10px] text-gray-400 font-medium normal-case">
+                        Event: {new Date(event.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="date"
-                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    min={new Date().toLocaleDateString('en-CA')}
+                    max={event?.date ? new Date(event.date).toLocaleDateString('en-CA') : undefined}
+                    className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-700"
                     value={validUntil}
                     onChange={e => setValidUntil(e.target.value)}
                   />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Validity must be between today and the event date.
+                  </p>
                 </div>
               </div>
 
@@ -1515,9 +1634,17 @@ export const AdminCreateQuotation = () => {
                           <div key={idx} className="flex justify-between items-start border-b border-gray-100 pb-2">
                             <div>
                               <p className="text-xs font-bold text-gray-900">{plan.title || `Installment ${idx + 1}`}</p>
-                              {plan.dueDateDescription && (
-                                <p className="text-[11px] text-gray-500 mt-0.5">{plan.dueDateDescription}</p>
-                              )}
+                              <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 mt-0.5">
+                                {plan.dueDate && (
+                                  <span className="inline-flex items-center text-indigo-600 font-medium">
+                                    Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </span>
+                                )}
+                                {plan.dueDate && plan.dueDateDescription && <span>•</span>}
+                                {plan.dueDateDescription && (
+                                  <span>{plan.dueDateDescription}</span>
+                                )}
+                              </div>
                             </div>
                             <span className="text-xs font-bold text-gray-900 shrink-0 ml-4">{formatCurrency(plan.amount)}</span>
                           </div>

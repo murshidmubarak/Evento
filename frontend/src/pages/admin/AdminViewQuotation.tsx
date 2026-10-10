@@ -395,7 +395,15 @@ export const AdminViewQuotation = () => {
                       <div key={idx} className="flex justify-between items-start">
                         <div>
                           <p className="font-bold text-gray-900">{plan.title}</p>
-                          {plan.dueDateDescription && <p className="text-gray-500 text-[11px] mt-0.5">{plan.dueDateDescription}</p>}
+                          <div className="flex flex-wrap items-center gap-x-2 text-gray-500 text-[11px] mt-0.5">
+                            {plan.dueDate && (
+                              <span className="text-indigo-600 font-medium">
+                                Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </span>
+                            )}
+                            {plan.dueDate && plan.dueDateDescription && <span>•</span>}
+                            {plan.dueDateDescription && <span>{plan.dueDateDescription}</span>}
+                          </div>
                         </div>
                         <p className="font-bold text-gray-900">{formatCurrency(plan.amount)}</p>
                       </div>

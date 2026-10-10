@@ -33,9 +33,58 @@ export interface CreateQuotationInput {
   terms?: string;
   structuredTerms?: { title: string; content: string }[];
   schedules?: { title: string; time: string }[];
-  paymentPlan?: { title: string; percentage?: number; amount: number; dueDateDescription: string; purpose: string[]; status?: string }[];
+  paymentPlan?: { title: string; percentage?: number; amount: number; dueDateDescription?: string; dueDate?: Date | string; purpose?: string[]; status?: string }[];
   conciergeNotes?: string;
 }
+
+const getDayEndTimestamp = (val: string | Date): number => {
+  if (typeof val === 'string') {
+    const match = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59, 59, 999).getTime();
+    }
+  }
+  const d = new Date(val);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+};
+
+const getDayStartTimestamp = (val: string | Date): number => {
+  if (typeof val === 'string') {
+    const match = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 0, 0, 0, 0).getTime();
+    }
+  }
+  const d = new Date(val);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
+};
+
+const validateQuotationValidityDate = (validUntil: string | Date | undefined, eventDate?: Date | string | null): void => {
+  if (!validUntil || (typeof validUntil === 'string' && validUntil.trim().length === 0)) {
+    throw ApiError.badRequest('Quotation validity date (validUntil) is required and cannot be blank.');
+  }
+
+  const parsedDate = new Date(validUntil);
+  if (isNaN(parsedDate.getTime())) {
+    throw ApiError.badRequest('Quotation validity date (validUntil) must be a valid date.');
+  }
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+  const validUntilEnd = getDayEndTimestamp(validUntil);
+
+  if (validUntilEnd < todayStart) {
+    throw ApiError.badRequest("Quotation validity date cannot be less than today's date.");
+  }
+
+  if (eventDate) {
+    const eventDayEnd = getDayEndTimestamp(eventDate);
+    const validUntilStart = getDayStartTimestamp(validUntil);
+    if (validUntilStart > eventDayEnd) {
+      throw ApiError.badRequest('Quotation validity date cannot be after the event date.');
+    }
+  }
+};
 
 export class QuotationService {
   private quotationRepository = new QuotationRepository();
@@ -72,8 +121,8 @@ export class QuotationService {
       if (reqItem.quantity < 1) {
         throw ApiError.badRequest('Quantity must be at least 1.');
       }
-      if (reqItem.unitPrice < 0) {
-        throw ApiError.badRequest('Unit price cannot be negative.');
+      if (reqItem.unitPrice <= 0) {
+        throw ApiError.badRequest('Unit price must be greater than 0.');
       }
 
       const service = await this.serviceRepository.findById(reqItem.serviceId);
@@ -211,6 +260,21 @@ export class QuotationService {
 
     const remainingAmount = round2(finalAmount - advanceAmount);
 
+    validateQuotationValidityDate(input.validUntil, event.date);
+
+    if (!input.paymentPlan || input.paymentPlan.length === 0) {
+      throw ApiError.badRequest('A payment plan with at least one installment is required.');
+    }
+
+    for (const [idx, p] of input.paymentPlan.entries()) {
+      if (!p.title || !p.title.trim()) {
+        throw ApiError.badRequest(`Payment installment #${idx + 1} must have a title.`);
+      }
+      if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
+        throw ApiError.badRequest(`Payment installment "${p.title || `#${idx + 1}`}" amount must be greater than 0.`);
+      }
+    }
+
     // 6. Generate Quotation Number & Revision
     let quotationNumber: string;
     let revision: number;
@@ -278,6 +342,7 @@ export class QuotationService {
           title: (p.title || 'Installment').trim(),
           amount: Number(p.amount) || 0,
           dueDateDescription: (p.dueDateDescription || '').trim(),
+          dueDate: p.dueDate && !isNaN(Date.parse(p.dueDate as any)) ? new Date(p.dueDate) : undefined,
           percentage: p.percentage,
           purpose: p.purpose || [],
           status: p.status || 'Pending',
@@ -329,8 +394,8 @@ export class QuotationService {
       if (reqItem.quantity < 1) {
         throw ApiError.badRequest('Quantity must be at least 1.');
       }
-      if (reqItem.unitPrice < 0) {
-        throw ApiError.badRequest('Unit price cannot be negative.');
+      if (reqItem.unitPrice <= 0) {
+        throw ApiError.badRequest('Unit price must be greater than 0.');
       }
 
       const service = await this.serviceRepository.findById(reqItem.serviceId);
@@ -474,7 +539,11 @@ export class QuotationService {
     quotation.finalAmount = finalAmount;
     quotation.advanceAmount = advanceAmount;
     quotation.remainingAmount = remainingAmount;
-    if (input.validUntil !== undefined) quotation.validUntil = input.validUntil;
+    if (input.validUntil !== undefined) {
+      const eventDate = quotation.eventSnapshot?.date || (await this.eventRepository.findById(quotation.eventId.toString()))?.date;
+      validateQuotationValidityDate(input.validUntil, eventDate);
+      quotation.validUntil = input.validUntil;
+    }
     if (input.notes !== undefined) quotation.notes = input.notes;
     if (input.terms !== undefined) quotation.terms = input.terms;
     if (input.structuredTerms !== undefined) {
@@ -494,16 +563,26 @@ export class QuotationService {
         }));
     }
     if (input.paymentPlan !== undefined) {
-      quotation.paymentPlan = (input.paymentPlan || [])
-        .filter((p) => p.title?.trim() || (p.amount !== undefined && p.amount > 0))
-        .map((p) => ({
-          title: (p.title || 'Installment').trim(),
-          amount: Number(p.amount) || 0,
-          dueDateDescription: (p.dueDateDescription || '').trim(),
-          percentage: p.percentage,
-          purpose: p.purpose || [],
-          status: p.status || 'Pending',
-        }));
+      if (!input.paymentPlan || input.paymentPlan.length === 0) {
+        throw ApiError.badRequest('A payment plan with at least one installment is required.');
+      }
+      for (const [idx, p] of input.paymentPlan.entries()) {
+        if (!p.title || !p.title.trim()) {
+          throw ApiError.badRequest(`Payment installment #${idx + 1} must have a title.`);
+        }
+        if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
+          throw ApiError.badRequest(`Payment installment "${p.title || `#${idx + 1}`}" amount must be greater than 0.`);
+        }
+      }
+      quotation.paymentPlan = input.paymentPlan.map((p) => ({
+        title: p.title.trim(),
+        amount: Number(p.amount) || 0,
+        dueDateDescription: (p.dueDateDescription || '').trim(),
+        dueDate: p.dueDate && !isNaN(Date.parse(p.dueDate as any)) ? new Date(p.dueDate) : undefined,
+        percentage: p.percentage,
+        purpose: p.purpose || [],
+        status: p.status || 'Pending',
+      }));
     }
     if (input.conciergeNotes !== undefined) quotation.conciergeNotes = input.conciergeNotes;
 
@@ -588,6 +667,25 @@ export class QuotationService {
 
     if (quotation.status !== 'draft') {
       throw ApiError.badRequest('Only draft quotations can be sent.');
+    }
+
+    // Validate all services have price > 0
+    const zeroPriceItem = quotation.items.find((item) => !item.unitPrice || item.unitPrice <= 0 || !item.amount || item.amount <= 0);
+    if (zeroPriceItem) {
+      throw ApiError.badRequest(`Cannot issue quotation: Price for "${zeroPriceItem.name}" must be greater than 0.`);
+    }
+
+    // Validate quotation validity
+    const eventDate = quotation.eventSnapshot?.date || (await this.eventRepository.findById(quotation.eventId.toString()))?.date;
+    validateQuotationValidityDate(quotation.validUntil, eventDate);
+
+    // Validate payment plan
+    if (!quotation.paymentPlan || quotation.paymentPlan.length === 0) {
+      throw ApiError.badRequest('Cannot issue quotation: A payment plan with at least one installment is required.');
+    }
+    const zeroInstallment = quotation.paymentPlan.find((p) => !p.amount || p.amount <= 0);
+    if (zeroInstallment) {
+      throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${zeroInstallment.title}" amount must be greater than 0.`);
     }
 
     quotation.status = 'sent';

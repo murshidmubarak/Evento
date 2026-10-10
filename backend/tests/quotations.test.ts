@@ -92,7 +92,7 @@ describe('Quotations API', () => {
       eventManagerId: managerId1,
       title: 'Event 1',
       eventType: 'Wedding',
-      date: new Date(),
+      date: new Date(Date.now() + 30 * 86400000),
       startTime: '10:00',
       endTime: '18:00',
       location: { address: '123 Main St' },
@@ -106,7 +106,7 @@ describe('Quotations API', () => {
       eventManagerId: managerId2,
       title: 'Event 2',
       eventType: 'Corporate',
-      date: new Date(),
+      date: new Date(Date.now() + 30 * 86400000),
       startTime: '10:00',
       endTime: '18:00',
       location: { address: '456 Tech St' },
@@ -138,6 +138,19 @@ describe('Quotations API', () => {
     ],
     discount: 5000,
     advanceAmount: 10000,
+    validUntil: new Date(Date.now() + 7 * 86400000).toISOString(),
+    paymentPlan: [
+      {
+        title: 'Advance Deposit',
+        amount: 10000,
+        dueDateDescription: 'Immediate upon acceptance',
+      },
+      {
+        title: 'Final Settlement',
+        amount: 35000,
+        dueDateDescription: 'Before event',
+      }
+    ],
   });
 
   it('1. Unauthenticated request → 401', async () => {
@@ -226,6 +239,15 @@ describe('Quotations API', () => {
       body: JSON.stringify(p2),
     });
     assert.equal(res2.status, 400);
+
+    const p3 = validPayload(eventId1, activeServiceId1);
+    p3.items[0].unitPrice = 0;
+    const res3 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(p3),
+    });
+    assert.equal(res3.status, 400);
   });
 
   it('11 - 15. Backend calculates line-item amount, subtotal, discount, taxableAmount, finalAmount, remainingAmount without tax', async () => {
@@ -744,6 +766,8 @@ describe('Quotations API', () => {
         taxRate: 5, // 99.99 * 0.05 = 4.9995 -> 5.00
         gstTreatment: 'intra_state',
       },
+      validUntil: new Date(Date.now() + 86400000).toISOString(),
+      paymentPlan: [{ title: 'Deposit', amount: 50, dueDateDescription: 'Immediate' }],
     };
 
     const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
@@ -1191,5 +1215,169 @@ describe('Quotations API', () => {
     assert.equal(all[1].revision, 2);
     assert.equal(all[1].clientNotes, 'Cycle 2 request');
     assert.equal(all[2].revision, 3);
+  });
+
+  it('saves and retrieves payment plan with dueDate correctly in db', async () => {
+    const payload = validPayload(eventId1, activeServiceId1);
+    const dueDateStr = '2026-11-15T00:00:00.000Z';
+    (payload as any).paymentPlan = [
+      {
+        title: 'Advance Deposit',
+        amount: 15000,
+        dueDate: dueDateStr,
+        dueDateDescription: 'Upon quotation acceptance',
+        percentage: 30,
+        purpose: ['Booking lock'],
+      },
+      {
+        title: 'Final Settlement',
+        amount: 35000,
+        dueDate: '2026-12-01T00:00:00.000Z',
+        dueDateDescription: '1 day prior to event',
+        percentage: 70,
+        purpose: ['Completion'],
+      }
+    ];
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(res.status, 201);
+    const data = (await res.json()) as any;
+    assert.equal(data.data.paymentPlan.length, 2);
+    assert.equal(data.data.paymentPlan[0].title, 'Advance Deposit');
+    assert.ok(data.data.paymentPlan[0].dueDate);
+    assert.equal(new Date(data.data.paymentPlan[0].dueDate).toISOString(), dueDateStr);
+    assert.equal(data.data.paymentPlan[0].dueDateDescription, 'Upon quotation acceptance');
+
+    // Verify directly in MongoDB
+    const qtnInDb = await Quotation.findById(data.data._id);
+    assert.ok(qtnInDb);
+    assert.equal(qtnInDb.paymentPlan?.length, 2);
+    assert.ok(qtnInDb.paymentPlan![0].dueDate instanceof Date);
+    assert.equal(qtnInDb.paymentPlan![0].dueDate!.toISOString(), dueDateStr);
+  });
+
+  it('rejects creation when validUntil is missing or paymentPlan is empty / zero amount', async () => {
+    // Missing validUntil
+    const pNoValidity: any = validPayload(eventId1, activeServiceId1);
+    delete pNoValidity.validUntil;
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pNoValidity),
+    });
+    assert.equal(r1.status, 400);
+
+    // Empty paymentPlan
+    const pNoPlan: any = validPayload(eventId1, activeServiceId1);
+    pNoPlan.paymentPlan = [];
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pNoPlan),
+    });
+    assert.equal(r2.status, 400);
+
+    // Installment amount 0
+    const pZeroAmount: any = validPayload(eventId1, activeServiceId1);
+    pZeroAmount.paymentPlan = [{ title: 'Deposit', amount: 0, dueDateDescription: 'Immediate' }];
+    const r3 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pZeroAmount),
+    });
+    assert.equal(r3.status, 400);
+  });
+
+  it('rejects issuing a quotation if service amount is 0 or installment amount is 0', async () => {
+    const qtn = await Quotation.create({
+      quotationNumber: 'QTN-VAL-1',
+      revision: 1,
+      eventId: eventId1,
+      clientId: clientId1,
+      status: 'draft',
+      createdBy: adminId,
+      items: [{ serviceId: activeServiceId1, quantity: 1, unitPrice: 0, amount: 0, name: 'Decoration', description: 'Setup', pricingType: 'package' }],
+      subtotal: 0,
+      discount: 0,
+      taxableAmount: 0,
+      finalAmount: 0,
+      advanceAmount: 0,
+      remainingAmount: 0,
+      validUntil: new Date(Date.now() + 86400000),
+      paymentPlan: [{ title: 'Advance', amount: 1000, dueDateDescription: 'Now' }],
+    });
+
+    // Try issuing with service price 0
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/quotations/${qtn._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    assert.equal(res1.status, 400);
+    const data1 = (await res1.json()) as any;
+    assert.match(data1.message, /Price for "Decoration" must be greater than 0/);
+
+    // Update item price > 0, but set installment amount 0
+    qtn.items[0].unitPrice = 5000;
+    qtn.items[0].amount = 5000;
+    qtn.paymentPlan![0].amount = 0;
+    await qtn.save();
+
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/quotations/${qtn._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    assert.equal(res2.status, 400);
+    const data2 = (await res2.json()) as any;
+    assert.match(data2.message, /must be greater than 0/);
+  });
+
+  it('validates quotation validity date: cannot be blank, cannot be in past, cannot be after event date', async () => {
+    // 1. Blank validUntil
+    const pBlank: any = validPayload(eventId1, activeServiceId1);
+    pBlank.validUntil = '   ';
+    const resBlank = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pBlank),
+    });
+    assert.equal(resBlank.status, 400);
+
+    // 2. Past date (yesterday)
+    const pPast: any = validPayload(eventId1, activeServiceId1);
+    pPast.validUntil = new Date(Date.now() - 86400000).toISOString();
+    const resPast = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pPast),
+    });
+    assert.equal(resPast.status, 400);
+    const dataPast = (await resPast.json()) as any;
+    assert.match(JSON.stringify(dataPast), /cannot be less than today's date/);
+
+    // 3. Date after event date (event is +30 days, validUntil is +35 days)
+    const pAfterEvent: any = validPayload(eventId1, activeServiceId1);
+    pAfterEvent.validUntil = new Date(Date.now() + 35 * 86400000).toISOString();
+    const resAfter = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pAfterEvent),
+    });
+    assert.equal(resAfter.status, 400);
+    const dataAfter = (await resAfter.json()) as any;
+    assert.match(dataAfter.message, /cannot be after the event date/);
+
+    // 4. Valid date (7 days ahead, within event date)
+    const pValid: any = validPayload(eventId1, activeServiceId1);
+    pValid.validUntil = new Date(Date.now() + 7 * 86400000).toISOString();
+    const resValid = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pValid),
+    });
+    assert.equal(resValid.status, 201);
   });
 });

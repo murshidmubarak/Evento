@@ -36,7 +36,8 @@ export interface IPaymentInstallment {
   title: string;
   percentage?: number;
   amount: number;
-  dueDateDescription: string;
+  dueDateDescription?: string;
+  dueDate?: string;
   purpose: string[];
   status?: string;
 }

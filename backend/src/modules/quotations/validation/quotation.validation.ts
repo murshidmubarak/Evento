@@ -19,8 +19,8 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
       if (typeof item.quantity !== 'number' || item.quantity < 1 || !Number.isInteger(item.quantity)) {
         errors.push(`items[${index}].quantity must be a positive integer`);
       }
-      if (typeof item.unitPrice !== 'number' || item.unitPrice < 0) {
-        errors.push(`items[${index}].unitPrice must be a non-negative number`);
+      if (typeof item.unitPrice !== 'number' || isNaN(item.unitPrice) || item.unitPrice <= 0) {
+        errors.push(`items[${index}].unitPrice must be a number greater than 0`);
       }
       if (item.requirements !== undefined && item.requirements !== null && typeof item.requirements !== 'string') {
         errors.push(`items[${index}].requirements must be a string`);
@@ -74,9 +74,27 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
     }
   }
 
-  if (validUntil !== undefined && validUntil !== null) {
-    if (typeof validUntil !== 'string' || isNaN(Date.parse(validUntil))) {
-      errors.push('validUntil must be a valid date string');
+  if (!validUntil || (typeof validUntil !== 'string' && !(validUntil instanceof Date)) || isNaN(Date.parse(validUntil as any))) {
+    errors.push('validUntil is required and must be a valid date');
+  } else if (typeof validUntil === 'string' && validUntil.trim().length === 0) {
+    errors.push('validUntil cannot be blank');
+  } else {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+    let validEnd: number;
+    if (typeof validUntil === 'string') {
+      const match = validUntil.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        validEnd = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59, 59, 999).getTime();
+      } else {
+        const d = new Date(validUntil);
+        validEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+      }
+    } else {
+      validEnd = new Date(validUntil.getFullYear(), validUntil.getMonth(), validUntil.getDate(), 23, 59, 59, 999).getTime();
+    }
+    if (validEnd < todayStart) {
+      errors.push("validUntil cannot be less than today's date");
     }
   }
 
@@ -95,8 +113,26 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
   if (schedules !== undefined && schedules !== null && !Array.isArray(schedules)) {
     errors.push('schedules must be an array');
   }
-  if (paymentPlan !== undefined && paymentPlan !== null && !Array.isArray(paymentPlan)) {
-    errors.push('paymentPlan must be an array');
+  if (!paymentPlan || !Array.isArray(paymentPlan) || paymentPlan.length === 0) {
+    errors.push('paymentPlan array with at least one installment is required');
+  } else {
+    for (const [index, p] of paymentPlan.entries()) {
+      if (!p || typeof p !== 'object') {
+        errors.push(`paymentPlan[${index}] must be an object`);
+        continue;
+      }
+      if (!p.title || typeof p.title !== 'string' || p.title.trim().length === 0) {
+        errors.push(`paymentPlan[${index}].title is required`);
+      }
+      if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
+        errors.push(`paymentPlan[${index}].amount must be a number greater than 0`);
+      }
+      if (p.dueDate !== undefined && p.dueDate !== null && p.dueDate !== '') {
+        if ((typeof p.dueDate !== 'string' && !(p.dueDate instanceof Date)) || isNaN(Date.parse(p.dueDate))) {
+          errors.push(`paymentPlan[${index}].dueDate must be a valid date`);
+        }
+      }
+    }
   }
   if (conciergeNotes !== undefined && conciergeNotes !== null && typeof conciergeNotes !== 'string') {
     errors.push('conciergeNotes must be a string');
