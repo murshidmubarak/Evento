@@ -39,6 +39,7 @@ export interface IPaymentInstallment {
   amount: number;
   dueDateDescription: string;
   dueDate?: Date;
+  expiryDate?: Date;
   purpose: string[];
   status?: string;
 }
@@ -140,6 +141,7 @@ const paymentInstallmentSchema = new Schema<IPaymentInstallment>(
     amount: { type: Number, required: true, min: 0 },
     dueDateDescription: { type: String, default: '' },
     dueDate: { type: Date },
+    expiryDate: { type: Date },
     purpose: { type: [String], default: [] },
     status: { type: String, default: 'Pending' },
   },

@@ -142,12 +142,16 @@ describe('Quotations API', () => {
     paymentPlan: [
       {
         title: 'Advance Deposit',
-        amount: 10000,
+        amount: 1000,
+        dueDate: new Date(Date.now() + 2 * 86400000).toISOString(),
+        expiryDate: new Date(Date.now() + 4 * 86400000).toISOString(),
         dueDateDescription: 'Immediate upon acceptance',
       },
       {
         title: 'Final Settlement',
-        amount: 35000,
+        amount: 44000,
+        dueDate: new Date(Date.now() + 5 * 86400000).toISOString(),
+        expiryDate: new Date(Date.now() + 6 * 86400000).toISOString(),
         dueDateDescription: 'Before event',
       }
     ],
@@ -767,7 +771,13 @@ describe('Quotations API', () => {
         gstTreatment: 'intra_state',
       },
       validUntil: new Date(Date.now() + 86400000).toISOString(),
-      paymentPlan: [{ title: 'Deposit', amount: 50, dueDateDescription: 'Immediate' }],
+      paymentPlan: [{
+        title: 'Deposit',
+        amount: 50,
+        dueDate: new Date(Date.now() + 20000).toISOString(),
+        expiryDate: new Date(Date.now() + 40000).toISOString(),
+        dueDateDescription: 'Immediate'
+      }],
     };
 
     const res = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
@@ -1217,14 +1227,16 @@ describe('Quotations API', () => {
     assert.equal(all[2].revision, 3);
   });
 
-  it('saves and retrieves payment plan with dueDate correctly in db', async () => {
+  it('saves and retrieves payment plan with dueDate and expiryDate correctly in db', async () => {
     const payload = validPayload(eventId1, activeServiceId1);
     const dueDateStr = '2026-11-15T00:00:00.000Z';
+    const expiryDateStr = '2026-11-20T00:00:00.000Z';
     (payload as any).paymentPlan = [
       {
         title: 'Advance Deposit',
         amount: 15000,
         dueDate: dueDateStr,
+        expiryDate: expiryDateStr,
         dueDateDescription: 'Upon quotation acceptance',
         percentage: 30,
         purpose: ['Booking lock'],
@@ -1233,6 +1245,7 @@ describe('Quotations API', () => {
         title: 'Final Settlement',
         amount: 35000,
         dueDate: '2026-12-01T00:00:00.000Z',
+        expiryDate: '2026-12-05T00:00:00.000Z',
         dueDateDescription: '1 day prior to event',
         percentage: 70,
         purpose: ['Completion'],
@@ -1249,7 +1262,9 @@ describe('Quotations API', () => {
     assert.equal(data.data.paymentPlan.length, 2);
     assert.equal(data.data.paymentPlan[0].title, 'Advance Deposit');
     assert.ok(data.data.paymentPlan[0].dueDate);
+    assert.ok(data.data.paymentPlan[0].expiryDate);
     assert.equal(new Date(data.data.paymentPlan[0].dueDate).toISOString(), dueDateStr);
+    assert.equal(new Date(data.data.paymentPlan[0].expiryDate).toISOString(), expiryDateStr);
     assert.equal(data.data.paymentPlan[0].dueDateDescription, 'Upon quotation acceptance');
 
     // Verify directly in MongoDB
@@ -1257,7 +1272,56 @@ describe('Quotations API', () => {
     assert.ok(qtnInDb);
     assert.equal(qtnInDb.paymentPlan?.length, 2);
     assert.ok(qtnInDb.paymentPlan![0].dueDate instanceof Date);
+    assert.ok(qtnInDb.paymentPlan![0].expiryDate instanceof Date);
     assert.equal(qtnInDb.paymentPlan![0].dueDate!.toISOString(), dueDateStr);
+    assert.equal(qtnInDb.paymentPlan![0].expiryDate!.toISOString(), expiryDateStr);
+  });
+
+  it('rejects creation when payment installment dueDate or expiryDate is missing or invalid, or expiryDate <= dueDate', async () => {
+    // Missing dueDate
+    const pNoDue: any = validPayload(eventId1, activeServiceId1);
+    pNoDue.paymentPlan = [{
+      title: 'Deposit',
+      amount: 1000,
+      expiryDate: new Date(Date.now() + 86400000).toISOString(),
+    }];
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pNoDue),
+    });
+    assert.equal(r1.status, 400);
+
+    // Missing expiryDate
+    const pNoExp: any = validPayload(eventId1, activeServiceId1);
+    pNoExp.paymentPlan = [{
+      title: 'Deposit',
+      amount: 1000,
+      dueDate: new Date(Date.now() + 86400000).toISOString(),
+    }];
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pNoExp),
+    });
+    assert.equal(r2.status, 400);
+
+    // expiryDate <= dueDate
+    const pExpBeforeDue: any = validPayload(eventId1, activeServiceId1);
+    pExpBeforeDue.paymentPlan = [{
+      title: 'Deposit',
+      amount: 1000,
+      dueDate: new Date(Date.now() + 2 * 86400000).toISOString(),
+      expiryDate: new Date(Date.now() + 1 * 86400000).toISOString(),
+    }];
+    const r3 = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(pExpBeforeDue),
+    });
+    assert.equal(r3.status, 400);
+    const d3 = (await r3.json()) as any;
+    assert.match(JSON.stringify(d3), /must be greater than/);
   });
 
   it('rejects creation when validUntil is missing or paymentPlan is empty / zero amount', async () => {
@@ -1308,7 +1372,13 @@ describe('Quotations API', () => {
       advanceAmount: 0,
       remainingAmount: 0,
       validUntil: new Date(Date.now() + 86400000),
-      paymentPlan: [{ title: 'Advance', amount: 1000, dueDateDescription: 'Now' }],
+      paymentPlan: [{
+        title: 'Advance',
+        amount: 1000,
+        dueDate: new Date(Date.now() + 10000),
+        expiryDate: new Date(Date.now() + 20000),
+        dueDateDescription: 'Now',
+      }],
     });
 
     // Try issuing with service price 0

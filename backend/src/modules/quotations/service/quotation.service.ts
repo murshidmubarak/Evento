@@ -33,7 +33,7 @@ export interface CreateQuotationInput {
   terms?: string;
   structuredTerms?: { title: string; content: string }[];
   schedules?: { title: string; time: string }[];
-  paymentPlan?: { title: string; percentage?: number; amount: number; dueDateDescription?: string; dueDate?: Date | string; purpose?: string[]; status?: string }[];
+  paymentPlan?: { title: string; percentage?: number; amount: number; dueDateDescription?: string; dueDate?: Date | string; expiryDate?: Date | string; purpose?: string[]; status?: string }[];
   conciergeNotes?: string;
 }
 
@@ -267,11 +267,21 @@ export class QuotationService {
     }
 
     for (const [idx, p] of input.paymentPlan.entries()) {
-      if (!p.title || !p.title.trim()) {
+      const title = (p.title || '').trim();
+      if (!title) {
         throw ApiError.badRequest(`Payment installment #${idx + 1} must have a title.`);
       }
       if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
-        throw ApiError.badRequest(`Payment installment "${p.title || `#${idx + 1}`}" amount must be greater than 0.`);
+        throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" amount must be greater than 0.`);
+      }
+      if (!p.dueDate || (typeof p.dueDate === 'string' && p.dueDate.trim().length === 0) || isNaN(Date.parse(p.dueDate as any))) {
+        throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" requires a valid due date.`);
+      }
+      if (!p.expiryDate || (typeof p.expiryDate === 'string' && p.expiryDate.trim().length === 0) || isNaN(Date.parse(p.expiryDate as any))) {
+        throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" requires a valid expiry date.`);
+      }
+      if (new Date(p.expiryDate).getTime() <= new Date(p.dueDate).getTime()) {
+        throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" expiry date must be greater than its due date.`);
       }
     }
 
@@ -343,6 +353,7 @@ export class QuotationService {
           amount: Number(p.amount) || 0,
           dueDateDescription: (p.dueDateDescription || '').trim(),
           dueDate: p.dueDate && !isNaN(Date.parse(p.dueDate as any)) ? new Date(p.dueDate) : undefined,
+          expiryDate: p.expiryDate && !isNaN(Date.parse(p.expiryDate as any)) ? new Date(p.expiryDate) : undefined,
           percentage: p.percentage,
           purpose: p.purpose || [],
           status: p.status || 'Pending',
@@ -567,11 +578,21 @@ export class QuotationService {
         throw ApiError.badRequest('A payment plan with at least one installment is required.');
       }
       for (const [idx, p] of input.paymentPlan.entries()) {
-        if (!p.title || !p.title.trim()) {
+        const title = (p.title || '').trim();
+        if (!title) {
           throw ApiError.badRequest(`Payment installment #${idx + 1} must have a title.`);
         }
         if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
-          throw ApiError.badRequest(`Payment installment "${p.title || `#${idx + 1}`}" amount must be greater than 0.`);
+          throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" amount must be greater than 0.`);
+        }
+        if (!p.dueDate || (typeof p.dueDate === 'string' && p.dueDate.trim().length === 0) || isNaN(Date.parse(p.dueDate as any))) {
+          throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" requires a valid due date.`);
+        }
+        if (!p.expiryDate || (typeof p.expiryDate === 'string' && p.expiryDate.trim().length === 0) || isNaN(Date.parse(p.expiryDate as any))) {
+          throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" requires a valid expiry date.`);
+        }
+        if (new Date(p.expiryDate).getTime() <= new Date(p.dueDate).getTime()) {
+          throw ApiError.badRequest(`Payment installment "${title || `#${idx + 1}`}" expiry date must be greater than its due date.`);
         }
       }
       quotation.paymentPlan = input.paymentPlan.map((p) => ({
@@ -579,6 +600,7 @@ export class QuotationService {
         amount: Number(p.amount) || 0,
         dueDateDescription: (p.dueDateDescription || '').trim(),
         dueDate: p.dueDate && !isNaN(Date.parse(p.dueDate as any)) ? new Date(p.dueDate) : undefined,
+        expiryDate: p.expiryDate && !isNaN(Date.parse(p.expiryDate as any)) ? new Date(p.expiryDate) : undefined,
         percentage: p.percentage,
         purpose: p.purpose || [],
         status: p.status || 'Pending',
@@ -683,9 +705,22 @@ export class QuotationService {
     if (!quotation.paymentPlan || quotation.paymentPlan.length === 0) {
       throw ApiError.badRequest('Cannot issue quotation: A payment plan with at least one installment is required.');
     }
-    const zeroInstallment = quotation.paymentPlan.find((p) => !p.amount || p.amount <= 0);
-    if (zeroInstallment) {
-      throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${zeroInstallment.title}" amount must be greater than 0.`);
+    const invalidInstallment = quotation.paymentPlan.find(
+      (p) => !p.amount || p.amount <= 0 || !p.dueDate || !p.expiryDate || new Date(p.expiryDate).getTime() <= new Date(p.dueDate).getTime()
+    );
+    if (invalidInstallment) {
+      if (!invalidInstallment.amount || invalidInstallment.amount <= 0) {
+        throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${invalidInstallment.title}" amount must be greater than 0.`);
+      }
+      if (!invalidInstallment.dueDate) {
+        throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${invalidInstallment.title}" requires a valid due date.`);
+      }
+      if (!invalidInstallment.expiryDate) {
+        throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${invalidInstallment.title}" requires a valid expiry date.`);
+      }
+      if (new Date(invalidInstallment.expiryDate).getTime() <= new Date(invalidInstallment.dueDate).getTime()) {
+        throw ApiError.badRequest(`Cannot issue quotation: Payment installment "${invalidInstallment.title}" expiry date must be greater than its due date.`);
+      }
     }
 
     quotation.status = 'sent';

@@ -38,6 +38,7 @@ export interface IPaymentInstallment {
   amount: number;
   dueDateDescription?: string;
   dueDate?: string;
+  expiryDate?: string;
   purpose: string[];
   status?: string;
 }

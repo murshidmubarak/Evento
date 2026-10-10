@@ -127,9 +127,24 @@ export const validateCreateQuotation = (req: Request, _res: Response, next: Next
       if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
         errors.push(`paymentPlan[${index}].amount must be a number greater than 0`);
       }
-      if (p.dueDate !== undefined && p.dueDate !== null && p.dueDate !== '') {
-        if ((typeof p.dueDate !== 'string' && !(p.dueDate instanceof Date)) || isNaN(Date.parse(p.dueDate))) {
-          errors.push(`paymentPlan[${index}].dueDate must be a valid date`);
+      let hasValidDueDate = false;
+      let hasValidExpiryDate = false;
+
+      if (!p.dueDate || (typeof p.dueDate !== 'string' && !(p.dueDate instanceof Date)) || isNaN(Date.parse(p.dueDate as any)) || (typeof p.dueDate === 'string' && p.dueDate.trim().length === 0)) {
+        errors.push(`paymentPlan[${index}].dueDate is required and must be a valid date`);
+      } else {
+        hasValidDueDate = true;
+      }
+
+      if (!p.expiryDate || (typeof p.expiryDate !== 'string' && !(p.expiryDate instanceof Date)) || isNaN(Date.parse(p.expiryDate as any)) || (typeof p.expiryDate === 'string' && p.expiryDate.trim().length === 0)) {
+        errors.push(`paymentPlan[${index}].expiryDate is required and must be a valid date`);
+      } else {
+        hasValidExpiryDate = true;
+      }
+
+      if (hasValidDueDate && hasValidExpiryDate) {
+        if (new Date(p.expiryDate).getTime() <= new Date(p.dueDate).getTime()) {
+          errors.push(`paymentPlan[${index}].expiryDate must be greater than dueDate`);
         }
       }
     }

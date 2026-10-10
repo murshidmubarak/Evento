@@ -636,7 +636,17 @@ export const ClientViewQuotation: React.FC = () => {
                             {plan.dueDate && (
                               <span className="inline-flex items-center gap-1 text-slate-700">
                                 <Calendar className="w-3 h-3 text-slate-400" />
-                                {new Date(plan.dueDate).toLocaleDateString('en-IN', {
+                                Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                            )}
+                            {plan.expiryDate && (
+                              <span className="inline-flex items-center gap-1 text-rose-600 font-medium">
+                                <Clock className="w-3 h-3 text-rose-400" />
+                                Expires: {new Date(plan.expiryDate).toLocaleDateString('en-IN', {
                                   day: 'numeric',
                                   month: 'short',
                                   year: 'numeric',

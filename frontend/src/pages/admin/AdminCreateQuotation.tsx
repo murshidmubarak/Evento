@@ -387,6 +387,7 @@ export const AdminCreateQuotation = () => {
               qtnData.paymentPlan.map(p => ({
                 ...p,
                 dueDate: p.dueDate ? p.dueDate.split('T')[0] : '',
+                expiryDate: p.expiryDate ? p.expiryDate.split('T')[0] : '',
               }))
             );
           }
@@ -497,6 +498,19 @@ export const AdminCreateQuotation = () => {
         if (typeof p.amount !== 'number' || isNaN(p.amount) || p.amount <= 0) {
           validationErrors.push(`Payment installment "${title || `#${idx + 1}`}" amount must be greater than 0.`);
         }
+        if (!p.dueDate || !p.dueDate.trim()) {
+          validationErrors.push(`Payment installment "${title || `#${idx + 1}`}" requires a Due Date.`);
+        }
+        if (!p.expiryDate || !p.expiryDate.trim()) {
+          validationErrors.push(`Payment installment "${title || `#${idx + 1}`}" requires an Expiry Date.`);
+        }
+        if (p.dueDate && p.dueDate.trim() && p.expiryDate && p.expiryDate.trim()) {
+          const dueStr = p.dueDate.trim().split('T')[0];
+          const expStr = p.expiryDate.trim().split('T')[0];
+          if (expStr <= dueStr) {
+            validationErrors.push(`Payment installment "${title || `#${idx + 1}`}" Expiry Date must be greater than its Due Date.`);
+          }
+        }
       }
     }
 
@@ -546,6 +560,7 @@ export const AdminCreateQuotation = () => {
           amount: Math.max(0, Number(p.amount) || 0),
           dueDateDescription: (p.dueDateDescription || '').trim(),
           dueDate: p.dueDate ? p.dueDate : undefined,
+          expiryDate: p.expiryDate ? p.expiryDate : undefined,
           percentage: p.percentage,
           purpose: p.purpose || [],
           status: p.status || 'Pending'
@@ -1176,7 +1191,7 @@ export const AdminCreateQuotation = () => {
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Payment Plan</h2>
               <button
-                onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDate: '', dueDateDescription: '', purpose: [] }])}
+                onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDate: '', expiryDate: '', dueDateDescription: '', purpose: [] }])}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add Installment
@@ -1191,7 +1206,7 @@ export const AdminCreateQuotation = () => {
                   <p className="text-amber-700 text-xs mt-1">Please add at least one installment before saving or issuing this quotation.</p>
                   <button
                     type="button"
-                    onClick={() => setPaymentPlan([...paymentPlan, { title: 'Booking Advance', amount: advanceAmount > 0 ? advanceAmount : Math.round(finalAmount * 0.3) || 0, dueDate: '', dueDateDescription: 'Immediate upon acceptance', purpose: [] }])}
+                    onClick={() => setPaymentPlan([...paymentPlan, { title: 'Booking Advance', amount: advanceAmount > 0 ? advanceAmount : Math.round(finalAmount * 0.3) || 0, dueDate: '', expiryDate: '', dueDateDescription: 'Immediate upon acceptance', purpose: [] }])}
                     className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Initial Installment
@@ -1237,7 +1252,7 @@ export const AdminCreateQuotation = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-indigo-500" /> Due Date
+                              <Calendar className="w-3 h-3 text-indigo-500" /> Due Date <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="date"
@@ -1251,18 +1266,44 @@ export const AdminCreateQuotation = () => {
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Due Condition / Description</label>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-rose-500" /> Expiry Date <span className="text-red-500">*</span>
+                            </label>
                             <input
-                              type="text" placeholder="e.g. Immediate upon acceptance"
-                              className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                              value={plan.dueDateDescription || ''}
+                              type="date"
+                              min={plan.dueDate ? plan.dueDate.split('T')[0] : undefined}
+                              className={`w-full border rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 bg-white ${
+                                plan.dueDate && plan.expiryDate && plan.expiryDate.split('T')[0] <= plan.dueDate.split('T')[0]
+                                  ? 'border-red-400 focus:ring-red-500 text-red-700'
+                                  : 'border-gray-300 focus:ring-indigo-500'
+                              }`}
+                              value={plan.expiryDate ? plan.expiryDate.split('T')[0] : ''}
                               onChange={e => {
                                 const newP = [...paymentPlan];
-                                newP[idx].dueDateDescription = e.target.value;
+                                newP[idx].expiryDate = e.target.value;
                                 setPaymentPlan(newP);
                               }}
                             />
+                            {plan.dueDate && plan.expiryDate && plan.expiryDate.split('T')[0] <= plan.dueDate.split('T')[0] && (
+                              <p className="text-[10px] text-red-500 mt-1 font-medium">Must be after Due Date</p>
+                            )}
                           </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                            Due Condition / Description
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Immediate upon acceptance"
+                            className="w-full border border-gray-300 rounded-md shadow-sm text-sm py-2 px-3 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                            value={plan.dueDateDescription || ''}
+                            onChange={e => {
+                              const newP = [...paymentPlan];
+                              newP[idx].dueDateDescription = e.target.value;
+                              setPaymentPlan(newP);
+                            }}
+                          />
                         </div>
                       </div>
                       <button onClick={() => setPaymentPlan(paymentPlan.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-md transition-colors h-fit border border-transparent hover:border-red-100">
@@ -1655,7 +1696,13 @@ export const AdminCreateQuotation = () => {
                                     Due: {new Date(plan.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                                   </span>
                                 )}
-                                {plan.dueDate && plan.dueDateDescription && <span>•</span>}
+                                {plan.dueDate && plan.expiryDate && <span>•</span>}
+                                {plan.expiryDate && (
+                                  <span className="inline-flex items-center text-rose-600 font-medium">
+                                    Expires: {new Date(plan.expiryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </span>
+                                )}
+                                {(plan.dueDate || plan.expiryDate) && plan.dueDateDescription && <span>•</span>}
                                 {plan.dueDateDescription && (
                                   <span>{plan.dueDateDescription}</span>
                                 )}
