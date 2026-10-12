@@ -6,6 +6,7 @@ import { EventRepository } from '../../events/repository/event.repository.js';
 import { QuotationRepository } from '../../quotations/repository/quotation.repository.js';
 import { ApiError } from '../../../utils/ApiError.js';
 import { env } from '../../../config/env.js';
+import { round2 } from '../../../utils/money.js';
 
 export class PaymentService {
   private paymentRepository: PaymentRepository;
@@ -29,7 +30,7 @@ export class PaymentService {
     }
   }
 
-  async createAdvanceOrder(user: { id: string; role: string }, eventId: string) {
+  async createAdvanceOrder(user: { id: string; role: string }, eventId: string, customAmount?: number) {
     if (user.role !== 'client') {
       throw ApiError.forbidden('Only clients can create payment orders.');
     }
@@ -48,8 +49,7 @@ export class PaymentService {
       throw ApiError.badRequest('Event is not in awaiting_payment state.');
     }
 
-    // Find the latest quotation to ensure we are paying the right amount
-    // Assuming the accepted quotation is the most recent one or has status 'accepted'
+    // Find the accepted quotation
     const quotations = await this.quotationRepository.findByEventId(eventId);
     const acceptedQuotation = quotations.find(q => q.status === 'accepted');
 
@@ -65,8 +65,33 @@ export class PaymentService {
       throw ApiError.badRequest('Advance amount cannot exceed final amount.');
     }
 
-    // Idempotency: Check if we already have a pending advance payment for this event + quotation
-    let payment = await this.paymentRepository.findPendingAdvancePayment(eventId, acceptedQuotation.id);
+    // Calculate verified advance paid and outstanding advance authoritatively
+    const verifiedPayments = await this.paymentRepository.findVerifiedAdvancePayments(eventId, acceptedQuotation.id);
+    const advancePaidAmount = round2(verifiedPayments.reduce((acc, p) => acc + p.amount, 0));
+    const requiredAdvance = round2(acceptedQuotation.advanceAmount);
+    const outstandingAdvance = Math.max(0, round2(requiredAdvance - advancePaidAmount));
+
+    if (outstandingAdvance <= 0) {
+      throw ApiError.badRequest('Required advance payment is already fully paid.');
+    }
+
+    // Determine target amount
+    let targetAmount: number;
+    if (customAmount !== undefined && customAmount !== null) {
+      const requested = round2(customAmount);
+      if (requested <= 0) {
+        throw ApiError.badRequest('Payment amount must be greater than zero.');
+      }
+      if (requested > outstandingAdvance) {
+        throw ApiError.badRequest(`Payment amount (${requested}) cannot exceed outstanding advance amount (${outstandingAdvance}).`);
+      }
+      targetAmount = requested;
+    } else {
+      targetAmount = outstandingAdvance;
+    }
+
+    // Idempotency: Check if we already have a pending advance payment for this event + quotation with exact same amount
+    let payment = await this.paymentRepository.findPendingAdvancePayment(eventId, acceptedQuotation.id, targetAmount);
 
     if (payment && payment.razorpayOrderId) {
       // Return existing order
@@ -75,13 +100,19 @@ export class PaymentService {
         razorpayOrderId: payment.razorpayOrderId,
         amount: payment.amount,
         currency: payment.currency,
-        keyId: env.razorpayKeyId
+        keyId: env.razorpayKeyId,
+        requiredAdvance,
+        advancePaidAmount,
+        outstandingAdvance,
       };
     }
 
+    // If there are other pending orders with different amounts, cancel them to avoid conflicts
+    await this.paymentRepository.cancelPendingAdvancePayments(eventId, acceptedQuotation.id);
+
     // Generate unique receipt reference
     const receiptReference = `rcpt_${event.id}_${crypto.randomBytes(4).toString('hex')}`;
-    const amountInPaise = Math.round(acceptedQuotation.advanceAmount * 100);
+    const amountInPaise = Math.round(targetAmount * 100);
 
     // Create local payment record first (in created state)
     payment = await this.paymentRepository.create({
@@ -89,7 +120,7 @@ export class PaymentService {
       quotationId: new Types.ObjectId(acceptedQuotation.id),
       clientId: new Types.ObjectId(user.id),
       paymentType: 'advance',
-      amount: acceptedQuotation.advanceAmount,
+      amount: targetAmount,
       currency: 'INR',
       status: 'created',
       receiptReference,
@@ -122,9 +153,12 @@ export class PaymentService {
       return {
         paymentId: payment.id,
         razorpayOrderId: orderId,
-        amount: payment.amount, // returning in standard unit, frontend might need standard unit depending on their display
+        amount: payment.amount,
         currency: payment.currency,
-        keyId: env.razorpayKeyId
+        keyId: env.razorpayKeyId,
+        requiredAdvance,
+        advancePaidAmount,
+        outstandingAdvance,
       };
     } catch (error: any) {
       // If Razorpay fails, mark local payment as failed to keep sync
@@ -152,16 +186,34 @@ export class PaymentService {
       throw ApiError.forbidden('You do not have permission to verify this payment.');
     }
 
+    // Lookup quotations to resolve current accepted revision
+    const quotations = await this.quotationRepository.findByEventId(payment.eventId.toString());
+    const acceptedQuotation = quotations.find(q => q.status === 'accepted');
+
     // Idempotency: if already paid, return success without re-processing
     if (payment.status === 'paid') {
-      return { paymentId: payment.id, status: payment.status };
+      const verifiedPayments = await this.paymentRepository.findVerifiedAdvancePayments(payment.eventId.toString(), payment.quotationId.toString());
+      const totalAdvancePaid = round2(verifiedPayments.reduce((acc, p) => acc + p.amount, 0));
+      const reqAdv = acceptedQuotation ? round2(acceptedQuotation.advanceAmount) : payment.amount;
+      const outAdv = Math.max(0, round2(reqAdv - totalAdvancePaid));
+      const event = await this.eventRepository.findById(payment.eventId.toString());
+
+      return {
+        paymentId: payment.id,
+        status: payment.status,
+        amountPaid: payment.amount,
+        totalAdvancePaid,
+        requiredAdvance: reqAdv,
+        outstandingAdvance: outAdv,
+        isFullyPaid: outAdv <= 0,
+        eventStatus: event?.status || 'awaiting_payment',
+        quotationStatus: acceptedQuotation?.status || 'accepted',
+      };
     }
 
     // Cross-check: verify payment.quotationId still matches the current accepted quotation
     // for this event. Guards against stale-revision payments if a newer accepted revision
     // superseded the one this payment was created against.
-    const quotations = await this.quotationRepository.findByEventId(payment.eventId.toString());
-    const acceptedQuotation = quotations.find(q => q.status === 'accepted');
     if (!acceptedQuotation) {
       payment.status = 'failed';
       await payment.save();
@@ -174,7 +226,6 @@ export class PaymentService {
     }
 
     // Verify Razorpay signature via HMAC-SHA256.
-    // Razorpay's signature = HMAC_SHA256(key_secret, "<order_id>|<payment_id>")
     const expectedSignature = crypto.createHmac('sha256', env.razorpayKeySecret)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest('hex');
@@ -187,7 +238,6 @@ export class PaymentService {
 
     // In production (real Razorpay keys), fetch the actual payment from Razorpay
     // and verify the amount and currency match our authoritative local record.
-    // This ensures the gateway was not tampered with between order creation and capture.
     const isTestOrDev = env.nodeEnv === 'test' || env.nodeEnv === 'development';
     const isDummyKey = env.razorpayKeyId === 'rzp_test_dummy_key_id';
     const shouldBypass = isTestOrDev && isDummyKey;
@@ -195,7 +245,6 @@ export class PaymentService {
     if (!shouldBypass) {
       try {
         const gatewayPayment = await (this.razorpay.payments as any).fetch(razorpay_payment_id);
-        // Razorpay stores amounts in paise (smallest INR unit)
         const expectedAmountPaise = Math.round(payment.amount * 100);
         if (gatewayPayment.amount !== expectedAmountPaise) {
           payment.status = 'failed';
@@ -208,7 +257,6 @@ export class PaymentService {
           throw ApiError.badRequest('Payment currency mismatch.');
         }
       } catch (err: any) {
-        // Re-throw our own ApiErrors without wrapping
         if (err.statusCode) throw err;
         payment.status = 'failed';
         await payment.save();
@@ -221,16 +269,121 @@ export class PaymentService {
     payment.status = 'paid';
     await payment.save();
 
-    // Transition event: awaiting_payment → confirmed
+    // Re-calculate verified advance total authoritatively
+    const verifiedPayments = await this.paymentRepository.findVerifiedAdvancePayments(payment.eventId.toString(), acceptedQuotation.id);
+    const totalAdvancePaid = round2(verifiedPayments.reduce((acc, p) => acc + p.amount, 0));
+    const reqAdv = round2(acceptedQuotation.advanceAmount);
+    const outAdv = Math.max(0, round2(reqAdv - totalAdvancePaid));
+    const isFullyPaid = outAdv <= 0;
+
+    // Update advance installment status in quotation's paymentPlan if present
+    if (acceptedQuotation.paymentPlan && acceptedQuotation.paymentPlan.length > 0) {
+      const advanceIdx = acceptedQuotation.paymentPlan.findIndex(p =>
+        p.title.toLowerCase().includes('advance')
+      );
+      const targetIdx = advanceIdx >= 0 ? advanceIdx : 0;
+      acceptedQuotation.paymentPlan[targetIdx].status = isFullyPaid ? 'Paid' : 'Partially Paid';
+      await acceptedQuotation.save();
+    }
+
+    // Transition event only when full required advance has been received and verified
     const event = (await this.eventRepository.findById(payment.eventId.toString())) as any;
     if (!event) {
       throw ApiError.notFound('Event not found.');
     }
-    if (event.status === 'awaiting_payment') {
-      event.status = 'confirmed';
-      await event.save();
+    if (isFullyPaid) {
+      if (event.status === 'awaiting_payment') {
+        event.status = 'confirmed';
+        await event.save();
+      }
     }
 
-    return { paymentId: payment.id, status: payment.status };
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      amountPaid: payment.amount,
+      totalAdvancePaid,
+      requiredAdvance: reqAdv,
+      outstandingAdvance: outAdv,
+      isFullyPaid,
+      eventStatus: event.status,
+      quotationStatus: acceptedQuotation.status,
+    };
+  }
+
+  async getAdvanceSummary(user: { id: string; role: string }, eventId: string) {
+    const event = await this.eventRepository.findById(eventId);
+    if (!event) {
+      throw ApiError.notFound('Event not found.');
+    }
+
+    if (user.role === 'client' && event.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not have permission to view payment summary for this event.');
+    }
+
+    const quotations = await this.quotationRepository.findByEventId(eventId);
+    const acceptedQuotation = quotations.find(q => q.status === 'accepted');
+
+    if (!acceptedQuotation) {
+      return {
+        eventId: event.id,
+        eventTitle: event.title,
+        eventStatus: event.status,
+        hasAcceptedQuotation: false,
+        isEligibleForPayment: false,
+        totalQuotationAmount: 0,
+        requiredAdvance: 0,
+        advancePaidAmount: 0,
+        outstandingAdvance: 0,
+        isFullyPaid: false,
+        payments: [],
+      };
+    }
+
+    const verifiedPayments = await this.paymentRepository.findVerifiedAdvancePayments(eventId, acceptedQuotation.id);
+    const advancePaidAmount = round2(verifiedPayments.reduce((acc, p) => acc + p.amount, 0));
+    const requiredAdvance = round2(acceptedQuotation.advanceAmount);
+    const outstandingAdvance = Math.max(0, round2(requiredAdvance - advancePaidAmount));
+    const isFullyPaid = outstandingAdvance <= 0;
+    const isEligibleForPayment = event.status === 'awaiting_payment' && !isFullyPaid;
+
+    return {
+      eventId: event.id,
+      eventTitle: event.title,
+      eventStatus: event.status,
+      hasAcceptedQuotation: true,
+      quotationId: acceptedQuotation.id,
+      quotationNumber: acceptedQuotation.quotationNumber,
+      quotationRevision: acceptedQuotation.revision,
+      quotationStatus: acceptedQuotation.status,
+      totalQuotationAmount: acceptedQuotation.finalAmount,
+      requiredAdvance,
+      advancePaidAmount,
+      outstandingAdvance,
+      isFullyPaid,
+      isEligibleForPayment,
+      advanceInstallment: acceptedQuotation.paymentPlan?.[0] || null,
+      payments: verifiedPayments.map(p => ({
+        id: p.id,
+        amount: p.amount,
+        currency: p.currency,
+        status: p.status,
+        razorpayPaymentId: p.razorpayPaymentId,
+        receiptReference: p.receiptReference,
+        createdAt: p.createdAt,
+      })),
+    };
+  }
+
+  async getAdminPayments(user: { id: string; role: string }, eventId?: string) {
+    if (user.role !== 'admin' && user.role !== 'event_manager') {
+      throw ApiError.forbidden('Only administrators or event managers can access payment records.');
+    }
+
+    if (eventId) {
+      return this.paymentRepository.findByEventId(eventId);
+    }
+    return this.paymentRepository.findAll();
   }
 }
+

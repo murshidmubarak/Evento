@@ -1,11 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 
 export const validateCreateOrder = (req: Request, res: Response, next: NextFunction): void => {
-  const { eventId } = req.body;
+  const { eventId, partialAmount } = req.body;
   
   if (!eventId || typeof eventId !== 'string') {
     res.status(400).json({ success: false, message: 'Valid eventId is required' });
     return;
+  }
+
+  if (partialAmount !== undefined && partialAmount !== null) {
+    if (typeof partialAmount !== 'number' || isNaN(partialAmount) || partialAmount <= 0) {
+      res.status(400).json({ success: false, message: 'Partial payment amount must be a number greater than 0' });
+      return;
+    }
   }
   
   next();

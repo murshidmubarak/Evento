@@ -1566,3 +1566,165 @@ Do not introduce versioning complexity unless required.
 - Never allow Event Managers to create Admin or Event Manager accounts.
 - Never allow Clients to create Workers.
 - Never allow Workers to create other users.
+
+
+# 36. Payment & Advance Flow APIs
+
+## Create Advance Payment Order
+
+POST /api/payments/create-order
+
+Access:
+Private (Client)
+
+Purpose:
+Create a secure Razorpay order for an event's required advance (full or partial).
+
+Request:
+```json
+{
+  "eventId": "string",
+  "partialAmount": 40000 // optional, must be > 0 and <= outstandingAdvance
+}
+```
+
+Response (201 Created):
+```json
+{
+  "success": true,
+  "message": "Payment order created successfully",
+  "data": {
+    "paymentId": "string",
+    "razorpayOrderId": "order_xxx",
+    "amount": 40000,
+    "currency": "INR",
+    "keyId": "rzp_test_xxx",
+    "requiredAdvance": 100000,
+    "advancePaidAmount": 0,
+    "outstandingAdvance": 100000
+  }
+}
+```
+
+Errors:
+- 400: Event not in `awaiting_payment`, no accepted quotation, invalid amount, amount exceeds outstanding advance, or advance already paid.
+- 401: Unauthenticated.
+- 403: Forbidden (only the client owning the event can pay).
+- 404: Event not found.
+
+
+## Verify Payment
+
+POST /api/payments/verify
+
+Access:
+Private (Client)
+
+Purpose:
+Verifies Razorpay HMAC-SHA256 signature, validates payment record against accepted quotation, persists verified payment, updates installment status (`Paid` / `Partially Paid`), and confirms event once the full required advance has been received.
+
+Request:
+```json
+{
+  "razorpay_order_id": "order_xxx",
+  "razorpay_payment_id": "pay_xxx",
+  "razorpay_signature": "hex_signature"
+}
+```
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Payment verified successfully",
+  "data": {
+    "paymentId": "string",
+    "status": "paid",
+    "amountPaid": 40000,
+    "totalAdvancePaid": 40000,
+    "requiredAdvance": 100000,
+    "outstandingAdvance": 60000,
+    "isFullyPaid": false,
+    "eventStatus": "awaiting_payment",
+    "quotationStatus": "accepted"
+  }
+}
+```
+
+Errors:
+- 400: Invalid payload, tampered signature, gateway amount mismatch, or superseded quotation revision.
+- 401: Unauthenticated.
+- 403: Forbidden (non-owner).
+- 404: Payment order not found.
+
+
+## Get Authoritative Advance Payment Summary
+
+GET /api/payments/advance-summary/:eventId
+
+Access:
+Private (Client owning event, Admin, Event Manager)
+
+Purpose:
+Retrieve backend-authoritative financial calculation of required advance, total verified paid amount, outstanding advance, eligibility, and verified payment history.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Advance payment summary retrieved successfully",
+  "data": {
+    "eventId": "string",
+    "eventTitle": "Grand Gala",
+    "eventStatus": "awaiting_payment",
+    "hasAcceptedQuotation": true,
+    "quotationId": "string",
+    "quotationNumber": "QTN-2026-003",
+    "quotationRevision": 1,
+    "quotationStatus": "accepted",
+    "totalQuotationAmount": 372000,
+    "requiredAdvance": 100000,
+    "advancePaidAmount": 40000,
+    "outstandingAdvance": 60000,
+    "isFullyPaid": false,
+    "isEligibleForPayment": true,
+    "advanceInstallment": {
+      "title": "Booking Advance",
+      "amount": 100000,
+      "dueDateDescription": "Immediate upon acceptance",
+      "status": "Partially Paid"
+    },
+    "payments": [
+      {
+        "id": "string",
+        "amount": 40000,
+        "currency": "INR",
+        "status": "paid",
+        "razorpayPaymentId": "pay_xxx",
+        "receiptReference": "rcpt_xxx",
+        "createdAt": "2026-10-12T16:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+
+## Admin Payment Listing
+
+GET /api/payments/admin?eventId=:eventId
+
+Access:
+Private (Admin, Event Manager)
+
+Purpose:
+List all payment transactions or filter by event ID with populated client and event details.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Payments retrieved successfully",
+  "data": [ ...payments ]
+}
+```

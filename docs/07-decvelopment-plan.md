@@ -273,7 +273,7 @@ And:
 
 Advance Amount
 Remaining Amount = Final Amount - Advance Amount
-10. Phase 8 - Client Payment
+10. Phase 8 - Client Payment (Milestone 1 Implemented)
 
 Implement Razorpay integration.
 
@@ -285,28 +285,35 @@ Accept Quotation
    ↓
 Awaiting Payment
    ↓
-Create Razorpay Order
+Client Opens Advance Payment Page
    ↓
-Razorpay Checkout
+Create Razorpay Order (Full or Partial Advance)
    ↓
-Backend Verification
+Razorpay Checkout (Frontend SDK)
+   ↓
+Backend Verification (HMAC-SHA256 Signature Verification)
    ↓
 Payment = paid
    ↓
-Required Advance Verified
+Update Advance Paid & Outstanding Balances
    ↓
-Event = confirmed
+Is Entire Required Advance Paid?
+   ├─ NO: Advance Installment = 'Partially Paid', Event remains 'awaiting_payment'
+   └─ YES: Advance Installment = 'Paid', Event = 'confirmed'
 
 Implement:
 
-[DONE] Create payment order (Payments Part 1)
-Razorpay checkout (frontend - pending)
-[DONE] Payment verification - HMAC-SHA256 + quotation cross-check + production amount/currency fetch (Payments Part 2)
-[DONE] Signature verification (Payments Part 2)
-[DONE] Payment record - model, repository, status lifecycle (Payments Part 1)
-Payment history (future)
-Payment details (future)
-Remaining balance (future)
+- [DONE] Create payment order with full or partial advance amount (`POST /api/payments/create-order`)
+- [DONE] Razorpay checkout frontend integration (`ClientAdvancePayment.tsx`)
+- [DONE] Payment verification with HMAC-SHA256 + quotation cross-check + gateway amount verification (`POST /api/payments/verify`)
+- [DONE] Signature verification
+- [DONE] Authoritative advance summary calculation and endpoint (`GET /api/payments/advance-summary/:eventId`)
+- [DONE] Partial advance payments support and outstanding advance balance tracking
+- [DONE] Event confirmation strictly enforced only when full required advance is verified
+- [DONE] Admin payment visibility (`GET /api/payments/admin` and `AdminEventDetails.tsx`)
+- [DONE] Payment history display on Client Advance Payment and Admin Event pages
+- [PENDING - Prompt 2] Subsequent installment renewal and link generation
+- [PENDING - Prompt 3] Automated email payment reminders & scheduler
 
 Never trust frontend payment success alone.
 

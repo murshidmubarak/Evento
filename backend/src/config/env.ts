@@ -49,8 +49,12 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET as string,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN as import('jsonwebtoken').SignOptions['expiresIn'],
   passwordResetExpiresInMins: parseInt(process.env.PASSWORD_RESET_EXPIRES_IN_MINS as string, 10),
-  razorpayKeyId: process.env.RAZORPAY_KEY_ID as string,
-  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET as string,
+  get razorpayKeyId(): string {
+    return process.env.RAZORPAY_KEY_ID as string;
+  },
+  get razorpayKeySecret(): string {
+    return process.env.RAZORPAY_KEY_SECRET as string;
+  },
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME as string,
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY as string,
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET as string,

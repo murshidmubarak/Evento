@@ -274,4 +274,25 @@ Change local UI text in one page.
 - Added teardown cleanup: exported `cleanupTestDatabase()` and added a process `beforeExit` hook to drop the test database completely after test execution.
 - Added permanent rules to `AGENTS.md` (Section 26) and `docs/04-status-and-business-rules.md` (Section 33) forbidding insertion of dummy test data into the real database, forbidding deletion of real database records, and mandating complete post-test data teardown.
 **Impact:**
-- Zero breaking changes to application logic. Completely eliminates accidental data loss and test pollution in the development database. Tested and verified.
+- Zero breaking changes to application logic. Completely eliminates accidental data loss and test pollution in the development database. Tested and verified.
+
+### [Payment Flow Milestone 1 — Advance Payments, Partial Payments, Razorpay Verification & Event Confirmation]
+**Date:** 2026-10-12
+**Classification:** Medium Impact (Additive and backward-compatible extension to payments architecture)
+**Changes:**
+- Backend Repository: Extended `PaymentRepository` with `findVerifiedAdvancePayments`, `cancelPendingAdvancePayments`, `findByEventId`, and `findAll`.
+- Backend Service: Extended `PaymentService`:
+  - `createAdvanceOrder`: computes backend-authoritative verified advance paid and outstanding advance; supports optional `partialAmount` (validated strictly: > 0 and <= `outstandingAdvance`); guards against repeated payments once advance is fully settled; reuses existing pending orders matching target amount.
+  - `verifyPayment`: validates HMAC-SHA256 signature; prevents duplicate transaction processing; updates payment to `paid`; updates quotation advance installment status to `Partially Paid` or `Paid`; updates event status to `confirmed` strictly only when the full required advance has been received and verified.
+  - `getAdvanceSummary`: returns authoritative financial calculations, payment eligibility, advance installment details, and verified payment history.
+  - `getAdminPayments`: administrative query endpoint for payment transactions.
+- Backend Routes: Added `GET /api/payments/advance-summary/:eventId` and `GET /api/payments/admin`. Updated `create-order` validation to allow optional numeric `partialAmount`.
+- Database & Model Fix: Removed redundant duplicate index on `receiptReference` in `payment.model.ts`. Switched `razorpayKeyId` and `razorpayKeySecret` in `env.ts` to dynamic ES getters.
+- Frontend Client Interface: Created `ClientAdvancePayment.tsx` with authoritative summary cards (Total Quotation, Required Advance, Verified Paid, Outstanding Advance), full or custom partial payment toggle, Razorpay Checkout SDK dynamic loading, payment processing and verification loading states, and verified transaction records.
+- Frontend Routing: Registered `/client/events/:id/payment` in `AppRoutes.tsx`.
+- Frontend Integration: Added Advance Payment navigation and action buttons in `ClientViewQuotation.tsx`, `EventDetails.tsx`, and `ClientQuotations.tsx`.
+- Frontend Admin Visibility: Added Advance Payment summary card in `AdminEventDetails.tsx` displaying required advance, verified paid, outstanding advance, payment status, and transactions. Added installment status badges in `AdminViewQuotation.tsx`.
+- Tests: Added integration tests 36–48 in `backend/tests/payments.test.ts` verifying the reference financial fixture (₹100,000 required, ₹40,000 partial payment keeping event `awaiting_payment`, ₹60,000 completion confirming event, idempotency, duplicate protection, and RBAC).
+**Impact:**
+- No breaking changes. Existing quotation builder, payment schedule configuration, and quotation revisions remain completely intact. No arbitrary financial calculations in browser. All 254 backend integration tests pass. Frontend production build and tests pass cleanly.
+

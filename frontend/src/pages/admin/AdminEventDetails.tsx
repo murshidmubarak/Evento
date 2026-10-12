@@ -4,13 +4,17 @@ import { getEventById } from '../../features/events/eventsApi';
 import { getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, Calendar, Clock, MapPin, Users, Mail, Phone, ArrowLeft, FileText, ImageIcon, Eye, Building2, User } from 'lucide-react';
+import { Loader2, Calendar, Clock, MapPin, Users, Mail, Phone, ArrowLeft, FileText, ImageIcon, Eye, Building2, User, CreditCard } from 'lucide-react';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
+import { getAdvanceSummary } from '../../features/payments/paymentsApi';
+import type { AdvancePaymentSummary } from '../../features/payments/payment.types';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 
 export const AdminEventDetails = () => {
   const { id } = useParams<{ id: string }>();
   const [event, setEvent] = useState<ClientEvent | null>(null);
   const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [paymentSummary, setPaymentSummary] = useState<AdvancePaymentSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -30,6 +34,13 @@ export const AdminEventDetails = () => {
             }
           } catch (qErr) {
             console.error('Failed to fetch quotation for this event', qErr);
+          }
+
+          try {
+            const summaryData = await getAdvanceSummary(id);
+            setPaymentSummary(summaryData);
+          } catch (pErr) {
+            // No accepted quotation or payment yet, quietly ignore
           }
         }
       } catch (err: any) {
@@ -267,6 +278,80 @@ export const AdminEventDetails = () => {
 
         {/* Right Column - Meta Info */}
         <div className="space-y-6">
+
+          {/* Advance Payment Visibility Card */}
+          {paymentSummary && paymentSummary.hasAcceptedQuotation && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-indigo-600" />
+                  Advance Payment Summary
+                </h3>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                    paymentSummary.isFullyPaid
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : paymentSummary.advancePaidAmount > 0
+                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                  }`}
+                >
+                  {paymentSummary.isFullyPaid
+                    ? 'Paid'
+                    : paymentSummary.advancePaidAmount > 0
+                    ? 'Partially Paid'
+                    : 'Pending'}
+                </span>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Required Advance</span>
+                    <span className="text-sm font-black text-gray-900">{formatCurrency(paymentSummary.requiredAdvance)}</span>
+                  </div>
+                  <div className="p-3 bg-emerald-50/60 rounded-lg border border-emerald-100">
+                    <span className="text-emerald-700 block text-[10px] uppercase font-bold">Verified Paid</span>
+                    <span className="text-sm font-black text-emerald-700">{formatCurrency(paymentSummary.advancePaidAmount)}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-100">
+                  <span className="text-gray-500 font-medium">Outstanding Advance:</span>
+                  <span className="font-extrabold text-amber-700 text-sm">
+                    {formatCurrency(paymentSummary.outstandingAdvance)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>Quotation Ref:</span>
+                  <span className="font-mono font-semibold text-gray-800">
+                    {paymentSummary.quotationNumber} (Rev {paymentSummary.quotationRevision})
+                  </span>
+                </div>
+
+                {paymentSummary.payments && paymentSummary.payments.length > 0 && (
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block">
+                      Verified Transactions ({paymentSummary.payments.length})
+                    </span>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {paymentSummary.payments.map((p) => (
+                        <div key={p.id} className="p-2 bg-gray-50 rounded text-[11px] flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-gray-900">{formatCurrency(p.amount)}</span>
+                            <span className="text-gray-400 block text-[10px] font-mono truncate max-w-[140px]">
+                              {p.razorpayPaymentId || p.receiptReference}
+                            </span>
+                          </div>
+                          <span className="text-gray-400 text-[10px]">{formatDate(p.createdAt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Client Information */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

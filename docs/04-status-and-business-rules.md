@@ -284,18 +284,34 @@ Optional refund:
 paid
    ↓
 refunded
-Payment Rules
-Payment starts as created, then moves to pending when order is generated.
-Creating a Razorpay order does not mean payment is successful.
-Idempotency: If a pending payment order already exists for an Event and Quotation, it is reused to prevent duplicate gateways orders.
-Frontend payment success must not be treated as final confirmation.
-Backend verifies the payment.
-Backend verifies the Razorpay signature using HMAC-SHA256 securely.
-Only successful backend verification can mark a payment as paid.
-Payment must belong to the correct Event, Client and Quotation.
-Idempotency: If a payment is already marked 'paid', subsequent verification requests return success without re-processing.
-Amount must come strictly from the authoritative accepted Quotation.
-Event becomes confirmed only when the required advance payment has been successfully verified.
+### Payment Rules
+- **Payment Lifecycle**: Payment starts as `created`, then moves to `pending` when the Razorpay gateway order is generated, and finally `paid` upon HMAC signature verification.
+- **Payment Eligibility**: An advance payment can only be initiated if:
+  - The Event belongs to the authenticated Client.
+  - The Event status is `awaiting_payment`.
+  - A valid accepted quotation exists for the event with `advanceAmount > 0`.
+  - The required advance has not already been fully settled (`outstandingAdvance > 0`).
+- **Gateway Security**: Creating a Razorpay order does not mean payment is successful. Frontend payment success is never treated as authoritative confirmation.
+- **Idempotency & Order Reuse**: If a pending payment order already exists for an Event, Quotation, and matching amount, it is reused to prevent duplicate gateway orders.
+- **Backend Verification**: The backend strictly verifies the Razorpay signature using HMAC-SHA256. In live environments, gateway transaction details (currency and paise amount) are validated directly with the Razorpay API before capture.
+- **Authoritative Financial Calculations**:
+  - `Advance Paid Amount` = Sum of all verified (`status: 'paid'`) advance transactions for the event and accepted quotation.
+  - `Outstanding Advance` = `round2(Required Advance - Advance Paid Amount)`.
+  - Neither the client nor browser calculations are trusted for financial balances.
+- **Partial Advance Payments**:
+  - The client may make partial milestone payments towards the required advance.
+  - Partial amounts must be greater than zero and must not exceed the current `Outstanding Advance`.
+  - If a partial payment is verified and `Outstanding Advance > 0`:
+    - The quotation advance installment status is marked as `Partially Paid`.
+    - The Event status remains `awaiting_payment` (the event is **NOT** confirmed).
+- **Full Advance Settlement & Event Confirmation**:
+  - When cumulative verified advance payments equal the `Required Advance` (`Outstanding Advance === 0`):
+    - The quotation advance installment status is marked as `Paid`.
+    - The Event status transitions from `awaiting_payment` to `confirmed`.
+  - No event may be confirmed until the complete required advance has been received and verified.
+- **Duplicate Transaction Safeguards**:
+  - Subsequent verification requests for an already verified transaction return the authoritative state idempotently without double-counting amounts.
+  - Repeated orders or stale revisions cannot alter historical verified records.
 8. Event Manager Assignment Rules
 
 Event Manager assignment happens after Event confirmation.

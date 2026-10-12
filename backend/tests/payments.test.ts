@@ -230,10 +230,9 @@ describe('Payments API', () => {
   });
 
   it('26. Security - Production cannot bypass Razorpay even with dummy keys', async () => {
-    // We mock nodeEnv to production temporarily to prove the safeguard holds
-    const originalNodeEnv = env.nodeEnv;
-    // @ts-ignore - circumventing readonly for test
-    env.nodeEnv = 'production';
+    // We mock NODE_ENV to production temporarily to prove the safeguard holds
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
     
     // Clean up eventId1's payment so we don't hit idempotency logic (which returns 201)
     await Payment.deleteMany({ eventId: eventId1 });
@@ -249,17 +248,15 @@ describe('Payments API', () => {
     const data = await res.json() as any;
     assert.equal(data.message, 'Failed to create Razorpay order.');
 
-    // @ts-ignore
-    env.nodeEnv = originalNodeEnv;
+    process.env.NODE_ENV = originalNodeEnv;
   });
 
   it('27. Security - Development with dummy keys correctly bypasses Razorpay', async () => {
     // Delete payment again to bypass idempotency
     await Payment.deleteMany({ eventId: eventId1 });
     
-    const originalNodeEnv = env.nodeEnv;
-    // @ts-ignore
-    env.nodeEnv = 'development';
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
     
     // Ensure the key is the dummy key (as configured in test environment)
     assert.equal(env.razorpayKeyId, 'rzp_test_dummy_key_id');
@@ -272,8 +269,7 @@ describe('Payments API', () => {
     // In development with dummy key, shouldBypass is true. It generates a fake order ID and succeeds.
     assert.equal(res.status, 201, 'Development with dummy keys must successfully bypass Razorpay');
     
-    // @ts-ignore
-    env.nodeEnv = originalNodeEnv;
+    process.env.NODE_ENV = originalNodeEnv;
   });
 
   it('28. Payment Order creation correctly uses advanceAmount from a tax-inclusive accepted quotation', async () => {
@@ -490,4 +486,307 @@ describe('Payments API', () => {
       assert.ok(data.message.includes('superseded'), `Expected superseded rejection, got: ${data.message}`);
     });
   });
+
+  describe('Partial Advance Payments, Advance Summary & Event Confirmation (Prompt 1 Milestone)', () => {
+    let partialEventId: string;
+    let partialQuotationId: string;
+
+    before(async () => {
+      // Create reference fixture matching prompt:
+      // Final amount: 372,000; Required advance: 100,000; Remaining: 272,000
+      const ev = await Event.create({
+        clientId: clientId1,
+        title: 'Grand Gala 2026',
+        eventType: 'Corporate',
+        date: new Date('2026-10-15'),
+        startTime: '18:00',
+        endTime: '23:00',
+        location: { address: 'Convention Hall, City' },
+        guestCount: 500,
+        status: 'awaiting_payment',
+      });
+      partialEventId = ev.id;
+
+      const qtn = await Quotation.create({
+        quotationNumber: 'QTN-2026-003',
+        revision: 1,
+        eventId: ev._id,
+        clientId: clientId1,
+        createdBy: adminId,
+        status: 'accepted',
+        items: [
+          {
+            serviceId,
+            name: 'Production & Logistics',
+            description: 'Full event production',
+            pricingType: 'package',
+            quantity: 1,
+            unitPrice: 372000,
+            amount: 372000,
+          },
+        ],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        paymentPlan: [
+          {
+            title: 'Booking Advance',
+            amount: 100000,
+            dueDateDescription: 'Immediate upon acceptance',
+            dueDate: new Date('2026-10-11'),
+            expiryDate: new Date('2026-10-15'),
+            status: 'Pending',
+            purpose: ['advance'],
+          },
+          {
+            title: 'Final settlement',
+            amount: 272000,
+            dueDateDescription: 'Prior to event day',
+            dueDate: new Date('2026-10-16'),
+            expiryDate: new Date('2026-10-24'),
+            status: 'Pending',
+            purpose: ['settlement'],
+          },
+        ],
+      });
+      partialQuotationId = qtn.id;
+    });
+
+    it('36. Client can retrieve authoritative advance summary before payment', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.success, true);
+      assert.equal(body.data.requiredAdvance, 100000);
+      assert.equal(body.data.advancePaidAmount, 0);
+      assert.equal(body.data.outstandingAdvance, 100000);
+      assert.equal(body.data.isFullyPaid, false);
+      assert.equal(body.data.isEligibleForPayment, true);
+      assert.equal(body.data.quotationNumber, 'QTN-2026-003');
+    });
+
+    it('37. Unauthorized client cannot view advance summary of another client -> 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken2}` },
+      });
+      assert.equal(res.status, 403);
+    });
+
+    it('38. Admin can view advance summary for any event', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.outstandingAdvance, 100000);
+    });
+
+    it('39. Backend validates partial amount: rejects <= 0 or amount exceeding outstanding advance -> 400', async () => {
+      // Rejects negative/zero
+      const resZero = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, partialAmount: 0 }),
+      });
+      assert.equal(resZero.status, 400);
+
+      // Rejects exceeding outstanding (120,000 > 100,000)
+      const resExceed = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, partialAmount: 120000 }),
+      });
+      assert.equal(resExceed.status, 400);
+      const exceedBody = (await resExceed.json()) as any;
+      assert.ok(exceedBody.message.includes('exceed'), `Expected exceed message, got ${exceedBody.message}`);
+    });
+
+    let orderIdPart1: string;
+    let paymentIdPart1: string;
+
+    it('40. Initiates first partial payment (₹40,000 of ₹100,000 required)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, partialAmount: 40000 }),
+      });
+      assert.equal(res.status, 201);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.amount, 40000);
+      assert.equal(body.data.requiredAdvance, 100000);
+      assert.equal(body.data.outstandingAdvance, 100000);
+      orderIdPart1 = body.data.razorpayOrderId;
+      paymentIdPart1 = body.data.paymentId;
+    });
+
+    it('41. Failed verification does not update verified paid amount and does not confirm event', async () => {
+      const badSig = 'bad_sig_12345';
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderIdPart1,
+          razorpay_payment_id: 'pay_fail_test',
+          razorpay_signature: badSig,
+        }),
+      });
+      assert.equal(res.status, 400);
+
+      // Verify DB state did not change
+      const payment = await Payment.findById(paymentIdPart1);
+      assert.equal(payment?.status, 'failed');
+
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'awaiting_payment');
+    });
+
+    it('42. Verifies first partial payment (₹40,000): event remains awaiting_payment and installment is Partially Paid', async () => {
+      // Re-create order after failure
+      const createRes = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, partialAmount: 40000 }),
+      });
+      assert.equal(createRes.status, 201);
+      const createBody = (await createRes.json()) as any;
+      orderIdPart1 = createBody.data.razorpayOrderId;
+      paymentIdPart1 = createBody.data.paymentId;
+
+      const rzpPaymentId1 = 'pay_part1_success';
+      const validSig = crypto
+        .createHmac('sha256', env.razorpayKeySecret)
+        .update(`${orderIdPart1}|${rzpPaymentId1}`)
+        .digest('hex');
+
+      const verifyRes = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderIdPart1,
+          razorpay_payment_id: rzpPaymentId1,
+          razorpay_signature: validSig,
+        }),
+      });
+      assert.equal(verifyRes.status, 200);
+      const verifyBody = (await verifyRes.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 40000);
+      assert.equal(verifyBody.data.totalAdvancePaid, 40000);
+      assert.equal(verifyBody.data.outstandingAdvance, 60000);
+      assert.equal(verifyBody.data.isFullyPaid, false);
+      assert.equal(verifyBody.data.eventStatus, 'awaiting_payment');
+
+      // Check event in DB: must still be awaiting_payment
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'awaiting_payment');
+
+      // Check quotation in DB: installment must be Partially Paid
+      const qtn = await Quotation.findById(partialQuotationId);
+      assert.equal(qtn?.paymentPlan?.[0]?.status, 'Partially Paid');
+    });
+
+    it('43. Advance summary reflects partial state: paid ₹40,000, outstanding ₹60,000', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.advancePaidAmount, 40000);
+      assert.equal(body.data.outstandingAdvance, 60000);
+      assert.equal(body.data.isFullyPaid, false);
+      assert.equal(body.data.isEligibleForPayment, true);
+      assert.equal(body.data.payments.length, 1);
+    });
+
+    it('44. Initiates and verifies second partial payment (₹60,000): completes advance and confirms event', async () => {
+      // Client now pays remaining 60,000
+      const createRes = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, partialAmount: 60000 }),
+      });
+      assert.equal(createRes.status, 201);
+      const createBody = (await createRes.json()) as any;
+      assert.equal(createBody.data.amount, 60000);
+      assert.equal(createBody.data.outstandingAdvance, 60000);
+      const orderIdPart2 = createBody.data.razorpayOrderId;
+
+      const rzpPaymentId2 = 'pay_part2_success';
+      const sig2 = crypto
+        .createHmac('sha256', env.razorpayKeySecret)
+        .update(`${orderIdPart2}|${rzpPaymentId2}`)
+        .digest('hex');
+
+      const verifyRes = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderIdPart2,
+          razorpay_payment_id: rzpPaymentId2,
+          razorpay_signature: sig2,
+        }),
+      });
+      assert.equal(verifyRes.status, 200);
+      const verifyBody = (await verifyRes.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 60000);
+      assert.equal(verifyBody.data.totalAdvancePaid, 100000);
+      assert.equal(verifyBody.data.outstandingAdvance, 0);
+      assert.equal(verifyBody.data.isFullyPaid, true);
+      assert.equal(verifyBody.data.eventStatus, 'confirmed');
+
+      // Check event in DB: must now be confirmed!
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'confirmed');
+
+      // Check quotation in DB: installment must now be Paid
+      const qtn = await Quotation.findById(partialQuotationId);
+      assert.equal(qtn?.paymentPlan?.[0]?.status, 'Paid');
+    });
+
+    it('45. Duplicate transaction protection: re-verifying does not increase paid total or double-count', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.advancePaidAmount, 100000);
+      assert.equal(body.data.outstandingAdvance, 0);
+      assert.equal(body.data.isFullyPaid, true);
+      assert.equal(body.data.isEligibleForPayment, false);
+      assert.equal(body.data.payments.length, 2);
+    });
+
+    it('46. Attempting to create advance order when already fully paid -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId }),
+      });
+      // Event is now confirmed, and advance is fully paid -> rejects
+      assert.equal(res.status, 400);
+    });
+
+    it('47. Admin payments endpoint lists payment records', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/admin?eventId=${partialEventId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.success, true);
+      assert.ok(Array.isArray(body.data));
+      assert.ok(body.data.length >= 2);
+    });
+
+    it('48. Client cannot access admin payments endpoint -> 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/admin`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 403);
+    });
+  });
 });
+

@@ -10,6 +10,8 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config();
 
 process.env.NODE_ENV = 'test';
+process.env.RAZORPAY_KEY_ID = 'rzp_test_dummy_key_id';
+process.env.RAZORPAY_KEY_SECRET = 'dummy_secret';
 
 // ISOLATE TEST DATABASE:
 // Ensure tests always run against eventops_test so that test cleanup

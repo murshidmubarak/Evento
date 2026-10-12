@@ -606,6 +606,19 @@ export const AdminViewQuotation = () => {
                                 {plan.percentage}%
                               </span>
                             )}
+                            {plan.status && (
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                  plan.status === 'Paid'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    : plan.status === 'Partially Paid'
+                                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                }`}
+                              >
+                                {plan.status}
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-slate-500 text-[11px]">
                             {plan.dueDate && (

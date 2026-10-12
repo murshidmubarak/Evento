@@ -274,13 +274,19 @@ export const ClientViewQuotation: React.FC = () => {
           <div className="flex-1">
             <p className="font-bold text-sm">{successBanner.message}</p>
             {successBanner.type === 'accepted' && (
-              <div className="mt-2.5 flex items-center gap-3">
+              <div className="mt-3 flex items-center gap-3 flex-wrap">
+                <Link
+                  to={`/client/events/${quotation.eventId}/payment`}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                >
+                  Proceed to Advance Payment
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
                 <Link
                   to={`/client/events/${quotation.eventId}`}
                   className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline"
                 >
                   View Event Details
-                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
                 <Link
                   to="/client/quotations"
@@ -344,13 +350,21 @@ export const ClientViewQuotation: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <Link
-                to={`/client/events/${quotation.eventId}`}
-                className="shrink-0 px-3.5 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors shadow-xs hidden sm:inline-flex items-center gap-1.5"
-              >
-                View Event
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+              <div className="shrink-0 flex items-center gap-2 flex-wrap">
+                <Link
+                  to={`/client/events/${quotation.eventId}/payment`}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs inline-flex items-center gap-1.5"
+                >
+                  Advance Payment
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+                <Link
+                  to={`/client/events/${quotation.eventId}`}
+                  className="px-3.5 py-1.5 bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold rounded-lg hover:bg-emerald-100/60 transition-colors shadow-xs hidden sm:inline-flex items-center gap-1.5"
+                >
+                  View Event
+                </Link>
+              </div>
             </div>
           ) : quotation.status === 'changes_requested' ? (
             <div className="bg-purple-50 border border-purple-200 p-4 sm:p-5 rounded-xl text-purple-900 flex items-start gap-3.5 shadow-xs">
@@ -629,6 +643,19 @@ export const ClientViewQuotation: React.FC = () => {
                             {plan.percentage && (
                               <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-200/80 text-slate-700">
                                 {plan.percentage}%
+                              </span>
+                            )}
+                            {plan.status && (
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                  plan.status === 'Paid'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    : plan.status === 'Partially Paid'
+                                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                }`}
+                              >
+                                {plan.status}
                               </span>
                             )}
                           </div>

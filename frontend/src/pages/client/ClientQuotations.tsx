@@ -356,26 +356,36 @@ export const ClientQuotations: React.FC = () => {
                           {formatDate(qtn.validUntil)}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <Link
-                            to={`/client/quotations/${qtn._id}`}
-                            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-xs ${
-                              actionable
-                                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            {actionable ? (
-                              <>
-                                Review & Decide
-                                <ArrowRight className="w-3.5 h-3.5" />
-                              </>
-                            ) : (
-                              <>
-                                <Eye className="w-3.5 h-3.5" />
-                                View Quotation
-                              </>
+                          <div className="flex items-center justify-end gap-2">
+                            {qtn.status === 'accepted' && (
+                              <Link
+                                to={`/client/events/${qtn.eventId}/payment`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                              >
+                                Advance Payment
+                              </Link>
                             )}
-                          </Link>
+                            <Link
+                              to={`/client/quotations/${qtn._id}`}
+                              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-xs ${
+                                actionable
+                                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                  : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {actionable ? (
+                                <>
+                                  Review & Decide
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  View Quotation
+                                </>
+                              )}
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -426,6 +436,16 @@ export const ClientQuotations: React.FC = () => {
                       <span className="text-gray-700">{formatDate(qtn.validUntil)}</span>
                     </div>
                   </div>
+
+                  {qtn.status === 'accepted' && (
+                    <Link
+                      to={`/client/events/${qtn.eventId}/payment`}
+                      className="w-full py-2 px-4 mb-2 rounded-lg text-xs font-bold bg-emerald-600 text-white flex items-center justify-center gap-1.5 transition-all shadow-xs"
+                    >
+                      <span>Proceed to Advance Payment</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
 
                   <Link
                     to={`/client/quotations/${qtn._id}`}

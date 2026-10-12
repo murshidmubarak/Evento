@@ -38,7 +38,6 @@ const PaymentSchema = new Schema<IPayment>(
 PaymentSchema.index({ eventId: 1 });
 PaymentSchema.index({ clientId: 1 });
 PaymentSchema.index({ quotationId: 1 });
-PaymentSchema.index({ receiptReference: 1 }, { unique: true });
 PaymentSchema.index({ razorpayOrderId: 1 });
 
 export const Payment = mongoose.model<IPayment>('Payment', PaymentSchema);

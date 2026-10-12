@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getEventById } from '../../features/events/eventsApi';
 import type { ClientEvent } from '../../features/events/event.types';
-import { Loader2, ArrowLeft, Calendar, MapPin, Users, IndianRupee, Clock, CheckCircle2, User, Mail, Phone, Sparkles } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, MapPin, Users, IndianRupee, Clock, CheckCircle2, User, Mail, Phone, Sparkles, CreditCard, ArrowRight } from 'lucide-react';
 
 const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
   requested: { bg: 'bg-amber-50 border-amber-200/70', text: 'text-amber-700', label: 'Requested' },
@@ -256,6 +256,30 @@ export const EventDetails = () => {
           </span>
         </div>
       </div>
+
+      {/* Advance Payment Banner */}
+      {event.status === 'awaiting_payment' && (
+        <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 border border-orange-200/80 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Booking Advance Payment Required</h3>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Your quotation has been accepted! Please complete the required advance milestone to confirm this event and secure your production team.
+              </p>
+            </div>
+          </div>
+          <Link
+            to={`/client/events/${event._id}/payment`}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs shrink-0"
+          >
+            <span>Make Advance Payment</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
 
       {/* Overview Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">

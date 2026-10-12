@@ -472,4 +472,55 @@ Fixed / Verified
 
 Never connect to a development database during tests. All tests must run strictly against isolated test databases ending in `_test`, which must be automatically dropped upon test completion.
 
+---
+
+## BUG-010 — Duplicate Schema Index on receiptReference in Payment Model and Razorpay Environment Config in Tests
+
+### Date
+
+2026-10-12
+
+### Affected Modules
+
+- `backend/src/modules/payments/model/payment.model.ts`
+- `backend/src/config/env.ts`
+- `backend/tests/setup.ts`
+- `backend/tests/payments.test.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. **Duplicate Schema Index Warning:**
+   Mongoose threw a duplicate index warning on model compilation: `An index with the same specification already exists: { receiptReference: 1 }`.
+2. **Missing Test Gateway Credentials:**
+   Running payment tests in an isolated test environment without `.env` caused Razorpay initialization to fail or miss expected dummy key values.
+3. **Cannot Assign to Readonly Property:**
+   Tests attempting `(env as any).nodeEnv = 'production'` threw a TypeError because `nodeEnv` is a readonly getter on `env`.
+
+### Root Cause
+
+1. `receiptReference: { type: String, required: true, unique: true }` automatically creates a unique index on the path in Mongoose. A duplicate `PaymentSchema.index({ receiptReference: 1 }, { unique: true })` was also declared below the schema.
+2. In `backend/src/config/env.ts`, `razorpayKeyId` and `razorpayKeySecret` were defined as static properties instead of dynamic getters.
+3. `tests/setup.ts` did not define fallback dummy credentials for Razorpay, causing test runs to rely on developer `.env` files.
+4. Direct mutation of `(env as any).nodeEnv` conflicted with the dynamic getter pattern introduced in BUG-009.
+
+### Solution
+
+1. Removed the redundant `PaymentSchema.index({ receiptReference: 1 })` in `payment.model.ts`.
+2. Switched `razorpayKeyId` and `razorpayKeySecret` in `backend/src/config/env.ts` to dynamic ES getters (`get razorpayKeyId() { return process.env.RAZORPAY_KEY_ID || ''; }`).
+3. Added default test dummy Razorpay credentials to `backend/tests/setup.ts` (`process.env.RAZORPAY_KEY_ID = 'rzp_test_dummy_key_id'`).
+4. Updated `payments.test.ts` to mutate `process.env.NODE_ENV` instead of the readonly `env.nodeEnv` getter.
+
+### Rule
+
+Never declare explicit `.index()` definitions for schema paths already configured with `unique: true`. Always use dynamic ES getters for environment variables that may be dynamically altered during test runs.
+
+
 
