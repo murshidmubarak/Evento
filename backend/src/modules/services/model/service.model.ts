@@ -42,7 +42,4 @@ const serviceSchema = new Schema<IService>(
   }
 );
 
-// Add index on name for quick lookups and uniqueness enforcement
-serviceSchema.index({ name: 1 }, { unique: true });
-
 export const Service = mongoose.model<IService>('Service', serviceSchema);

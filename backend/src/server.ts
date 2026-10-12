@@ -17,6 +17,18 @@ const startServer = async (): Promise<void> => {
   // 1. Connect to MongoDB before accepting HTTP requests
   await connectDB();
 
+  // Ensure default catalog services exist and are active
+  if (env.nodeEnv !== 'test') {
+    try {
+      const { ServiceService } = await import('./modules/services/service/service.service.js');
+      const serviceService = new ServiceService();
+      await serviceService.ensureDefaultServices();
+      console.log('✅ Default services verified & ready');
+    } catch (seedErr) {
+      console.warn('⚠️ Could not verify default services on startup:', seedErr);
+    }
+  }
+
   // 2. Start listening
   const server = app.listen(env.port, () => {
     console.log(`🚀 EventOps API running on http://localhost:${env.port}`);

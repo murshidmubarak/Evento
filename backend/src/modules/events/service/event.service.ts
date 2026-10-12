@@ -20,9 +20,15 @@ export class EventService {
     if (data.selectedServices && Array.isArray(data.selectedServices)) {
       for (const item of data.selectedServices) {
         const serviceId = item.serviceId;
-        const service = await this.serviceRepository.findById(serviceId);
+        let service = serviceId ? await this.serviceRepository.findById(serviceId) : null;
+        if (!service && item.name) {
+          service = await this.serviceRepository.findByName(item.name);
+          if (service) {
+            item.serviceId = service._id.toString();
+          }
+        }
         if (!service) {
-          throw ApiError.badRequest(`Service with ID ${serviceId} not found`);
+          throw ApiError.badRequest(`Service with ID ${serviceId || item.name} not found`);
         }
         if (!service.isActive) {
           throw ApiError.badRequest(`Service '${service.name}' is currently inactive and cannot be selected`);

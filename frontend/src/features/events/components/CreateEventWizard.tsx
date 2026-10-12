@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../../store/hooks';
 import { getActiveServices } from '../../services/servicesApi';
@@ -261,27 +261,35 @@ export const CreateEventWizard = () => {
   // Upload state: tracks if reference image upload failed after event creation
   const [uploadError, setUploadError] = useState('');
   const [isRetryingUpload, setIsRetryingUpload] = useState(false);
+  const [servicesLoadError, setServicesLoadError] = useState('');
 
-  useEffect(() => {
-    const loadServices = async () => {
-      setIsLoadingServices(true);
-      try {
-        const services = await getActiveServices();
-        setAvailableServices(services);
-      } catch (err) {
-        console.error('Failed to load services', err);
-      } finally {
-        setIsLoadingServices(false);
+  const loadServices = useCallback(async () => {
+    setIsLoadingServices(true);
+    setServicesLoadError('');
+    try {
+      const services = await getActiveServices();
+      setAvailableServices(services || []);
+      if (!services || services.length === 0) {
+        setServicesLoadError('No active services currently found in the catalog.');
       }
-    };
-    loadServices();
+    } catch (err: any) {
+      console.error('Failed to load services', err);
+      setServicesLoadError('Failed to load services from server. Please check your connection.');
+    } finally {
+      setIsLoadingServices(false);
+    }
   }, []);
 
-  const getSelectedServicesList = () => {
+  useEffect(() => {
+    loadServices();
+  }, [loadServices]);
+
+  const getSelectedServicesList = useCallback(() => {
     const list: Array<{ serviceId: string, preferences: any, name: string, basePrice: number }> = [];
 
     // Catering
-    const catService = availableServices.find(s => s.name.toLowerCase().match(/catering|food|dining/));
+    const catService = availableServices.find(s => s.name.toLowerCase().match(/cater|food|dining/i)) ||
+                       availableServices.find(s => s.name.toLowerCase().includes('cater'));
     const cleanOtherReqs = (cateringPrefs.otherRequirements || [])
       .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
       .filter((r: any) => r.title.length > 0 || r.description.length > 0);
@@ -294,7 +302,7 @@ export const CreateEventWizard = () => {
       (cateringPrefs.otherPreferences && cateringPrefs.otherPreferences.some((p: any) => (p.items && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0))) ||
       (cleanOtherReqs.length > 0);
 
-    const targetCatId = catService?._id || (catService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('cater'))?._id || availableServices[0]?._id;
+    const targetCatId = catService?._id || (catService as any)?.id;
     if (targetCatId && hasCateringData) {
       list.push({
         serviceId: targetCatId,
@@ -308,8 +316,9 @@ export const CreateEventWizard = () => {
     }
 
     // Decoration
-    const decService = availableServices.find(s => s.name.toLowerCase().match(/decoration|stage|decor/));
-    const targetDecId = decService?._id || (decService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('decor'))?._id || availableServices[1]?._id;
+    const decService = availableServices.find(s => s.name.toLowerCase().match(/decor|stage/i)) ||
+                       availableServices.find(s => s.name.toLowerCase().includes('decor'));
+    const targetDecId = decService?._id || (decService as any)?.id;
     const cleanDecReqs = (decorationPrefs.requirements || [])
       .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
       .filter((r: any) => r.title.length > 0 || r.description.length > 0);
@@ -327,8 +336,9 @@ export const CreateEventWizard = () => {
     }
 
     // Photography
-    const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/));
-    const targetPhotoId = photoService?._id || (photoService as any)?.id || availableServices.find(s => s.name.toLowerCase().includes('photo'))?._id || availableServices[2]?._id;
+    const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/i)) ||
+                         availableServices.find(s => s.name.toLowerCase().includes('photo'));
+    const targetPhotoId = photoService?._id || (photoService as any)?.id;
     const cleanPhotoReqs = (photoPrefs.requirements || [])
       .map((r: any) => ({ title: (r.title || '').trim(), description: (r.description || '').trim() }))
       .filter((r: any) => r.title.length > 0 || r.description.length > 0);
@@ -346,7 +356,7 @@ export const CreateEventWizard = () => {
     }
 
     return list;
-  };
+  }, [availableServices, cateringPrefs, decorationPrefs, photoPrefs, referenceImages]);
 
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -452,6 +462,33 @@ export const CreateEventWizard = () => {
 
     if (!hasAtLeastOneService) {
       errors.services = 'Please select at least one service (Catering, Stage Decoration, Photography) or add a special request';
+    }
+
+    // Verify service ID resolution for all selected services
+    const catService = availableServices.find(s => s.name.toLowerCase().match(/cater|food|dining/i)) ||
+                       availableServices.find(s => s.name.toLowerCase().includes('cater'));
+    const decService = availableServices.find(s => s.name.toLowerCase().match(/decor|stage/i)) ||
+                       availableServices.find(s => s.name.toLowerCase().includes('decor'));
+    const photoService = availableServices.find(s => s.name.toLowerCase().match(/photo|video|camera/i)) ||
+                         availableServices.find(s => s.name.toLowerCase().includes('photo'));
+
+    const targetCatId = catService?._id || (catService as any)?.id;
+    const targetDecId = decService?._id || (decService as any)?.id;
+    const targetPhotoId = photoService?._id || (photoService as any)?.id;
+
+    if (hasCateringData && !targetCatId) {
+      errors.services = 'Catering service is not active in the catalog. Please reload services or contact admin.';
+    }
+    if (hasDecorationData && !targetDecId) {
+      errors.services = 'Stage decoration service is not active in the catalog. Please reload services or contact admin.';
+    }
+    if (hasPhotoData && !targetPhotoId) {
+      errors.services = 'Photography service is not active in the catalog. Please reload services or contact admin.';
+    }
+
+    const selectedList = getSelectedServicesList();
+    if ((hasCateringData || hasDecorationData || hasPhotoData) && selectedList.length === 0) {
+      errors.services = 'Configured services could not be linked to active catalog services. Please refresh the page.';
     }
 
     const modes = cateringPrefs.serviceMode || [];
@@ -575,7 +612,8 @@ export const CreateEventWizard = () => {
     setIsSubmitting(true);
     setError('');
 
-    const formattedServices = getSelectedServicesList().map(s => {
+    const selectedList = getSelectedServicesList();
+    const formattedServices = selectedList.map(s => {
       const prefs: any = { ...s.preferences };
       if (Array.isArray(prefs.requirements)) {
         prefs.requirements = prefs.requirements
@@ -594,6 +632,28 @@ export const CreateEventWizard = () => {
         preferences: Object.keys(prefs).length > 0 ? prefs : undefined
       };
     });
+
+    const hasAnyConfiguredService = (
+      (cateringPrefs.serviceMode && cateringPrefs.serviceMode.length > 0) ||
+      (cateringPrefs.starters && cateringPrefs.starters.length > 0) ||
+      (cateringPrefs.mainDishes && cateringPrefs.mainDishes.length > 0) ||
+      (cateringPrefs.juices && cateringPrefs.juices.length > 0) ||
+      (cateringPrefs.desserts && cateringPrefs.desserts.length > 0) ||
+      (cateringPrefs.otherPreferences && cateringPrefs.otherPreferences.some((p: any) => (p.items && p.items.length > 0) || (typeof p === 'string' && p.trim().length > 0))) ||
+      ((cateringPrefs.otherRequirements || []).some((r: any) => (r.title || '').trim() || (r.description || '').trim())) ||
+      Boolean(decorationPrefs.style) ||
+      ((decorationPrefs.requirements || []).some((r: any) => (r.title || '').trim() || (r.description || '').trim())) ||
+      Boolean(decorationPrefs.notes) ||
+      referenceImages.length > 0 ||
+      Boolean(photoPrefs.package) ||
+      ((photoPrefs.requirements || []).some((r: any) => (r.title || '').trim() || (r.description || '').trim()))
+    );
+
+    if (hasAnyConfiguredService && formattedServices.length === 0) {
+      setError('Cannot submit event: Your selected services could not be matched with active catalog services. Please refresh the page and try again.');
+      setIsSubmitting(false);
+      return;
+    }
 
     const specialReqText = specialRequirements
       .filter(r => r.title.trim())
@@ -1147,11 +1207,29 @@ export const CreateEventWizard = () => {
                 <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 flex items-start gap-3 shadow-xs">
                   <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <div className="text-sm font-bold">At least one service required</div>
+                    <div className="text-sm font-bold">Service Selection Notice</div>
                     <div className="text-xs text-amber-800 mt-0.5">
-                      Please select at least one service (Catering, Stage Decoration, Photography) or add a special request to proceed.
+                      {getStep4Errors().services}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {(!isLoadingServices && availableServices.length === 0) && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <Info className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                    <div className="text-xs text-amber-800">
+                      {servicesLoadError || 'No active services found in catalog. Please click Retry to load services.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadServices}
+                    className="text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition"
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
 

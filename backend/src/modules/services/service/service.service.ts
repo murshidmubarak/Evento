@@ -73,4 +73,23 @@ export class ServiceService {
     }
     return service;
   }
+
+  async ensureDefaultServices(): Promise<void> {
+    const defaultServices: Array<{ name: string; description: string; pricingType: PricingType; isActive: boolean }> = [
+      { name: 'Catering', description: 'Food and beverage services', pricingType: 'per_guest', isActive: true },
+      { name: 'Decoration', description: 'Stage and venue decoration', pricingType: 'per_event', isActive: true },
+      { name: 'Photography', description: 'Photography and videography', pricingType: 'package', isActive: true },
+      { name: 'Juice', description: 'Fresh juices and welcome drinks', pricingType: 'per_guest', isActive: true },
+    ];
+
+    for (const service of defaultServices) {
+      const existing = await this.repository.findByName(service.name);
+      if (!existing) {
+        await this.repository.create(service);
+      } else if (!existing.isActive) {
+        await this.repository.update(existing._id.toString(), { isActive: true });
+      }
+    }
+  }
 }
+
