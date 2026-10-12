@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   getQuotationById,
+  getQuotations,
   acceptQuotation,
   rejectQuotation,
   requestChangesQuotation,
@@ -23,12 +24,14 @@ import {
   Users,
   Calendar,
   Sparkles,
+  History,
 } from 'lucide-react';
 
 export const ClientViewQuotation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
 
   const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [allRevisions, setAllRevisions] = useState<Quotation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -55,6 +58,20 @@ export const ClientViewQuotation: React.FC = () => {
         if (id) {
           const data = await getQuotationById(id);
           setQuotation(data);
+
+          if (data.eventId) {
+            try {
+              const revs = await getQuotations(data.eventId);
+              const threadRevs = revs.filter(
+                (r) =>
+                  (r.quotationNumber && r.quotationNumber === data.quotationNumber) ||
+                  r.eventId === data.eventId
+              );
+              setAllRevisions(threadRevs.sort((a, b) => a.revision - b.revision));
+            } catch (revErr) {
+              console.error('Failed to load revision history', revErr);
+            }
+          }
         }
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load quotation');
@@ -403,6 +420,83 @@ export const ClientViewQuotation: React.FC = () => {
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Revision History Section (when multiple revisions exist) */}
+      {allRevisions.length > 1 && quotation && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs print:hidden">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-slate-600" />
+              <h3 className="text-sm font-semibold text-slate-900">Quotation Revision History</h3>
+            </div>
+            <span className="text-xs text-slate-500 font-medium">
+              {allRevisions.length} total revisions
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {allRevisions.map((rev, index) => {
+              const isCurrent = rev._id === quotation._id;
+              const isLatestInThread = index === allRevisions.length - 1;
+
+              return (
+                <Link
+                  key={rev._id}
+                  to={`/client/quotations/${rev._id}`}
+                  className={`p-3.5 rounded-lg border text-left transition-all relative ${
+                    isCurrent
+                      ? 'border-indigo-600 ring-2 ring-indigo-600/10 bg-indigo-50/30'
+                      : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-sm text-slate-900">
+                        Revision {rev.revision}
+                      </span>
+                      {isLatestInThread && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                        rev.status === 'draft'
+                          ? 'bg-slate-100 text-slate-700'
+                          : rev.status === 'sent' || rev.status === 'awaiting_approval'
+                          ? 'bg-amber-50 text-amber-800'
+                          : rev.status === 'changes_requested'
+                          ? 'bg-purple-50 text-purple-800'
+                          : rev.status === 'accepted'
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : 'bg-rose-50 text-rose-700'
+                      }`}
+                    >
+                      {rev.status === 'sent' || rev.status === 'awaiting_approval'
+                        ? 'Awaiting Decision'
+                        : rev.status.replace('_', ' ')}
+                    </span>
+                  </div>
+
+                  <p className="text-xs font-semibold text-slate-800 tabular-nums">
+                    {formatCurrency(rev.finalAmount)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {formatDate(rev.createdAt)}
+                  </p>
+
+                  {isCurrent && (
+                    <div className="mt-2 text-[11px] font-medium text-indigo-700 flex items-center gap-1">
+                      <span>Currently viewing</span>
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
 
