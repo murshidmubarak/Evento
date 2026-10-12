@@ -723,6 +723,14 @@ export class QuotationService {
       }
     }
 
+    const totalInstallments = round2(quotation.paymentPlan.reduce((sum, p) => sum + (Number(p.amount) || 0), 0));
+    if (Math.abs(totalInstallments - quotation.finalAmount) > 0.01) {
+      const diff = round2(totalInstallments - quotation.finalAmount);
+      throw ApiError.badRequest(
+        `Cannot issue quotation: Total payment plan installments (${totalInstallments}) must equal the total quotation value (${quotation.finalAmount}). Difference: ${diff > 0 ? '+' : ''}${diff}`
+      );
+    }
+
     quotation.status = 'sent';
     return quotation.save();
   }

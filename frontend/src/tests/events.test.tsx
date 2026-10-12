@@ -176,7 +176,7 @@ describe('CreateEventWizard Component', () => {
     const dateInput = Array.from(inputs).find(input => input.type === 'date');
     const timeInputs = Array.from(inputs).filter(input => input.type === 'time');
     
-    if (dateInput) fireEvent.change(dateInput, { target: { value: '2026-10-10' } });
+    if (dateInput) fireEvent.change(dateInput, { target: { value: '2027-10-10' } });
     if (timeInputs.length >= 2) {
       fireEvent.change(timeInputs[0], { target: { value: '10:00' } });
       fireEvent.change(timeInputs[1], { target: { value: '18:00' } });
@@ -262,7 +262,7 @@ describe('CreateEventWizard Component', () => {
     const inputs = container.querySelectorAll('input');
     const dateInput = Array.from(inputs).find(input => input.type === 'date');
     const timeInputs = Array.from(inputs).filter(input => input.type === 'time');
-    if (dateInput) fireEvent.change(dateInput, { target: { value: '2026-10-10' } });
+    if (dateInput) fireEvent.change(dateInput, { target: { value: '2027-10-10' } });
     if (timeInputs.length >= 2) {
       fireEvent.change(timeInputs[0], { target: { value: '10:00' } });
       fireEvent.change(timeInputs[1], { target: { value: '18:00' } });

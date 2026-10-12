@@ -4,9 +4,17 @@ import { getEventById } from '../../features/events/eventsApi';
 import { createQuotation, sendQuotation, getQuotationById, updateQuotation, getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { CreateQuotationRequest, IStructuredTerm, IQuotationSchedule, IPaymentInstallment, TaxType, GstTreatment, Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw, Calendar } from 'lucide-react';
+import { Loader2, Plus, Trash2, ArrowLeft, Save, Send, ChevronDown, ChevronUp, Eye, X, AlertCircle, RotateCcw, Calendar, CheckCircle2, RefreshCw } from 'lucide-react';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+export const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+  }).format(amount);
+};
 
 export const extractServiceDetails = (
   service: {
@@ -512,6 +520,14 @@ export const AdminCreateQuotation = () => {
           }
         }
       }
+
+      const plannedTotal = round2(paymentPlan.reduce((acc, p) => acc + (Number(p.amount) || 0), 0));
+      const diff = round2(plannedTotal - finalAmount);
+      if (Math.abs(diff) > 0.01) {
+        validationErrors.push(
+          `Total payment plan installments (${formatCurrency(plannedTotal)}) must equal the total quotation value (${formatCurrency(finalAmount)}). Difference: ${diff > 0 ? '+' : ''}${formatCurrency(diff)}`
+        );
+      }
     }
 
     if (validationErrors.length > 0) {
@@ -646,14 +662,6 @@ export const AdminCreateQuotation = () => {
       </div>
     );
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2,
-    }).format(amount);
-  };
 
   return (
     <div className="max-w-[1400px] mx-auto pb-24 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -1191,7 +1199,12 @@ export const AdminCreateQuotation = () => {
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
               <h2 className="text-base font-bold text-gray-900">Payment Plan</h2>
               <button
-                onClick={() => setPaymentPlan([...paymentPlan, { title: '', amount: 0, dueDate: '', expiryDate: '', dueDateDescription: '', purpose: [] }])}
+                type="button"
+                onClick={() => {
+                  const currentPlanned = round2(paymentPlan.reduce((acc, p) => acc + (Number(p.amount) || 0), 0));
+                  const unallocated = Math.max(0, round2(finalAmount - currentPlanned));
+                  setPaymentPlan([...paymentPlan, { title: '', amount: unallocated, dueDate: '', expiryDate: '', dueDateDescription: '', purpose: [] }]);
+                }}
                 className="text-[11px] text-indigo-600 font-bold uppercase tracking-widest flex items-center gap-1 hover:text-indigo-800 transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add Installment
@@ -1206,7 +1219,7 @@ export const AdminCreateQuotation = () => {
                   <p className="text-amber-700 text-xs mt-1">Please add at least one installment before saving or issuing this quotation.</p>
                   <button
                     type="button"
-                    onClick={() => setPaymentPlan([...paymentPlan, { title: 'Booking Advance', amount: advanceAmount > 0 ? advanceAmount : Math.round(finalAmount * 0.3) || 0, dueDate: '', expiryDate: '', dueDateDescription: 'Immediate upon acceptance', purpose: [] }])}
+                    onClick={() => setPaymentPlan([...paymentPlan, { title: 'Booking Advance', amount: advanceAmount > 0 ? advanceAmount : (finalAmount > 0 ? finalAmount : 0), dueDate: '', expiryDate: '', dueDateDescription: 'Immediate upon acceptance', purpose: [] }])}
                     className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Initial Installment
@@ -1312,13 +1325,58 @@ export const AdminCreateQuotation = () => {
                     </div>
                   ))}
 
-                  <div className="mt-4 pt-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
-                    <div>
-                      <span>Total Planned: </span>
-                      <strong className="text-gray-900 font-bold">{formatCurrency(paymentPlan.reduce((acc, p) => acc + (Number(p.amount) || 0), 0))}</strong>
-                      <span className="text-gray-400 ml-1">/ {formatCurrency(finalAmount)}</span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const plannedTotal = round2(paymentPlan.reduce((acc, p) => acc + (Number(p.amount) || 0), 0));
+                    const diff = round2(plannedTotal - finalAmount);
+                    const isBalanced = Math.abs(diff) <= 0.01;
+
+                    const handleAutoBalance = () => {
+                      if (paymentPlan.length === 0) return;
+                      const newPlan = [...paymentPlan];
+                      const lastIdx = newPlan.length - 1;
+                      const otherTotal = round2(newPlan.slice(0, lastIdx).reduce((acc, p) => acc + (Number(p.amount) || 0), 0));
+                      const neededForLast = round2(finalAmount - otherTotal);
+                      if (neededForLast >= 0) {
+                        newPlan[lastIdx].amount = neededForLast;
+                        setPaymentPlan(newPlan);
+                      }
+                    };
+
+                    return (
+                      <div className="mt-4 pt-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div>
+                            <span className="text-gray-500 font-medium">Total Planned: </span>
+                            <strong className="text-gray-900 font-bold text-sm">{formatCurrency(plannedTotal)}</strong>
+                            <span className="text-gray-400 ml-1">/ {formatCurrency(finalAmount)}</span>
+                          </div>
+                          {isBalanced ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Matches Total Quotation Value
+                            </span>
+                          ) : diff > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600" /> Exceeds quotation value by +{formatCurrency(diff)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Remaining to allocate: {formatCurrency(Math.abs(diff))}
+                            </span>
+                          )}
+                        </div>
+
+                        {!isBalanced && paymentPlan.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleAutoBalance}
+                            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shadow-sm"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Auto-balance last installment
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

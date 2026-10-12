@@ -966,6 +966,22 @@ describe('Quotations API', () => {
       taxRate: 18,
       gstTreatment: 'intra_state',
     };
+    payload.paymentPlan = [
+      {
+        title: 'Advance Deposit',
+        amount: 15000,
+        dueDate: new Date(Date.now() + 2 * 86400000).toISOString(),
+        expiryDate: new Date(Date.now() + 4 * 86400000).toISOString(),
+        dueDateDescription: 'Immediate upon acceptance',
+      },
+      {
+        title: 'Final Settlement',
+        amount: 38100,
+        dueDate: new Date(Date.now() + 5 * 86400000).toISOString(),
+        expiryDate: new Date(Date.now() + 6 * 86400000).toISOString(),
+        dueDateDescription: 'Before event',
+      }
+    ];
     const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
@@ -1137,6 +1153,16 @@ describe('Quotations API', () => {
       ...p,
       discount: 2000,
       items: [{ serviceId: activeServiceId1, quantity: 120, unitPrice: 450 }],
+      paymentPlan: [
+        {
+          ...p.paymentPlan[0],
+          amount: 1000,
+        },
+        {
+          ...p.paymentPlan[1],
+          amount: 51000,
+        }
+      ]
     };
     const updateRes = await fetch(`http://127.0.0.1:${port}/api/quotations/${draftQ._id}`, {
       method: 'PUT',
@@ -1449,5 +1475,30 @@ describe('Quotations API', () => {
       body: JSON.stringify(pValid),
     });
     assert.equal(resValid.status, 201);
+  });
+
+  it('rejects issuing a quotation if total payment plan installments do not equal finalAmount', async () => {
+    // 50,000 subtotal - 5,000 discount = 45,000 finalAmount
+    // But payment plan has 1,000 + 44,999 = 45,999 (mismatch of 999)
+    const payload = validPayload(eventId1, activeServiceId1);
+    payload.paymentPlan[1].amount = 44999;
+
+    const createRes = await fetch(`http://127.0.0.1:${port}/api/quotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(createRes.status, 201);
+    const { data: q } = (await createRes.json()) as any;
+
+    // Issue quotation should fail
+    const sendRes = await fetch(`http://127.0.0.1:${port}/api/quotations/${q._id}/send`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    assert.equal(sendRes.status, 400);
+    const errData = (await sendRes.json()) as any;
+    assert.match(errData.message, /Total payment plan installments/);
+    assert.match(errData.message, /must equal the total quotation value/);
   });
 });
