@@ -10,6 +10,7 @@ import { round2 } from '../../../utils/money.js';
 import { emailService } from '../../email/service/email.service.js';
 import { User } from '../../auth/model/user.model.js';
 import { Payment } from '../model/payment.model.js';
+import { verifyRazorpayWebhookSignature } from '../utils/webhook-signature.js';
 
 export class PaymentService {
   private paymentRepository: PaymentRepository;
@@ -694,129 +695,13 @@ export class PaymentService {
       }
     }
 
-    // Persist payment verification
-    payment.razorpayPaymentId = razorpay_payment_id;
-    payment.status = 'paid';
-    await payment.save();
-
+    // Persist payment verification and apply authoritative state updates
     const event = (await this.eventRepository.findById(payment.eventId.toString())) as any;
     if (!event) {
       throw ApiError.notFound('Event not found.');
     }
 
-    // Refresh all verified payments including this newly verified one
-    const allVerifiedPayments = await this.paymentRepository.findAllVerifiedPayments(
-      payment.eventId.toString(),
-      acceptedQuotation.id
-    );
-
-    // Update installments in paymentPlan
-    if (acceptedQuotation.paymentPlan && acceptedQuotation.paymentPlan.length > 0) {
-      if (payment.allocations && payment.allocations.length > 0) {
-        for (const alloc of payment.allocations) {
-          const inst = acceptedQuotation.paymentPlan[alloc.installmentIndex];
-          if (inst) {
-            const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, alloc.installmentIndex);
-            const scheduled = round2(inst.amount);
-            const outInst = Math.max(0, round2(scheduled - paidForInst));
-            inst.status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
-
-            if (outInst <= 0) {
-              const activeLink = await this.paymentRepository.findActiveLinkForInstallment(
-                payment.eventId.toString(),
-                acceptedQuotation.id,
-                alloc.installmentIndex
-              );
-              if (activeLink) {
-                activeLink.linkStatus = 'paid';
-                await activeLink.save();
-              }
-            }
-          }
-        }
-      } else {
-        // Fallback for payments without explicit allocations array
-        if (payment.paymentType === 'installment' && payment.installmentIndex !== undefined) {
-          const inst = acceptedQuotation.paymentPlan[payment.installmentIndex];
-          if (inst) {
-            const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, payment.installmentIndex);
-            const scheduled = round2(inst.amount);
-            const outInst = Math.max(0, round2(scheduled - paidForInst));
-            inst.status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
-
-            if (outInst <= 0) {
-              const activeLink = await this.paymentRepository.findActiveLinkForInstallment(
-                payment.eventId.toString(),
-                acceptedQuotation.id,
-                payment.installmentIndex
-              );
-              if (activeLink) {
-                activeLink.linkStatus = 'paid';
-                await activeLink.save();
-              }
-            }
-          }
-        } else {
-          // Advance payment
-          const advanceIdx = acceptedQuotation.paymentPlan.findIndex((p) => p.title.toLowerCase().includes('advance'));
-          const targetIdx = advanceIdx >= 0 ? advanceIdx : 0;
-          const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, targetIdx);
-          const scheduled = round2(acceptedQuotation.paymentPlan[targetIdx].amount);
-          const outInst = Math.max(0, round2(scheduled - paidForInst));
-          acceptedQuotation.paymentPlan[targetIdx].status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
-        }
-      }
-      await acceptedQuotation.save();
-    }
-
-    // Check Event Confirmation Rule:
-    // Event transitions to 'confirmed' if and only if the full required advance has been received and verified
-    const advancePaid = this.getVerifiedPaidForInstallment(allVerifiedPayments, 0);
-    const reqAdv = round2(acceptedQuotation.advanceAmount);
-    const isAdvanceFullyPaid = advancePaid >= reqAdv;
-
-    if (isAdvanceFullyPaid && event.status === 'awaiting_payment') {
-      event.status = 'confirmed';
-      await event.save();
-    }
-
-    // Overall quotation balances
-    const totalVerifiedPaid = round2(allVerifiedPayments.reduce((acc, p) => acc + p.amount, 0));
-    const finalAmount = round2(acceptedQuotation.finalAmount);
-    const totalOutstanding = Math.max(0, round2(finalAmount - totalVerifiedPaid));
-    const isQuotationFullyPaid = totalOutstanding <= 0;
-
-    const instIndex = payment.installmentIndex !== undefined ? payment.installmentIndex : 0;
-    const paidForTargetInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, instIndex);
-    const targetInst = acceptedQuotation.paymentPlan?.[instIndex];
-    const scheduledForTargetInst = targetInst ? round2(targetInst.amount) : payment.amount;
-    const outTargetInst = Math.max(0, round2(scheduledForTargetInst - paidForTargetInst));
-
-    return {
-      paymentId: payment.id,
-      status: payment.status,
-      amountPaid: payment.amount,
-      paymentType: payment.paymentType,
-      installmentIndex: payment.installmentIndex,
-      installmentStatus: targetInst?.status || (outTargetInst <= 0 ? 'Paid' : 'Partially Paid'),
-      totalPaidForInstallment: paidForTargetInst,
-      scheduledAmount: scheduledForTargetInst,
-      outstandingAmount: outTargetInst,
-      isFullyPaid: payment.paymentType === 'installment' ? outTargetInst <= 0 : isAdvanceFullyPaid,
-      totalAdvancePaid: advancePaid,
-      requiredAdvance: reqAdv,
-      outstandingAdvance: Math.max(0, round2(reqAdv - advancePaid)),
-      allocations: payment.allocations,
-      isFullPayment: payment.isFullPayment,
-      totalQuotationAmount: finalAmount,
-      totalPaidAmount: totalVerifiedPaid,
-      totalOutstandingAmount: totalOutstanding,
-      isQuotationFullyPaid,
-      quotationNumber: acceptedQuotation.quotationNumber,
-      quotationRevision: acceptedQuotation.revision,
-      eventStatus: event.status,
-      quotationStatus: acceptedQuotation.status,
-    };
+    return await this.applyAuthoritativePaymentSuccess(payment, acceptedQuotation, event, razorpay_payment_id);
   }
 
   async getPaymentScheduleSummary(user: { id: string; role: string }, eventId: string) {
@@ -1266,6 +1151,8 @@ export class PaymentService {
             email: client?.email || '',
             contact: client?.phone || '',
           },
+          callback_url: `${env.frontendUrl}/client/payment-return`,
+          callback_method: 'get',
           notify: { sms: false, email: false },
         });
         linkId = plink.id;
@@ -1349,5 +1236,490 @@ export class PaymentService {
       return this.paymentRepository.findByEventId(eventId);
     }
     return this.paymentRepository.findAll();
+  }
+
+  /**
+   * Authoritatively records a verified payment and applies installment status updates
+   * and the event confirmation rule consistently across checkout, webhook, and callback flows.
+   */
+  async applyAuthoritativePaymentSuccess(
+    payment: any,
+    acceptedQuotation: any,
+    event: any,
+    razorpayPaymentId?: string
+  ) {
+    if (razorpayPaymentId) {
+      payment.razorpayPaymentId = razorpayPaymentId;
+    }
+    payment.status = 'paid';
+    await payment.save();
+
+    // Refresh all verified payments including this newly verified one
+    const allVerifiedPayments = await this.paymentRepository.findAllVerifiedPayments(
+      payment.eventId.toString(),
+      acceptedQuotation.id
+    );
+
+    // Update installments in paymentPlan
+    if (acceptedQuotation.paymentPlan && acceptedQuotation.paymentPlan.length > 0) {
+      if (payment.allocations && payment.allocations.length > 0) {
+        for (const alloc of payment.allocations) {
+          const inst = acceptedQuotation.paymentPlan[alloc.installmentIndex];
+          if (inst) {
+            const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, alloc.installmentIndex);
+            const scheduled = round2(inst.amount);
+            const outInst = Math.max(0, round2(scheduled - paidForInst));
+            inst.status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
+
+            if (outInst <= 0) {
+              const activeLink = await this.paymentRepository.findActiveLinkForInstallment(
+                payment.eventId.toString(),
+                acceptedQuotation.id,
+                alloc.installmentIndex
+              );
+              if (activeLink) {
+                activeLink.linkStatus = 'paid';
+                await activeLink.save();
+              }
+            }
+          }
+        }
+      } else {
+        // Fallback for payments without explicit allocations array
+        if (payment.paymentType === 'installment' && payment.installmentIndex !== undefined) {
+          const inst = acceptedQuotation.paymentPlan[payment.installmentIndex];
+          if (inst) {
+            const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, payment.installmentIndex);
+            const scheduled = round2(inst.amount);
+            const outInst = Math.max(0, round2(scheduled - paidForInst));
+            inst.status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
+
+            if (outInst <= 0) {
+              const activeLink = await this.paymentRepository.findActiveLinkForInstallment(
+                payment.eventId.toString(),
+                acceptedQuotation.id,
+                payment.installmentIndex
+              );
+              if (activeLink) {
+                activeLink.linkStatus = 'paid';
+                await activeLink.save();
+              }
+            }
+          }
+        } else {
+          // Advance payment
+          const advanceIdx = acceptedQuotation.paymentPlan.findIndex((p: any) => p.title.toLowerCase().includes('advance'));
+          const targetIdx = advanceIdx >= 0 ? advanceIdx : 0;
+          const paidForInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, targetIdx);
+          const scheduled = round2(acceptedQuotation.paymentPlan[targetIdx].amount);
+          const outInst = Math.max(0, round2(scheduled - paidForInst));
+          acceptedQuotation.paymentPlan[targetIdx].status = outInst <= 0 ? 'Paid' : paidForInst > 0 ? 'Partially Paid' : 'Pending';
+        }
+      }
+      await acceptedQuotation.save();
+    }
+
+    // Check Event Confirmation Rule:
+    // Event transitions to 'confirmed' if and only if the full required advance has been received and verified
+    const advancePaid = this.getVerifiedPaidForInstallment(allVerifiedPayments, 0);
+    const reqAdv = round2(acceptedQuotation.advanceAmount);
+    const isAdvanceFullyPaid = advancePaid >= reqAdv;
+
+    if (isAdvanceFullyPaid && event.status === 'awaiting_payment') {
+      event.status = 'confirmed';
+      await event.save();
+    }
+
+    // Overall quotation balances
+    const totalVerifiedPaid = round2(allVerifiedPayments.reduce((acc, p) => acc + p.amount, 0));
+    const finalAmount = round2(acceptedQuotation.finalAmount);
+    const totalOutstanding = Math.max(0, round2(finalAmount - totalVerifiedPaid));
+    const isQuotationFullyPaid = totalOutstanding <= 0;
+
+    const instIndex = payment.installmentIndex !== undefined ? payment.installmentIndex : 0;
+    const paidForTargetInst = this.getVerifiedPaidForInstallment(allVerifiedPayments, instIndex);
+    const targetInst = acceptedQuotation.paymentPlan?.[instIndex];
+    const scheduledForTargetInst = targetInst ? round2(targetInst.amount) : payment.amount;
+    const outTargetInst = Math.max(0, round2(scheduledForTargetInst - paidForTargetInst));
+
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      amountPaid: payment.amount,
+      paymentType: payment.paymentType,
+      installmentIndex: payment.installmentIndex,
+      installmentStatus: targetInst?.status || (outTargetInst <= 0 ? 'Paid' : 'Partially Paid'),
+      totalPaidForInstallment: paidForTargetInst,
+      scheduledAmount: scheduledForTargetInst,
+      outstandingAmount: outTargetInst,
+      isFullyPaid: payment.paymentType === 'installment' ? outTargetInst <= 0 : isAdvanceFullyPaid,
+      totalAdvancePaid: advancePaid,
+      requiredAdvance: reqAdv,
+      outstandingAdvance: Math.max(0, round2(reqAdv - advancePaid)),
+      allocations: payment.allocations,
+      isFullPayment: payment.isFullPayment,
+      totalQuotationAmount: finalAmount,
+      totalPaidAmount: totalVerifiedPaid,
+      totalOutstandingAmount: totalOutstanding,
+      isQuotationFullyPaid,
+      quotationNumber: acceptedQuotation.quotationNumber,
+      quotationRevision: acceptedQuotation.revision,
+      eventStatus: event.status,
+      quotationStatus: acceptedQuotation.status,
+      eventId: event.id,
+    };
+  }
+
+  /**
+   * Handles incoming Razorpay webhook notifications for payment links.
+   * Performs cryptographic signature validation, idempotency checks,
+   * provider state verification, and synchronizes MongoDB records.
+   */
+  async handleRazorpayWebhook(
+    headers: Record<string, any>,
+    rawBody: Buffer | string | undefined,
+    body: any
+  ): Promise<{ received: boolean; status: string; message: string; data?: any }> {
+    const signature = (headers['x-razorpay-signature'] || headers['X-Razorpay-Signature']) as string | undefined;
+    if (!signature) {
+      throw ApiError.badRequest('Missing Razorpay webhook signature header (x-razorpay-signature).');
+    }
+
+    const secret = env.razorpayWebhookSecret;
+    if (!secret) {
+      throw ApiError.internal('Razorpay webhook secret is not configured.');
+    }
+
+    const isValid = verifyRazorpayWebhookSignature(rawBody, signature, secret);
+    if (!isValid) {
+      throw ApiError.badRequest('Invalid Razorpay webhook signature.');
+    }
+
+    const eventType = body?.event;
+    if (!eventType) {
+      throw ApiError.badRequest('Missing event type in webhook payload.');
+    }
+
+    const providerEventId = (headers['x-razorpay-event-id'] || headers['X-Razorpay-Event-Id']) as string | undefined || body?.event_id;
+    const payload = body?.payload || {};
+    const paymentLinkEntity = payload?.payment_link?.entity;
+    const paymentEntity = payload?.payment?.entity;
+    const paymentLinkId = paymentLinkEntity?.id;
+    const paymentId = paymentEntity?.id;
+
+    // Webhook event-level idempotency
+    const dedupeKey = providerEventId || (paymentLinkId ? `${paymentLinkId}_${eventType}_${paymentId || 'event'}` : undefined);
+    if (dedupeKey) {
+      const existingReceipt = await this.paymentRepository.findWebhookReceipt(dedupeKey);
+      if (existingReceipt) {
+        return {
+          received: true,
+          status: 'duplicate',
+          message: 'Webhook event has already been processed.',
+        };
+      }
+    }
+
+    // Supported Payment Link Events
+    if (eventType === 'payment_link.paid' || eventType === 'payment_link.partially_paid') {
+      if (!paymentLinkId) {
+        throw ApiError.badRequest('Missing payment_link.entity.id in webhook payload.');
+      }
+
+      // Map to EventOps internal payment record
+      let linkPayment = await this.paymentRepository.findByPaymentLinkId(paymentLinkId);
+      if (!linkPayment && paymentLinkEntity?.reference_id) {
+        linkPayment = await this.paymentRepository.findByReceiptReference(paymentLinkEntity.reference_id);
+      }
+
+      if (!linkPayment) {
+        console.warn(`[RazorpayWebhook] Unmapped payment link: ${paymentLinkId}`);
+        return {
+          received: true,
+          status: 'unmapped',
+          message: `Payment link ${paymentLinkId} is not associated with any EventOps payment record.`,
+        };
+      }
+
+      // Check payment-level deduplication
+      if (paymentId) {
+        const existingPaid = await this.paymentRepository.findByRazorpayPaymentId(paymentId);
+        if (existingPaid && existingPaid.status === 'paid') {
+          if (dedupeKey) {
+            await this.paymentRepository.createWebhookReceipt({
+              eventId: dedupeKey,
+              eventType,
+              paymentLinkId,
+              paymentId,
+              summary: 'Already processed payment',
+            });
+          }
+          return {
+            received: true,
+            status: 'already_paid',
+            message: 'Payment has already been verified and recorded.',
+          };
+        }
+      }
+
+      // Verify provider payment details
+      const isTestOrDev = env.nodeEnv === 'test' || env.nodeEnv === 'development';
+      const isDummyKey = env.razorpayKeyId === 'rzp_test_dummy_key_id';
+      const shouldBypass = isTestOrDev && isDummyKey;
+
+      let verifiedAmount = 0;
+      if (paymentEntity) {
+        if (paymentEntity.status && paymentEntity.status !== 'captured' && paymentEntity.status !== 'authorized') {
+          throw ApiError.badRequest(`Provider payment status is not captured (${paymentEntity.status}).`);
+        }
+        if (paymentEntity.currency && paymentEntity.currency !== 'INR') {
+          throw ApiError.badRequest(`Unsupported currency: ${paymentEntity.currency}`);
+        }
+        verifiedAmount = round2(paymentEntity.amount / 100);
+      } else {
+        verifiedAmount = round2(paymentLinkEntity.amount_paid / 100);
+      }
+
+      if (!shouldBypass && paymentId) {
+        try {
+          const gwPayment = await (this.razorpay.payments as any).fetch(paymentId);
+          if (gwPayment.status !== 'captured') {
+            throw ApiError.badRequest(`Provider payment not captured (status: ${gwPayment.status}).`);
+          }
+          if (gwPayment.currency !== 'INR') {
+            throw ApiError.badRequest(`Currency mismatch: ${gwPayment.currency}`);
+          }
+          verifiedAmount = round2(gwPayment.amount / 100);
+        } catch (fetchErr: any) {
+          if (fetchErr.statusCode) throw fetchErr;
+          throw ApiError.internal('Failed to verify payment with Razorpay gateway.');
+        }
+      }
+
+      // Retrieve quotation and event
+      const acceptedQuotation = await this.quotationRepository.findById(linkPayment.quotationId.toString());
+      if (!acceptedQuotation) {
+        throw ApiError.badRequest('Quotation not found for payment link.');
+      }
+      const event = await this.eventRepository.findById(linkPayment.eventId.toString());
+      if (!event) {
+        throw ApiError.badRequest('Event not found for payment link.');
+      }
+
+      // Determine target payment record
+      let targetPaymentRecord = linkPayment;
+      const isFullyPaidLink = eventType === 'payment_link.paid' || paymentLinkEntity?.status === 'paid';
+
+      if (linkPayment.status === 'created' && !linkPayment.razorpayPaymentId) {
+        targetPaymentRecord.razorpayPaymentId = paymentId || `pay_link_${crypto.randomBytes(6).toString('hex')}`;
+        targetPaymentRecord.amount = verifiedAmount;
+        targetPaymentRecord.status = 'paid';
+        targetPaymentRecord.linkStatus = isFullyPaidLink ? 'paid' : 'active';
+
+        // Compute planned allocations across paymentPlan if not already present
+        if (!targetPaymentRecord.allocations || targetPaymentRecord.allocations.length === 0) {
+          const allVerified = await this.paymentRepository.findAllVerifiedPayments(event.id, acceptedQuotation.id);
+          const startIdx = targetPaymentRecord.installmentIndex !== undefined ? targetPaymentRecord.installmentIndex : 0;
+          const { allocations } = this.computeAllocation(acceptedQuotation, allVerified, verifiedAmount, startIdx);
+          targetPaymentRecord.allocations = allocations;
+        }
+        await targetPaymentRecord.save();
+      } else {
+        // Incremental partial payment record
+        const allVerified = await this.paymentRepository.findAllVerifiedPayments(event.id, acceptedQuotation.id);
+        const startIdx = linkPayment.installmentIndex !== undefined ? linkPayment.installmentIndex : 0;
+        const { allocations } = this.computeAllocation(acceptedQuotation, allVerified, verifiedAmount, startIdx);
+        const receiptReference = `rcpt_link_${paymentLinkId}_${crypto.randomBytes(4).toString('hex')}`;
+
+        targetPaymentRecord = await this.paymentRepository.create({
+          eventId: linkPayment.eventId,
+          quotationId: linkPayment.quotationId,
+          clientId: linkPayment.clientId,
+          paymentType: linkPayment.paymentType,
+          installmentIndex: linkPayment.installmentIndex,
+          installmentTitle: linkPayment.installmentTitle,
+          amount: verifiedAmount,
+          currency: 'INR',
+          status: 'paid',
+          receiptReference,
+          razorpayPaymentId: paymentId || `pay_link_${crypto.randomBytes(6).toString('hex')}`,
+          razorpayPaymentLinkId: paymentLinkId,
+          linkStatus: isFullyPaidLink ? 'paid' : 'active',
+          allocations,
+        } as any);
+
+        if (isFullyPaidLink) {
+          linkPayment.linkStatus = 'paid';
+          await linkPayment.save();
+        }
+      }
+
+      // Authoritative synchronization
+      const result = await this.applyAuthoritativePaymentSuccess(targetPaymentRecord, acceptedQuotation, event, paymentId);
+
+      // Record WebhookReceipt
+      if (dedupeKey) {
+        await this.paymentRepository.createWebhookReceipt({
+          eventId: dedupeKey,
+          eventType,
+          paymentLinkId,
+          paymentId: targetPaymentRecord.razorpayPaymentId,
+          summary: `Verified payment of ₹${verifiedAmount} via webhook`,
+        });
+      }
+
+      return {
+        received: true,
+        status: 'processed',
+        message: 'Payment synchronized successfully.',
+        data: result,
+      };
+    } else if (eventType === 'payment_link.expired') {
+      if (paymentLinkId) {
+        const linkPayment = await this.paymentRepository.findByPaymentLinkId(paymentLinkId);
+        if (linkPayment) {
+          linkPayment.linkStatus = 'expired';
+          await linkPayment.save();
+        }
+      }
+      if (dedupeKey) {
+        await this.paymentRepository.createWebhookReceipt({
+          eventId: dedupeKey,
+          eventType,
+          paymentLinkId,
+          summary: 'Link marked expired',
+        });
+      }
+      return {
+        received: true,
+        status: 'expired_updated',
+        message: 'Payment link state updated to expired.',
+      };
+    } else if (eventType === 'payment_link.cancelled') {
+      if (paymentLinkId) {
+        const linkPayment = await this.paymentRepository.findByPaymentLinkId(paymentLinkId);
+        if (linkPayment) {
+          linkPayment.linkStatus = 'cancelled';
+          await linkPayment.save();
+        }
+      }
+      if (dedupeKey) {
+        await this.paymentRepository.createWebhookReceipt({
+          eventId: dedupeKey,
+          eventType,
+          paymentLinkId,
+          summary: 'Link marked cancelled',
+        });
+      }
+      return {
+        received: true,
+        status: 'cancelled_updated',
+        message: 'Payment link state updated to cancelled.',
+      };
+    }
+
+    return {
+      received: true,
+      status: 'ignored',
+      message: `Event type ${eventType} ignored.`,
+    };
+  }
+
+  /**
+   * Reconciles external payment link return for an authenticated Client callback.
+   * Resolves the internal record, confirms state with Razorpay, and updates balances.
+   */
+  async reconcilePaymentLink(
+    user: { id: string; role: string },
+    payload: { paymentLinkId: string; paymentId?: string }
+  ) {
+    if (user.role !== 'client') {
+      throw ApiError.forbidden('Only clients can reconcile payment links.');
+    }
+
+    const { paymentLinkId, paymentId } = payload;
+    let linkPayment = await this.paymentRepository.findByPaymentLinkId(paymentLinkId);
+    if (!linkPayment) {
+      throw ApiError.notFound('Payment link record not found.');
+    }
+
+    if (linkPayment.clientId.toString() !== user.id) {
+      throw ApiError.forbidden('You do not have permission to view or reconcile this payment.');
+    }
+
+    const acceptedQuotation = await this.quotationRepository.findById(linkPayment.quotationId.toString());
+    if (!acceptedQuotation) {
+      throw ApiError.badRequest('Accepted quotation not found for this event.');
+    }
+
+    const event = await this.eventRepository.findById(linkPayment.eventId.toString());
+    if (!event) {
+      throw ApiError.badRequest('Event not found.');
+    }
+
+    // Idempotency: if already paid with this paymentId or marked paid
+    if (linkPayment.status === 'paid' && (!paymentId || linkPayment.razorpayPaymentId === paymentId || linkPayment.razorpayPaymentId)) {
+      return await this.applyAuthoritativePaymentSuccess(linkPayment, acceptedQuotation, event, linkPayment.razorpayPaymentId);
+    }
+
+    // Check if another payment record already has this paymentId
+    if (paymentId) {
+      const existingPaid = await this.paymentRepository.findByRazorpayPaymentId(paymentId);
+      if (existingPaid && existingPaid.status === 'paid') {
+        return await this.applyAuthoritativePaymentSuccess(existingPaid, acceptedQuotation, event, paymentId);
+      }
+    }
+
+    // Verification against Razorpay provider
+    const isTestOrDev = env.nodeEnv === 'test' || env.nodeEnv === 'development';
+    const isDummyKey = env.razorpayKeyId === 'rzp_test_dummy_key_id';
+    const shouldBypass = isTestOrDev && isDummyKey;
+
+    let verifiedAmount = linkPayment.amount;
+    let verifiedPaymentId = paymentId || `pay_link_${crypto.randomBytes(6).toString('hex')}`;
+    let isFullyPaidLink = true;
+
+    if (!shouldBypass) {
+      try {
+        const plink = await (this.razorpay.paymentLink as any).fetch(paymentLinkId);
+        if (plink.status !== 'paid' && plink.amount_paid <= 0) {
+          throw ApiError.badRequest('Payment link is not in a paid state on Razorpay.');
+        }
+        isFullyPaidLink = plink.status === 'paid';
+        verifiedAmount = round2(plink.amount_paid / 100);
+
+        if (paymentId) {
+          const gwPayment = await (this.razorpay.payments as any).fetch(paymentId);
+          if (gwPayment.status !== 'captured') {
+            throw ApiError.badRequest('Provider payment is not captured.');
+          }
+          if (gwPayment.currency !== 'INR') {
+            throw ApiError.badRequest('Currency mismatch.');
+          }
+          verifiedAmount = round2(gwPayment.amount / 100);
+          verifiedPaymentId = gwPayment.id;
+        }
+      } catch (err: any) {
+        if (err.statusCode) throw err;
+        throw ApiError.internal('Failed to verify payment link with Razorpay.');
+      }
+    }
+
+    // Update payment record
+    linkPayment.razorpayPaymentId = verifiedPaymentId;
+    linkPayment.amount = verifiedAmount;
+    linkPayment.status = 'paid';
+    linkPayment.linkStatus = isFullyPaidLink ? 'paid' : 'active';
+
+    if (!linkPayment.allocations || linkPayment.allocations.length === 0) {
+      const allVerified = await this.paymentRepository.findAllVerifiedPayments(event.id, acceptedQuotation.id);
+      const startIdx = linkPayment.installmentIndex !== undefined ? linkPayment.installmentIndex : 0;
+      const { allocations } = this.computeAllocation(acceptedQuotation, allVerified, verifiedAmount, startIdx);
+      linkPayment.allocations = allocations;
+    }
+    await linkPayment.save();
+
+    // Authoritative processing
+    return await this.applyAuthoritativePaymentSuccess(linkPayment, acceptedQuotation, event, verifiedPaymentId);
   }
 }

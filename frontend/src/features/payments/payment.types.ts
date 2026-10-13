@@ -167,6 +167,7 @@ export interface VerifyPaymentResponse {
   isQuotationFullyPaid?: boolean;
   quotationNumber?: string;
   quotationRevision?: number;
+  eventId?: string;
 }
 
 export interface RenewPaymentLinkRequest {

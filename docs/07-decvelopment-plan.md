@@ -327,6 +327,14 @@ Implement:
 - [DONE - Milestone 2 Extension] Live interactive frontend payment allocation preview table and API (`POST /api/payments/preview-allocation`)
 - [DONE - Milestone 2 Extension] Comprehensive post-verification receipt card displaying quotation, event status, transaction, and multi-installment attribution
 - [DONE - Milestone 2 Extension] Automated test suite (Tests A–J) covering all extension scenarios with 100% pass rate (61/61 payments tests passing)
+- [DONE - Payment Link Sync Fix] Razorpay Payment Link synchronization via webhooks (`POST /api/webhooks/razorpay`) supporting `payment_link.paid`, `payment_link.partially_paid`, `payment_link.expired`, and `payment_link.cancelled`
+- [DONE - Payment Link Sync Fix] Raw request body HMAC-SHA256 signature verification in constant time (`crypto.timingSafeEqual`)
+- [DONE - Payment Link Sync Fix] Webhook idempotency via `WebhookReceipt` collection and unique provider payment ID deduplication preventing double counting
+- [DONE - Payment Link Sync Fix] Razorpay Payment Link creation/renewal configured with frontend return callback URL (`/client/payment-return`) and GET method
+- [DONE - Payment Link Sync Fix] Client payment return page (`ClientPaymentReturn.tsx`) with processing, error, and backend-verified authoritative result presentation
+- [DONE - Payment Link Sync Fix] Authenticated backend payment link reconciliation endpoint (`POST /api/payments/reconcile-link`)
+- [DONE - Payment Link Sync Fix] Shared authoritative financial processing (`applyAuthoritativePaymentSuccess`) ensuring identical balance updates, installment allocations, and event confirmation
+- [DONE - Payment Link Sync Fix] Automated test suite covering signature verification, event handling, idempotency, mapping, financial behavior, callback reconciliation, and regression (80/80 payments tests passing, 301/301 full backend tests passing)
 - [PENDING - Milestone 3] Automated email payment reminders & cron scheduler
 
 Never trust frontend payment success alone.

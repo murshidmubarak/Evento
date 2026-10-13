@@ -7,6 +7,7 @@ import {
   getPaymentScheduleSummary,
   renewPaymentLink,
   getAdminPayments,
+  reconcilePaymentLink,
 } from '../controller/payment.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
@@ -15,6 +16,7 @@ import {
   validateVerifyOrder,
   validatePreviewAllocation,
   validateRenewPaymentLink,
+  validateReconcilePaymentLink,
 } from '../validation/payment.validation.js';
 
 const router = Router();
@@ -105,6 +107,19 @@ router.get(
   authenticate,
   authorize('admin', 'event_manager'),
   getAdminPayments
+);
+
+/**
+ * @route   POST /api/payments/reconcile-link
+ * @desc    Client callback reconciliation endpoint for external Razorpay payment links
+ * @access  Private (Client)
+ */
+router.post(
+  '/reconcile-link',
+  authenticate,
+  authorize('client'),
+  validateReconcilePaymentLink,
+  reconcilePaymentLink
 );
 
 export default router;

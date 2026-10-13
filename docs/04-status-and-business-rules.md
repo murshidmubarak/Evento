@@ -1141,3 +1141,58 @@ Test configuration must verify that the connection string specifically targets a
 Rule 4 — Complete Teardown of Test Data:
 All mock and test data created during test runs must be dropped and wiped completely from the test database upon test completion (`cleanupTestDatabase()`).
 No test data may remain lingering in any database after test execution.
+
+---
+
+# 34. Razorpay Payment Link Synchronization, Webhooks & Callback Reconciliation
+
+## Overview
+
+Clients can pay for EventOps quotations either directly via the in-app Razorpay modal (Orders API) or externally via Razorpay Payment Links (`https://rzp.io/...`). To prevent synchronization lag and ensure MongoDB authoritative state is kept strictly consistent, EventOps employs a dual-channel synchronization mechanism:
+
+1. **Server-to-Server Webhooks (`POST /api/webhooks/razorpay`)**: Reliable, asynchronous gateway-to-backend notification channel that operates independently of the client's browser session.
+2. **Client Return Callback & Reconciliation (`GET /client/payment-return` -> `POST /api/payments/reconcile-link`)**: User-facing return route that triggers authoritative backend verification upon redirection from Razorpay.
+
+## Webhook Signature & Security Rules
+
+- **Raw Request Body Verification**: The webhook payload signature (`X-Razorpay-Signature`) is verified cryptographically using HMAC-SHA256 with the raw, unmodified request bytes and the dedicated `RAZORPAY_WEBHOOK_SECRET`.
+- **Constant-Time Comparison**: Signatures are compared using `crypto.timingSafeEqual` to prevent timing attacks.
+- **Dedicated Webhook Secret**: The webhook secret is strictly separated from `RAZORPAY_KEY_SECRET`. Fallbacks are disallowed.
+- **Rejection of Invalid Requests**: Missing, malformed, or invalid signatures are rejected immediately with HTTP 400 without modifying any database records.
+
+## Supported Payment Link Events & Behavior
+
+1. `payment_link.paid`:
+   - Validates provider payment details directly with Razorpay (`payments.fetch`).
+   - Reconciles incremental paid amounts idempotently without double-counting previously recorded partial payments.
+   - Updates target payment record to `paid` and link status to `paid`.
+   - Transitions event to `confirmed` if full advance payment is settled.
+2. `payment_link.partially_paid`:
+   - Validates the incremental provider transaction.
+   - Allocates the incremental payment across the installment schedule.
+   - Updates target installment status to `Partially Paid`.
+   - **Crucial Rule**: Does NOT mark event confirmed. The event remains `awaiting_payment` until the full required advance is received.
+3. `payment_link.expired`:
+   - Updates the stored payment's `linkStatus` to `expired`.
+   - Does NOT modify verified financial balances or falsely mark installments paid.
+4. `payment_link.cancelled`:
+   - Updates `linkStatus` to `cancelled`.
+   - Does NOT alter financial balances.
+5. Unsupported / Other Events:
+   - Returns `{ received: true, status: 'ignored' }` without altering state.
+
+## Webhook & Payment Idempotency Rules
+
+- **Event-Level Deduplication**: Incoming events are tracked via the `WebhookReceipt` collection with unique index on `eventId`. Duplicate deliveries return `{ received: true, status: 'duplicate' }` without re-processing.
+- **Transaction-Level Deduplication**: The unique provider transaction identifier (`razorpayPaymentId`) is checked before credit. If a payment with that ID has already been recorded as `paid`, processing halts with `{ received: true, status: 'already_paid' }`.
+- **Cumulative vs. Incremental**: Webhooks and reconciliations use the individual payment entity's incremental amount (`payment.entity.amount`) rather than cumulative `amount_paid`, completely eliminating double-counting.
+
+## Link Mapping & Fallback Rules
+
+- The incoming `payment_link.id` is matched strictly against persisted payment records via `razorpayPaymentLinkId`.
+- Unmapped links are logged safely and return `{ received: true, status: 'unmapped' }` without guessing or crediting arbitrary quotations, installments, or events.
+
+## Event Confirmation & Subsequent Installments
+
+- **Advance Requirement**: An event in `awaiting_payment` transitions to `confirmed` if and only if the cumulative verified payments for installment 0 equal or exceed the required advance amount (`quotation.advanceAmount`).
+- **Subsequent Installments**: Payments made against subsequent installments update the specific installment status to `Paid` (or `Partially Paid`), reduce the remaining quotation balance, and strictly preserve the event's existing `confirmed` status. Under no circumstance does an installment webhook revert a confirmed event.

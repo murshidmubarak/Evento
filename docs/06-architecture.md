@@ -540,31 +540,57 @@ The backend remains the source of truth for critical business operations.
 
 19. Payment Architecture
 
-Payment flow:
+EventOps supports two verified payment pathways:
 
+### Pathway A: In-App Razorpay Checkout (Orders API)
+
+```text
 Client
    ↓
 React Frontend
    ↓
-Create Razorpay Order
+POST /api/payments/create-order
    ↓
-Razorpay Checkout
+Razorpay Modal Checkout
    ↓
-Payment Response
+Payment Response (razorpay_order_id, razorpay_payment_id, razorpay_signature)
    ↓
-Backend Verification
+POST /api/payments/verify
    ↓
-Verify Razorpay Signature
+Verify HMAC-SHA256 Signature
+   ↓
+Authoritative Balance Update (applyAuthoritativePaymentSuccess)
    ↓
 Payment = paid
    ↓
-Required Advance Verified
+If full required advance verified -> Event = confirmed
+```
+
+### Pathway B: External Razorpay Payment Link (Webhooks + Callback URL)
+
+```text
+Client opens external Razorpay link (https://rzp.io/...)
    ↓
-Event = confirmed
+Client completes payment on Razorpay Gateway
+   ├── Dual Asynchronous Synchronization Paths ──┐
+   ↓                                              ↓
+[Server-to-Server Webhook]             [Client Return Callback URL]
+Razorpay sends webhook to backend       Client redirected to /client/payment-return
+POST /api/webhooks/razorpay             Frontend calls POST /api/payments/reconcile-link
+   ↓                                              ↓
+Verify HMAC-SHA256 Raw-Body Signature   Authenticated Client Authorization & Match Link
+   ↓                                              ↓
+Deduplicate via WebhookReceipt (eventId) Provider State Verification (Gateway fetch)
+   ↓                                              ↓
+Resolve link to MongoDB payment context Shared Idempotent Payment Processing
+   ↓                                              ↓
+Apply Authoritative Allocation & Event Confirmation (applyAuthoritativePaymentSuccess)
+   ↓                                              ↓
+MongoDB updated authoritatively        Authoritative state refreshed in Frontend
+```
 
-Creating a Razorpay order does not mean payment is successful.
-
-The backend performs the final payment verification.
+Creating a Razorpay order or payment link does not mean payment is successful. The backend performs the final authoritative payment verification.
+Neither browser parameters nor frontend state are ever trusted as proof of payment.
 
 20. Financial Architecture
 

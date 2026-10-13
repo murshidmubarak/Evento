@@ -1,4 +1,5 @@
 import { Payment, IPayment } from '../model/payment.model.js';
+import { WebhookReceipt, IWebhookReceipt } from '../model/webhook-receipt.model.js';
 
 export class PaymentRepository {
   async create(data: Partial<IPayment>): Promise<IPayment> {
@@ -148,6 +149,29 @@ export class PaymentRepository {
       .populate('quotationId', 'quotationNumber revision')
       .populate('renewedBy', 'name email')
       .sort({ createdAt: -1 });
+  }
+
+  async findByRazorpayPaymentId(razorpayPaymentId: string): Promise<IPayment | null> {
+    return Payment.findOne({ razorpayPaymentId });
+  }
+
+  async findByReceiptReference(receiptReference: string): Promise<IPayment | null> {
+    return Payment.findOne({ receiptReference });
+  }
+
+  async findWebhookReceipt(eventId: string): Promise<IWebhookReceipt | null> {
+    return WebhookReceipt.findOne({ eventId });
+  }
+
+  async createWebhookReceipt(data: {
+    eventId: string;
+    eventType: string;
+    paymentLinkId?: string;
+    paymentId?: string;
+    summary?: string;
+  }): Promise<IWebhookReceipt> {
+    const receipt = new WebhookReceipt(data);
+    return await receipt.save();
   }
 }
 

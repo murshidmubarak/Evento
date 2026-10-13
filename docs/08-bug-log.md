@@ -522,5 +522,71 @@ Fixed / Verified
 
 Never declare explicit `.index()` definitions for schema paths already configured with `unique: true`. Always use dynamic ES getters for environment variables that may be dynamically altered during test runs.
 
+---
+
+## BUG-011 — Razorpay Payment Link External Synchronization Gap (Webhooks + Return Callback Reconciliation)
+
+### Date
+
+2026-10-13
+
+### Affected Modules
+
+- `backend/src/modules/payments/service/payment.service.ts`
+- `backend/src/modules/payments/repository/payment.repository.ts`
+- `backend/src/modules/payments/controller/payment.controller.ts`
+- `backend/src/modules/payments/routes/webhook.routes.ts`
+- `backend/src/modules/payments/routes/payment.routes.ts`
+- `backend/src/modules/payments/utils/webhook-signature.ts`
+- `backend/src/modules/payments/model/webhook-receipt.model.ts`
+- `backend/src/app.ts`
+- `backend/src/config/env.ts`
+- `frontend/src/pages/client/ClientPaymentReturn.tsx`
+- `frontend/src/features/payments/paymentsApi.ts`
+- `frontend/src/routes/AppRoutes.tsx`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When a Client paid an advance or installment balance using an external Razorpay Payment Link (`https://rzp.io/...`) in another browser tab or outside the application:
+1. Razorpay Payment Link showed payment as completed.
+2. The corresponding EventOps Payment record in MongoDB remained pending/created.
+3. Quotation installment paid and outstanding amounts did not update.
+4. The event remained in `awaiting_payment` instead of transitioning to `confirmed` after paying the full required advance.
+5. The Client and Admin continued seeing outstanding balances and pending payment actions.
+
+### Root Cause
+
+1. **Missing Webhook Infrastructure**: EventOps had no webhook handling infrastructure to receive asynchronous server-to-server notifications (`payment_link.paid`, etc.) from Razorpay.
+2. **Raw Body Loss**: Standard `express.json()` parses the request stream into a JavaScript object without retaining the raw network byte buffer, making cryptographic HMAC-SHA256 signature verification impossible without corrupting body parsing.
+3. **Missing Callback URL**: Payment links created by EventOps did not configure `callback_url` or `callback_method`, leaving the client on Razorpay's completion screen without returning them to the application.
+4. **Missing Callback Reconciliation**: No endpoint existed for the frontend callback return page to initiate authoritative backend reconciliation.
+5. **Coupled Verification Logic**: Payment verification was tightly bound to the in-app Checkout `razorpay_order_id` verification routine, lacking a unified authoritative state transition method.
+
+### Solution
+
+1. Added `verify` hook in `app.ts` to capture `req.rawBody` as a `Buffer` on incoming requests without disturbing normal JSON body parsing.
+2. Configured dedicated `RAZORPAY_WEBHOOK_SECRET` and `FRONTEND_URL` in environment configuration and `.env.example`.
+3. Implemented `verifyRazorpayWebhookSignature` using `crypto.timingSafeEqual` and HMAC-SHA256.
+4. Created `WebhookReceipt` model with unique index on `eventId` for persistent idempotency and deduplication.
+5. Built public `POST /api/webhooks/razorpay` supporting `payment_link.paid`, `payment_link.partially_paid`, `payment_link.expired`, and `payment_link.cancelled`.
+6. Configured `callback_url: ${frontendUrl}/client/payment-return` and `callback_method: 'get'` during payment link creation and renewal.
+7. Created frontend return page `ClientPaymentReturn.tsx` on route `/client/payment-return`.
+8. Built authenticated callback reconciliation endpoint `POST /api/payments/reconcile-link`.
+9. Refactored payment state application into shared `applyAuthoritativePaymentSuccess` across in-app checkout, webhook, and callback reconciliation flows.
+10. Added 19 comprehensive automated tests in `payments.test.ts` (80/80 passed, 301/301 full suite passed).
+
+### Rule
+
+External payment links must always synchronize via both server-to-server signed webhooks and frontend return callback reconciliation. Neither channel may trust client browser parameters; both must verify actual gateway status and converge idempotently on the same shared backend financial processing method.
+
+
 
 

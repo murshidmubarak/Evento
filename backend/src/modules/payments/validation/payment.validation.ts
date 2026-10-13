@@ -88,3 +88,14 @@ export const validateRenewPaymentLink = (req: Request, res: Response, next: Next
 
   next();
 };
+
+export const validateReconcilePaymentLink = (req: Request, res: Response, next: NextFunction): void => {
+  const { paymentLinkId } = req.body;
+
+  if (!paymentLinkId || typeof paymentLinkId !== 'string') {
+    res.status(400).json({ success: false, message: 'Valid paymentLinkId is required' });
+    return;
+  }
+
+  next();
+};

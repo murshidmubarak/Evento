@@ -98,3 +98,13 @@ export const getAdminPayments = async (eventId?: string): Promise<any[]> => {
   const response = await apiClient.get<{ data: any[] }>(url);
   return response.data.data;
 };
+
+export interface ReconcilePaymentLinkPayload {
+  paymentLinkId: string;
+  paymentId?: string;
+}
+
+export const reconcilePaymentLink = async (payload: ReconcilePaymentLinkPayload): Promise<VerifyPaymentResponse> => {
+  const response = await apiClient.post<{ data: VerifyPaymentResponse }>('/payments/reconcile-link', payload);
+  return response.data.data;
+};

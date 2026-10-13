@@ -1876,4 +1876,129 @@ Response (200 OK):
   "message": "Payments retrieved successfully",
   "data": [ ...payments ]
 }
-```
+```
+
+
+## Razorpay Webhook Synchronization Endpoint
+
+POST /api/webhooks/razorpay
+
+Access:
+Public (Server-to-Server from Razorpay Gateway)
+
+Authentication & Signature:
+- Authenticated via HTTP request header `X-Razorpay-Signature`.
+- Cryptographically verified against the raw request body using HMAC-SHA256 and `RAZORPAY_WEBHOOK_SECRET` in constant time (`crypto.timingSafeEqual`).
+- Regular Client/Admin Bearer JWT authentication is NOT required.
+
+Supported Event Types:
+- `payment_link.paid`
+- `payment_link.partially_paid`
+- `payment_link.expired`
+- `payment_link.cancelled`
+
+Idempotency:
+- Uses `x-razorpay-event-id` (persisted in `WebhookReceipt` collection with unique index).
+- Provider transaction deduplication via `razorpayPaymentId`.
+- Out-of-order and duplicate events return HTTP 200 with `{ "received": true, "status": "duplicate" | "already_paid" }`.
+
+Request Headers:
+```http
+X-Razorpay-Signature: <hmac_sha256_hex>
+X-Razorpay-Event-Id: <event_id>
+Content-Type: application/json
+```
+
+Request Payload Example (`payment_link.paid`):
+```json
+{
+  "entity": "event",
+  "account_id": "acc_xxx",
+  "event": "payment_link.paid",
+  "contains": ["payment_link", "payment"],
+  "payload": {
+    "payment_link": {
+      "entity": {
+        "id": "plink_xxx",
+        "amount_paid": 5000000,
+        "status": "paid"
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_xxx",
+        "amount": 5000000,
+        "currency": "INR",
+        "status": "captured"
+      }
+    }
+  }
+}
+```
+
+Response (200 OK):
+```json
+{
+  "received": true,
+  "status": "processed",
+  "message": "Webhook processed successfully",
+  "data": {
+    "paymentId": "string",
+    "status": "paid",
+    "eventStatus": "confirmed",
+    "totalAdvancePaid": 50000,
+    "outstandingAdvance": 0
+  }
+}
+```
+
+Errors:
+- 400: Missing or invalid `x-razorpay-signature`, missing event type, or uncaptured provider payment status.
+- 500: Database failure or missing webhook configuration.
+
+
+## Reconcile Payment Link (Client Return Callback)
+
+POST /api/payments/reconcile-link
+
+Access:
+Private (Authenticated Client owning the payment link)
+
+Purpose:
+Authoritative backend reconciliation endpoint invoked when the Client returns from Razorpay Payment Link to the application callback URL (`/client/payment-return`). Reconciles the local payment record with the Razorpay Payment Link state directly on the backend.
+
+Request Body:
+```json
+{
+  "paymentLinkId": "plink_xxx",
+  "paymentId": "pay_xxx" // optional
+}
+```
+
+Validation:
+- `paymentLinkId`: string, required.
+- `paymentId`: string, optional.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Payment link reconciled successfully",
+  "data": {
+    "paymentId": "string",
+    "status": "paid",
+    "amountPaid": 50000,
+    "eventStatus": "confirmed",
+    "totalAdvancePaid": 50000,
+    "outstandingAdvance": 0,
+    "eventId": "string"
+  }
+}
+```
+
+Errors:
+- 400: Missing `paymentLinkId`.
+- 401: Unauthenticated request.
+- 403: Forbidden (authenticated client does not own the target payment link).
+- 404: Target payment link not found in MongoDB.
+

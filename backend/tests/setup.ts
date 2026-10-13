@@ -12,6 +12,8 @@ dotenv.config();
 process.env.NODE_ENV = 'test';
 process.env.RAZORPAY_KEY_ID = 'rzp_test_dummy_key_id';
 process.env.RAZORPAY_KEY_SECRET = 'dummy_secret';
+process.env.RAZORPAY_WEBHOOK_SECRET = 'test_webhook_secret';
+process.env.FRONTEND_URL = 'http://localhost:5173';
 
 // ISOLATE TEST DATABASE:
 // Ensure tests always run against eventops_test so that test cleanup

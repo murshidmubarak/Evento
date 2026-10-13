@@ -12,6 +12,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { env } from '../src/config/env.js';
 import { Sequence } from '../src/modules/users/model/sequence.model.js';
+import { WebhookReceipt } from '../src/modules/payments/model/webhook-receipt.model.js';
 import crypto from 'node:crypto';
 
 describe('Payments API', () => {
@@ -55,6 +56,7 @@ describe('Payments API', () => {
     await Service.deleteMany({});
     await User.deleteMany({});
     await Sequence.deleteMany({});
+    await WebhookReceipt.deleteMany({});
 
     // Users
     const admin = await User.create({ name: 'Admin', email: 'adminp@test.com', password: 'hash', role: 'admin' });
@@ -132,6 +134,7 @@ describe('Payments API', () => {
     await Service.deleteMany({});
     await User.deleteMany({});
     await Sequence.deleteMany({});
+    await WebhookReceipt.deleteMany({});
     server.close();
     await mongoose.disconnect();
   });
@@ -2216,5 +2219,840 @@ describe('Payments API', () => {
       assert.equal(evFinal?.status, 'confirmed');
     });
   });
+
+  describe('Razorpay Payment Link Synchronization (Webhook + Callback URL + Reconciliation)', () => {
+    const makeWebhookSignature = (rawPayload: string, secret = env.razorpayWebhookSecret) => {
+      return crypto.createHmac('sha256', secret).update(rawPayload).digest('hex');
+    };
+
+    it('A.1. Webhook rejects request when signature header is missing -> 400', async () => {
+      const payload = JSON.stringify({ event: 'payment_link.paid' });
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.ok(data.message.includes('Missing Razorpay webhook signature header'));
+    });
+
+    it('A.2. Webhook rejects request when signature is invalid -> 400', async () => {
+      const payload = JSON.stringify({ event: 'payment_link.paid' });
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': 'invalid_hex_signature_here',
+        },
+        body: payload,
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.ok(data.message.includes('Invalid Razorpay webhook signature'));
+    });
+
+    it('A.3. Webhook rejects request when raw payload is altered after signing -> 400', async () => {
+      const originalPayload = JSON.stringify({ event: 'payment_link.paid', amount: 5000 });
+      const sig = makeWebhookSignature(originalPayload);
+      const tamperedPayload = JSON.stringify({ event: 'payment_link.paid', amount: 999999 });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: tamperedPayload,
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.ok(data.message.includes('Invalid Razorpay webhook signature'));
+    });
+
+    it('A.4. Webhook returns 200 and ignores unsupported events', async () => {
+      const payload = JSON.stringify({ event: 'order.paid', payload: {} });
+      const sig = makeWebhookSignature(payload);
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: payload,
+      });
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.received, true);
+      assert.equal(data.status, 'ignored');
+    });
+
+    it('B.1. Full advance payment via payment_link.paid confirms the event', async () => {
+      const evAdv = await Event.create({
+        clientId: clientId1,
+        title: 'Full Advance Link Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 864000000),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Auditorium A' },
+        guestCount: 150,
+        status: 'awaiting_payment',
+      });
+
+      const qtnAdv = await Quotation.create({
+        quotationNumber: 'QTN-SYNC-ADV1',
+        revision: 1,
+        eventId: evAdv.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 100000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 100000 }],
+        subtotal: 100000,
+        discount: 0,
+        taxableAmount: 100000,
+        finalAmount: 100000,
+        advanceAmount: 40000,
+        remainingAmount: 60000,
+        paymentPlan: [
+          { title: 'Advance', percentage: 40, amount: 40000, dueDate: new Date(), expiryDate: new Date(Date.now() + 86400000) },
+          { title: 'Balance', percentage: 60, amount: 60000, dueDate: new Date(Date.now() + 864000000), expiryDate: new Date(Date.now() + 864000000) },
+        ],
+        validUntil: new Date(Date.now() + 86400000),
+      });
+
+      const linkPayment = await Payment.create({
+        eventId: evAdv.id,
+        quotationId: qtnAdv.id,
+        clientId: clientId1,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        installmentTitle: 'Advance',
+        amount: 40000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_adv1',
+        razorpayPaymentLinkId: 'plink_full_adv_100',
+        linkStatus: 'active',
+        paymentLinkUrl: 'https://rzp.io/i/plink_full_adv_100',
+        allocations: [{ installmentIndex: 0, installmentTitle: 'Advance', allocatedAmount: 40000 }],
+      });
+
+      const webhookBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_full_adv_100',
+              status: 'paid',
+              amount_paid: 4000000, // 40000 in paise
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_full_adv_100',
+              amount: 4000000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(webhookBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_full_adv_001',
+        },
+        body: webhookBody,
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.received, true);
+      assert.equal(data.status, 'processed');
+
+      const updatedPayment = await Payment.findById(linkPayment.id);
+      assert.equal(updatedPayment?.status, 'paid');
+      assert.equal(updatedPayment?.razorpayPaymentId, 'pay_full_adv_100');
+
+      const updatedQuotation = await Quotation.findById(qtnAdv.id);
+      assert.equal(updatedQuotation?.paymentPlan?.[0]?.status, 'Paid');
+
+      const updatedEvent = await Event.findById(evAdv.id);
+      assert.equal(updatedEvent?.status, 'confirmed');
+    });
+
+    it('B.2. Partial payment leaves event awaiting_payment; subsequent completion confirms it', async () => {
+      const evPart = await Event.create({
+        clientId: clientId1,
+        title: 'Partial Advance Link Event',
+        eventType: 'Wedding',
+        date: new Date(Date.now() + 864000000),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Grand Ballroom' },
+        guestCount: 200,
+        status: 'awaiting_payment',
+      });
+
+      const qtnPart = await Quotation.create({
+        quotationNumber: 'QTN-SYNC-PART1',
+        revision: 1,
+        eventId: evPart.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 100000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 100000 }],
+        subtotal: 100000,
+        discount: 0,
+        taxableAmount: 100000,
+        finalAmount: 100000,
+        advanceAmount: 40000,
+        remainingAmount: 60000,
+        paymentPlan: [
+          { title: 'Advance', percentage: 40, amount: 40000, dueDate: new Date(), expiryDate: new Date(Date.now() + 86400000) },
+          { title: 'Final', percentage: 60, amount: 60000, dueDate: new Date(Date.now() + 864000000), expiryDate: new Date(Date.now() + 864000000) },
+        ],
+        validUntil: new Date(Date.now() + 86400000),
+      });
+
+      await Payment.create({
+        eventId: evPart.id,
+        quotationId: qtnPart.id,
+        clientId: clientId1,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        installmentTitle: 'Advance',
+        amount: 40000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_part1',
+        razorpayPaymentLinkId: 'plink_part_adv_200',
+        linkStatus: 'active',
+        paymentLinkUrl: 'https://rzp.io/i/plink_part_adv_200',
+      });
+
+      // 1. First partial payment of ₹15,000 via payment_link.partially_paid
+      const partBody1 = JSON.stringify({
+        event: 'payment_link.partially_paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_part_adv_200',
+              status: 'partially_paid',
+              amount_paid: 1500000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_part_adv_001',
+              amount: 1500000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig1 = makeWebhookSignature(partBody1);
+      const res1 = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig1,
+          'x-razorpay-event-id': 'evt_part_adv_001',
+        },
+        body: partBody1,
+      });
+
+      assert.equal(res1.status, 200);
+
+      const qtnAfterPart1 = await Quotation.findById(qtnPart.id);
+      assert.equal(qtnAfterPart1?.paymentPlan?.[0]?.status, 'Partially Paid');
+
+      const evAfterPart1 = await Event.findById(evPart.id);
+      assert.equal(evAfterPart1?.status, 'awaiting_payment');
+
+      // 2. Second payment of remaining ₹25,000 via payment_link.paid
+      const partBody2 = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_part_adv_200',
+              status: 'paid',
+              amount_paid: 4000000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_part_adv_002',
+              amount: 2500000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig2 = makeWebhookSignature(partBody2);
+      const res2 = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig2,
+          'x-razorpay-event-id': 'evt_part_adv_002',
+        },
+        body: partBody2,
+      });
+
+      assert.equal(res2.status, 200);
+
+      const qtnAfterPart2 = await Quotation.findById(qtnPart.id);
+      assert.equal(qtnAfterPart2?.paymentPlan?.[0]?.status, 'Paid');
+
+      const evAfterPart2 = await Event.findById(evPart.id);
+      assert.equal(evAfterPart2?.status, 'confirmed');
+    });
+
+    it('B.3. payment_link.expired updates local linkStatus without altering finances or event', async () => {
+      const evExp = await Event.create({
+        clientId: clientId1,
+        title: 'Expiry Test Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 864000000),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Hall B' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      const qtnExp = await Quotation.create({
+        quotationNumber: 'QTN-SYNC-EXP1',
+        revision: 1,
+        eventId: evExp.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 20000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 20000 }],
+        subtotal: 20000,
+        discount: 0,
+        taxableAmount: 20000,
+        finalAmount: 20000,
+        advanceAmount: 10000,
+        remainingAmount: 10000,
+        paymentPlan: [
+          { title: 'Advance', percentage: 50, amount: 10000, dueDate: new Date(), expiryDate: new Date(Date.now() + 86400000) },
+          { title: 'Balance', percentage: 50, amount: 10000, dueDate: new Date(Date.now() + 864000000), expiryDate: new Date(Date.now() + 864000000) },
+        ],
+        validUntil: new Date(Date.now() + 86400000),
+      });
+
+      const linkExp = await Payment.create({
+        eventId: evExp.id,
+        quotationId: qtnExp.id,
+        clientId: clientId1,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        installmentTitle: 'Advance',
+        amount: 10000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_exp1',
+        razorpayPaymentLinkId: 'plink_expire_test_001',
+        linkStatus: 'active',
+      });
+
+      const expBody = JSON.stringify({
+        event: 'payment_link.expired',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_expire_test_001',
+              status: 'expired',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(expBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_expire_001',
+        },
+        body: expBody,
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.status, 'expired_updated');
+
+      const updatedExpPayment = await Payment.findById(linkExp.id);
+      assert.equal(updatedExpPayment?.linkStatus, 'expired');
+      assert.equal(updatedExpPayment?.status, 'created');
+
+      const checkEv = await Event.findById(evExp.id);
+      assert.equal(checkEv?.status, 'awaiting_payment');
+    });
+
+    it('B.4. payment_link.cancelled updates local linkStatus without recording payment', async () => {
+      const evCanc = await Event.create({
+        clientId: clientId1,
+        title: 'Cancel Test Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 864000000),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Hall C' },
+        guestCount: 60,
+        status: 'awaiting_payment',
+      });
+
+      const qtnCanc = await Quotation.create({
+        quotationNumber: 'QTN-SYNC-CANC1',
+        revision: 1,
+        eventId: evCanc.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 20000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 20000 }],
+        subtotal: 20000,
+        discount: 0,
+        taxableAmount: 20000,
+        finalAmount: 20000,
+        advanceAmount: 10000,
+        remainingAmount: 10000,
+        paymentPlan: [
+          { title: 'Advance', percentage: 50, amount: 10000, dueDate: new Date(), expiryDate: new Date(Date.now() + 86400000) },
+          { title: 'Balance', percentage: 50, amount: 10000, dueDate: new Date(Date.now() + 864000000), expiryDate: new Date(Date.now() + 864000000) },
+        ],
+        validUntil: new Date(Date.now() + 86400000),
+      });
+
+      const linkCanc = await Payment.create({
+        eventId: evCanc.id,
+        quotationId: qtnCanc.id,
+        clientId: clientId1,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Balance',
+        amount: 10000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_canc1',
+        razorpayPaymentLinkId: 'plink_cancel_test_001',
+        linkStatus: 'active',
+      });
+
+      const cancBody = JSON.stringify({
+        event: 'payment_link.cancelled',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_cancel_test_001',
+              status: 'cancelled',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(cancBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: cancBody,
+      });
+
+      assert.equal(res.status, 200);
+      const updatedPayment = await Payment.findById(linkCanc.id);
+      assert.equal(updatedPayment?.linkStatus, 'cancelled');
+      assert.equal(updatedPayment?.status, 'created');
+    });
+
+    it('C.1. Webhook deduplication: Repeated delivery with same x-razorpay-event-id is ignored idempotently', async () => {
+      const webhookBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_full_adv_100',
+              status: 'paid',
+              amount_paid: 4000000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_full_adv_100',
+              amount: 4000000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(webhookBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_full_adv_001',
+        },
+        body: webhookBody,
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.status, 'duplicate');
+    });
+
+    it('C.2. Duplicate provider payment ID is not credited twice', async () => {
+      const webhookBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_full_adv_100',
+              status: 'paid',
+              amount_paid: 4000000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_full_adv_100',
+              amount: 4000000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(webhookBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_new_event_id_same_pay_id',
+        },
+        body: webhookBody,
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.status, 'already_paid');
+    });
+
+    it('D.1. Unmapped payment link returns safe unmapped response without guessing', async () => {
+      const unmappedBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_non_existent_99999',
+              status: 'paid',
+              amount_paid: 500000,
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(unmappedBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: unmappedBody,
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.status, 'unmapped');
+    });
+
+    it('D.2. Webhook rejects unsupported currency -> 400', async () => {
+      await Payment.create({
+        eventId: eventId1,
+        quotationId: eventId1,
+        clientId: clientId1,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        amount: 2000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_curr_test_1',
+        razorpayPaymentLinkId: 'plink_curr_test_001',
+        linkStatus: 'active',
+      });
+
+      const currBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: { entity: { id: 'plink_curr_test_001', status: 'paid', amount_paid: 200000 } },
+          payment: { entity: { id: 'pay_usd_001', amount: 200000, currency: 'USD', status: 'captured' } },
+        },
+      });
+
+      const sig = makeWebhookSignature(currBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': sig },
+        body: currBody,
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.ok(data.message.includes('Unsupported currency: USD'));
+    });
+
+    it('D.3. Webhook rejects uncaptured / failed provider payment -> 400', async () => {
+      const failBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: { entity: { id: 'plink_curr_test_001', status: 'paid', amount_paid: 200000 } },
+          payment: { entity: { id: 'pay_failed_001', amount: 200000, currency: 'INR', status: 'failed' } },
+        },
+      });
+
+      const sig = makeWebhookSignature(failBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': sig },
+        body: failBody,
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.ok(data.message.includes('Provider payment status is not captured'));
+    });
+
+    it('E.1. Callback reconciliation: Unauthenticated request -> 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/reconcile-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentLinkId: 'plink_test_reconcile_001' }),
+      });
+      assert.equal(res.status, 401);
+    });
+
+    it('E.2. Callback reconciliation: Unauthorized client accessing another client payment link -> 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/reconcile-link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${clientToken2}`,
+        },
+        body: JSON.stringify({ paymentLinkId: 'plink_full_adv_100' }),
+      });
+      assert.equal(res.status, 403);
+    });
+
+    it('E.3. Callback reconciliation returns authoritative state without duplicate increments', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/reconcile-link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${clientToken1}`,
+        },
+        body: JSON.stringify({ paymentLinkId: 'plink_full_adv_100' }),
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.success, true);
+      assert.equal(data.data.eventStatus, 'confirmed');
+      assert.equal(data.data.totalAdvancePaid, 40000);
+      assert.equal(data.data.outstandingAdvance, 0);
+    });
+
+    it('E.4. Callback reconciliation before webhook delivery processes payment; subsequent webhook is idempotent', async () => {
+      const evReconcileFirst = await Event.create({
+        clientId: clientId1,
+        title: 'Reconcile First Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 864000000),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Tech Park' },
+        guestCount: 80,
+        status: 'awaiting_payment',
+      });
+
+      const qtnReconcileFirst = await Quotation.create({
+        quotationNumber: 'QTN-SYNC-REC1',
+        revision: 1,
+        eventId: evReconcileFirst.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 30000, name: 'DJ', description: 'DJ', pricingType: 'package', amount: 30000 }],
+        subtotal: 30000,
+        discount: 0,
+        taxableAmount: 30000,
+        finalAmount: 30000,
+        advanceAmount: 15000,
+        remainingAmount: 15000,
+        paymentPlan: [
+          { title: 'Advance', percentage: 50, amount: 15000, dueDate: new Date(), expiryDate: new Date(Date.now() + 86400000) },
+          { title: 'Final', percentage: 50, amount: 15000, dueDate: new Date(Date.now() + 864000000), expiryDate: new Date(Date.now() + 864000000) },
+        ],
+        validUntil: new Date(Date.now() + 86400000),
+      });
+
+      await Payment.create({
+        eventId: evReconcileFirst.id,
+        quotationId: qtnReconcileFirst.id,
+        clientId: clientId1,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        installmentTitle: 'Advance',
+        amount: 15000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_rec1',
+        razorpayPaymentLinkId: 'plink_reconcile_first_001',
+        linkStatus: 'active',
+      });
+
+      // 1. Client callback executes reconciliation before webhook arrives
+      const recRes = await fetch(`http://127.0.0.1:${port}/api/payments/reconcile-link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${clientToken1}`,
+        },
+        body: JSON.stringify({
+          paymentLinkId: 'plink_reconcile_first_001',
+          paymentId: 'pay_rec_first_999',
+        }),
+      });
+
+      assert.equal(recRes.status, 200);
+      const recData = (await recRes.json()) as any;
+      assert.equal(recData.data.eventStatus, 'confirmed');
+      assert.equal(recData.data.totalAdvancePaid, 15000);
+
+      // 2. Webhook arrives afterwards with the same payment
+      const wbBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_reconcile_first_001',
+              status: 'paid',
+              amount_paid: 1500000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_rec_first_999',
+              amount: 1500000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(wbBody);
+      const wbRes = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_rec_first_wb_001',
+        },
+        body: wbBody,
+      });
+
+      assert.equal(wbRes.status, 200);
+      const wbData = (await wbRes.json()) as any;
+      assert.equal(wbData.status, 'already_paid');
+
+      const finalQtn = await Quotation.findById(qtnReconcileFirst.id);
+      assert.equal(finalQtn?.paymentPlan?.[0]?.status, 'Paid');
+    });
+
+    it('F.1. Payment Link for subsequent installment updates installment and preserves confirmed event status', async () => {
+      const qtnAdv = await Quotation.findOne({ quotationNumber: 'QTN-SYNC-ADV1' });
+      assert.ok(qtnAdv);
+
+      const instPayment = await Payment.create({
+        eventId: qtnAdv.eventId,
+        quotationId: qtnAdv.id,
+        clientId: clientId1,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Balance',
+        amount: 60000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: 'rcpt_sync_inst1',
+        razorpayPaymentLinkId: 'plink_inst_balance_001',
+        linkStatus: 'active',
+      });
+
+      const instBody = JSON.stringify({
+        event: 'payment_link.paid',
+        payload: {
+          payment_link: {
+            entity: {
+              id: 'plink_inst_balance_001',
+              status: 'paid',
+              amount_paid: 6000000,
+            },
+          },
+          payment: {
+            entity: {
+              id: 'pay_inst_balance_001',
+              amount: 6000000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const sig = makeWebhookSignature(instBody);
+      const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/razorpay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+          'x-razorpay-event-id': 'evt_inst_bal_001',
+        },
+        body: instBody,
+      });
+
+      assert.equal(res.status, 200);
+
+      const qtnAfterInst = await Quotation.findById(qtnAdv.id);
+      assert.equal(qtnAfterInst?.paymentPlan?.[1]?.status, 'Paid');
+
+      const checkPayment = await Payment.findById(instPayment.id);
+      assert.equal(checkPayment?.status, 'paid');
+      assert.equal(checkPayment?.amount, 60000);
+
+      const evAfterInst = await Event.findById(qtnAdv.eventId);
+      assert.equal(evAfterInst?.status, 'confirmed');
+    });
+  });
 });
+
 

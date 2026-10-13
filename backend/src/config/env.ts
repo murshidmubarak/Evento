@@ -55,6 +55,12 @@ export const env = {
   get razorpayKeySecret(): string {
     return process.env.RAZORPAY_KEY_SECRET as string;
   },
+  get razorpayWebhookSecret(): string {
+    return (process.env.RAZORPAY_WEBHOOK_SECRET as string) || '';
+  },
+  get frontendUrl(): string {
+    return process.env.FRONTEND_URL || 'http://localhost:5173';
+  },
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME as string,
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY as string,
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET as string,

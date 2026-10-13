@@ -483,3 +483,17 @@ Quotation.paymentPlan[i] (1)
                     ├── Previous expired/replaced links (linkStatus: 'replaced', previousPaymentId chain)
                     └── Renewal audit (renewedAt, renewedBy -> ref: users)
 ```
+
+### Webhook Receipts & Payment Synchronization Relationship
+
+```text
+Razorpay Gateway Event (X-Razorpay-Event-Id / plink_xxx)
+     │
+     ▼
+WebhookReceipt (eventId: unique provider event ID)
+     │
+     └── References:
+             ├── paymentLinkId -> Payment.razorpayPaymentLinkId
+             └── paymentId     -> Payment.razorpayPaymentId
+```
+

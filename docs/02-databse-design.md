@@ -300,3 +300,19 @@ Fields:
 - uploadedBy
 - imageUrl
 - createdAt
+
+
+## 15. Webhook Receipts
+
+Collection: webhook_receipts
+
+Fields:
+
+- eventId (String, unique index, provider event ID or composite deduplication key)
+- eventType (String, e.g. payment_link.paid, payment_link.partially_paid)
+- paymentLinkId (String, optional)
+- paymentId (String, optional)
+- summary (String, optional)
+- processedAt (Date)
+- createdAt
+- updatedAt

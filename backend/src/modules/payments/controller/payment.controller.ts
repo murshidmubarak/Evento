@@ -112,3 +112,18 @@ export const getAdminPayments = catchAsync(async (req: Request, res: Response) =
   new ApiResponse(200, 'Payments retrieved successfully', payments).send(res);
 });
 
+export const handleRazorpayWebhook = catchAsync(async (req: Request, res: Response) => {
+  const rawBody = (req as any).rawBody || (Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body)));
+  const result = await paymentService.handleRazorpayWebhook(req.headers, rawBody, req.body);
+  res.status(200).json({ success: true, ...result });
+});
+
+export const reconcilePaymentLink = catchAsync(async (req: Request, res: Response) => {
+  const user = {
+    id: req.user!.id,
+    role: req.user!.role,
+  };
+  const result = await paymentService.reconcilePaymentLink(user, req.body);
+  new ApiResponse(200, 'Payment link reconciled successfully', result).send(res);
+});
+

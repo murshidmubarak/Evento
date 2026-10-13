@@ -10,13 +10,21 @@ import quotationRouter from './modules/quotations/routes/quotation.routes.js';
 import paymentRouter from './modules/payments/routes/payment.routes.js';
 import adminEventRouter from './modules/events/routes/admin-event.routes.js';
 import managerEventRouter from './modules/events/routes/manager-event.routes.js';
+import webhookRouter from './modules/payments/routes/webhook.routes.js';
 
 const app = express();
 
 // ─── Global Middlewares ───────────────────────────────────────────────────────
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req: any, _res: any, buf: Buffer) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
@@ -38,6 +46,7 @@ app.use('/api/admin/events', adminEventRouter);
 app.use('/api/manager', managerEventRouter);
 app.use('/api/quotations', quotationRouter);
 app.use('/api/payments', paymentRouter);
+app.use('/api/webhooks', webhookRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

@@ -357,3 +357,38 @@ Change local UI text in one page.
   - Repository test suite: 282/282 tests pass across all 32 test suites.
   - TypeScript type-check and production builds for both backend and frontend pass cleanly with 0 errors.
 
+
+## Razorpay Payment Link Synchronization Fix: Webhooks, Callback URL & Reconciliation
+- **Impact Classification**: Medium (Backward-compatible security, webhook, and payment reconciliation extension)
+- **Date**: 2026-10-13
+- **Modules Affected**:
+  - `backend/src/config/env.ts` (`razorpayWebhookSecret`, `frontendUrl`)
+  - `backend/src/app.ts` (`req.rawBody` capture on `express.json`)
+  - `backend/src/modules/payments/` (`webhook-receipt.model.ts`, `webhook-signature.ts`, `payment.repository.ts`, `payment.service.ts`, `payment.controller.ts`, `webhook.routes.ts`, `payment.routes.ts`, `payment.validation.ts`)
+  - `backend/tests/payments.test.ts`
+  - `frontend/src/features/payments/` (`payment.types.ts`, `paymentsApi.ts`)
+  - `frontend/src/pages/client/ClientPaymentReturn.tsx`
+  - `frontend/src/routes/AppRoutes.tsx`
+- **Database Schema Changes**:
+  - Added `WebhookReceipt` model with unique index on `eventId` for permanent idempotency.
+  - Reused existing `Payment` model and fields (`razorpayPaymentLinkId`, `razorpayPaymentId`, `linkStatus`, `allocations`).
+- **API Contracts Added/Updated**:
+  - `POST /api/webhooks/razorpay`: Public server-to-server webhook endpoint verified with raw-body HMAC-SHA256 signature against `RAZORPAY_WEBHOOK_SECRET`.
+  - `POST /api/payments/reconcile-link`: Authenticated client reconciliation endpoint for the frontend callback return page.
+- **Environment Configuration**:
+  - Added `RAZORPAY_WEBHOOK_SECRET` and `FRONTEND_URL` to centralized environment config, `.env.example`, `.env`, and `tests/setup.ts`.
+- **Payment Link Configuration**:
+  - Configured `callback_url: ${frontendUrl}/client/payment-return` and `callback_method: 'get'` during payment link creation and renewal.
+- **Financial & Business Rule Guarantees**:
+  - Raw-body signature verification in constant time (`crypto.timingSafeEqual`).
+  - Strict deduplication preventing duplicate payment records, double-counting, or duplicate arithmetic.
+  - Cumulative vs. incremental decoupling: processes individual provider payment amounts, preserving existing partial payment credit.
+  - Full advance confirmation rule preserved: only transitions event from `awaiting_payment` to `confirmed` once full advance balance is met.
+  - Subsequent installment payments preserve existing confirmed event status.
+  - Shared authoritative processing (`applyAuthoritativePaymentSuccess`) guarantees identical business logic across checkout modal, webhook, and callback reconciliation.
+- **Verification & Test Status**:
+  - Payment test suite: 80/80 tests pass (`backend/tests/payments.test.ts`).
+  - Repository test suite: 301/301 tests pass across all 33 test suites.
+  - Frontend production build: `npm run build` cleanly succeeds in 6.07s.
+
+
