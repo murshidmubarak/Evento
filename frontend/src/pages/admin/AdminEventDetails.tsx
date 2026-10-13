@@ -4,10 +4,34 @@ import { getEventById } from '../../features/events/eventsApi';
 import { getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { Quotation } from '../../features/quotations/quotation.types';
-import { Loader2, Calendar, Clock, MapPin, Users, Mail, Phone, ArrowLeft, FileText, ImageIcon, Eye, Building2, User, CreditCard } from 'lucide-react';
+import {
+  Loader2,
+  Calendar,
+  Clock,
+  MapPin,
+  Users,
+  Mail,
+  Phone,
+  ArrowLeft,
+  FileText,
+  ImageIcon,
+  Eye,
+  Building2,
+  User,
+  CreditCard,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  History,
+  X,
+} from 'lucide-react';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
-import { getAdvanceSummary } from '../../features/payments/paymentsApi';
-import type { AdvancePaymentSummary } from '../../features/payments/payment.types';
+import { getAdvanceSummary, renewPaymentLink } from '../../features/payments/paymentsApi';
+import type { AdvancePaymentSummary, InstallmentPaymentSummary } from '../../features/payments/payment.types';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 
 export const AdminEventDetails = () => {
@@ -17,6 +41,16 @@ export const AdminEventDetails = () => {
   const [paymentSummary, setPaymentSummary] = useState<AdvancePaymentSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Renewal Modal State
+  const [selectedInstallmentForRenewal, setSelectedInstallmentForRenewal] = useState<InstallmentPaymentSummary | null>(null);
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [newExpiryDateStr, setNewExpiryDateStr] = useState('');
+  const [isRenewing, setIsRenewing] = useState(false);
+  const [renewalSuccessMsg, setRenewalSuccessMsg] = useState('');
+  const [renewalErrorMsg, setRenewalErrorMsg] = useState('');
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchEventData = async () => {
@@ -88,6 +122,46 @@ export const AdminEventDetails = () => {
       default:
         return <span className="px-2.5 py-1 bg-gray-100 text-gray-700 text-xs font-bold uppercase tracking-wider rounded-md border border-gray-200/50">{status.replace('_', ' ')}</span>;
     }
+  };
+
+  const handleOpenRenewalModal = (inst: InstallmentPaymentSummary) => {
+    setSelectedInstallmentForRenewal(inst);
+    // Default 7 days from now formatted YYYY-MM-DD
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    setNewExpiryDateStr(nextWeek.toISOString().split('T')[0]);
+    setRenewalErrorMsg('');
+    setRenewalSuccessMsg('');
+    setIsRenewalModalOpen(true);
+  };
+
+  const handleRenewPaymentLink = async () => {
+    if (!id || !selectedInstallmentForRenewal) return;
+    try {
+      setIsRenewing(true);
+      setRenewalErrorMsg('');
+      const res = await renewPaymentLink({
+        eventId: id,
+        installmentIndex: selectedInstallmentForRenewal.installmentIndex,
+        newExpiryDate: newExpiryDateStr,
+      });
+      setRenewalSuccessMsg(`Replacement link created for ₹${res.outstandingAmount.toLocaleString('en-IN')}! Email notification sent.`);
+      const updated = await getAdvanceSummary(id);
+      setPaymentSummary(updated);
+      setTimeout(() => {
+        setIsRenewalModalOpen(false);
+        setRenewalSuccessMsg('');
+      }, 1500);
+    } catch (err: any) {
+      setRenewalErrorMsg(err.response?.data?.message || 'Failed to renew payment link.');
+    } finally {
+      setIsRenewing(false);
+    }
+  };
+
+  const handleCopyLink = (linkId: string, url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedLinkId(linkId);
+    setTimeout(() => setCopiedLinkId(null), 2000);
   };
 
   return (
@@ -279,14 +353,19 @@ export const AdminEventDetails = () => {
         {/* Right Column - Meta Info */}
         <div className="space-y-6">
 
-          {/* Advance Payment Visibility Card */}
+          {/* Payment & Installments Management Card */}
           {paymentSummary && paymentSummary.hasAcceptedQuotation && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-indigo-600" />
-                  Advance Payment Summary
-                </h3>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-indigo-600" />
+                    Payment & Installments Management
+                  </h3>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Quotation #{paymentSummary.quotationNumber} (Rev {paymentSummary.quotationRevision})
+                  </p>
+                </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
                     paymentSummary.isFullyPaid
@@ -297,58 +376,340 @@ export const AdminEventDetails = () => {
                   }`}
                 >
                   {paymentSummary.isFullyPaid
-                    ? 'Paid'
+                    ? 'Advance Settled'
                     : paymentSummary.advancePaidAmount > 0
-                    ? 'Partially Paid'
-                    : 'Pending'}
+                    ? 'Partial Advance'
+                    : 'Advance Pending'}
                 </span>
               </div>
-              <div className="p-5 space-y-4">
+
+              <div className="p-5 space-y-5">
+                {/* Overall Financial Metrics */}
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="p-3 bg-gray-50 rounded-lg">
-                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Required Advance</span>
-                    <span className="text-sm font-black text-gray-900">{formatCurrency(paymentSummary.requiredAdvance)}</span>
+                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Total Agreed Value</span>
+                    <span className="text-sm font-black text-gray-900">{formatCurrency(paymentSummary.totalQuotationAmount)}</span>
+                  </div>
+                  <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-100">
+                    <span className="text-indigo-700 block text-[10px] uppercase font-bold">Required Advance</span>
+                    <span className="text-sm font-black text-indigo-700">{formatCurrency(paymentSummary.requiredAdvance)}</span>
                   </div>
                   <div className="p-3 bg-emerald-50/60 rounded-lg border border-emerald-100">
-                    <span className="text-emerald-700 block text-[10px] uppercase font-bold">Verified Paid</span>
+                    <span className="text-emerald-700 block text-[10px] uppercase font-bold">Verified Advance Paid</span>
                     <span className="text-sm font-black text-emerald-700">{formatCurrency(paymentSummary.advancePaidAmount)}</span>
+                  </div>
+                  <div className="p-3 bg-amber-50/60 rounded-lg border border-amber-100">
+                    <span className="text-amber-700 block text-[10px] uppercase font-bold">Outstanding Advance</span>
+                    <span className="text-sm font-black text-amber-700">{formatCurrency(paymentSummary.outstandingAdvance)}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-100">
-                  <span className="text-gray-500 font-medium">Outstanding Advance:</span>
-                  <span className="font-extrabold text-amber-700 text-sm">
-                    {formatCurrency(paymentSummary.outstandingAdvance)}
-                  </span>
-                </div>
+                {/* Installment-Level Schedule & Link Renewal */}
+                {paymentSummary.installments && paymentSummary.installments.length > 0 && (
+                  <div className="pt-2 border-t border-gray-100 space-y-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block">
+                      Scheduled Installments ({paymentSummary.installments.length})
+                    </span>
 
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>Quotation Ref:</span>
-                  <span className="font-mono font-semibold text-gray-800">
-                    {paymentSummary.quotationNumber} (Rev {paymentSummary.quotationRevision})
-                  </span>
-                </div>
+                    <div className="space-y-3">
+                      {paymentSummary.installments.map((inst, idx) => {
+                        const isExpiredLink = inst.isExpired && inst.outstandingAmount > 0;
+                        const isHistoryExpanded = expandedHistoryIdx === idx;
 
+                        return (
+                          <div
+                            key={inst.installmentId || idx}
+                            className={`p-3.5 rounded-lg border text-xs space-y-3 transition-colors ${
+                              isExpiredLink
+                                ? 'bg-rose-50/40 border-rose-200'
+                                : inst.baseStatus === 'Paid'
+                                ? 'bg-emerald-50/30 border-emerald-100'
+                                : 'bg-gray-50/70 border-gray-200'
+                            }`}
+                          >
+                            {/* Installment Header & Status */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-extrabold text-gray-900">{inst.title}</span>
+                                  {idx === 0 && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700">
+                                      Advance
+                                    </span>
+                                  )}
+                                  {/* Status Badges */}
+                                  {inst.baseStatus === 'Paid' ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                                      Paid
+                                    </span>
+                                  ) : isExpiredLink ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                                      Link Expired
+                                    </span>
+                                  ) : inst.isOverdue ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">
+                                      Overdue
+                                    </span>
+                                  ) : inst.verifiedPaidAmount > 0 ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800">
+                                      Partially Paid
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200 text-gray-700">
+                                      Pending
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500 mt-1">
+                                  {inst.dueDate && <span>Due: {formatDate(inst.dueDate)}</span>}
+                                  {inst.expiryDate && (
+                                    <span className={isExpiredLink ? 'text-rose-600 font-bold' : ''}>
+                                      Expiry: {formatDate(inst.expiryDate)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                <span className="font-bold text-gray-900 block">{formatCurrency(inst.scheduledAmount)}</span>
+                                <span className="text-[10px] text-gray-500">
+                                  Paid: {formatCurrency(inst.verifiedPaidAmount)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Outstanding & Renewal Section */}
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-200/60">
+                              <div>
+                                <span className="text-[10px] text-gray-500 uppercase font-semibold">Outstanding: </span>
+                                <strong className={`font-black text-xs ${inst.outstandingAmount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                  {formatCurrency(inst.outstandingAmount)}
+                                </strong>
+                              </div>
+
+                              {/* Admin Renew Payment Link Button */}
+                              {isExpiredLink && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenRenewalModal(inst)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <span>Renew Payment Link</span>
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Active Payment Link display */}
+                            {inst.currentPaymentLink && !inst.isExpired && (
+                              <div className="p-2 bg-white rounded border border-gray-200 flex items-center justify-between gap-2 text-[11px]">
+                                <span className="text-gray-500 font-mono truncate max-w-[200px]">
+                                  {inst.currentPaymentLink.shortUrl}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyLink(inst.currentPaymentLink!.linkId || inst.currentPaymentLink!.shortUrl, inst.currentPaymentLink!.shortUrl)}
+                                  className="text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 shrink-0"
+                                >
+                                  {copiedLinkId === (inst.currentPaymentLink.linkId || inst.currentPaymentLink.shortUrl) ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-600">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Copy</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Previous Link History Toggle */}
+                            {inst.linkHistory && inst.linkHistory.length > 0 && (
+                              <div className="pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedHistoryIdx(isHistoryExpanded ? null : idx)}
+                                  className="text-[11px] font-semibold text-gray-500 hover:text-gray-800 flex items-center gap-1 transition-colors"
+                                >
+                                  <History className="w-3 h-3" />
+                                  <span>Link History ({inst.linkHistory.length})</span>
+                                  {isHistoryExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                </button>
+
+                                {isHistoryExpanded && (
+                                  <div className="mt-2 space-y-1.5 p-2.5 bg-white rounded border border-gray-200 animate-in fade-in text-[10px]">
+                                    {inst.linkHistory.map((lh) => (
+                                      <div key={lh.id} className="p-1.5 bg-gray-50 rounded flex items-center justify-between gap-2">
+                                        <div>
+                                          <span className="font-mono text-gray-700 block truncate max-w-[170px]">{lh.shortUrl || lh.linkId}</span>
+                                          <span className="text-gray-400">
+                                            Status: <strong className="uppercase">{lh.status}</strong> • Exp: {formatDate(lh.expiresAt)}
+                                          </span>
+                                        </div>
+                                        {lh.renewedBy && (
+                                          <span className="text-gray-400 shrink-0">By: {lh.renewedBy}</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Verified Transactions List */}
                 {paymentSummary.payments && paymentSummary.payments.length > 0 && (
                   <div className="pt-2 border-t border-gray-100 space-y-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block">
                       Verified Transactions ({paymentSummary.payments.length})
                     </span>
-                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
                       {paymentSummary.payments.map((p) => (
-                        <div key={p.id} className="p-2 bg-gray-50 rounded text-[11px] flex items-center justify-between">
-                          <div>
-                            <span className="font-bold text-gray-900">{formatCurrency(p.amount)}</span>
-                            <span className="text-gray-400 block text-[10px] font-mono truncate max-w-[140px]">
-                              {p.razorpayPaymentId || p.receiptReference}
-                            </span>
+                        <div key={p.id} className="p-2 bg-gray-50 rounded text-[11px] space-y-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-bold text-gray-900">{formatCurrency(p.amount)}</span>
+                              <span className="text-gray-400 block text-[10px] font-mono truncate max-w-[140px]">
+                                {p.razorpayPaymentId || p.receiptReference}
+                              </span>
+                            </div>
+                            <span className="text-gray-400 text-[10px]">{formatDate(p.createdAt)}</span>
                           </div>
-                          <span className="text-gray-400 text-[10px]">{formatDate(p.createdAt)}</span>
+                          {p.allocations && p.allocations.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {p.allocations.map((a, aIdx) => (
+                                <span key={aIdx} className="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 text-[9px] font-bold">
+                                  {a.installmentTitle}: {formatCurrency(a.allocatedAmount)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Admin Payment Link Renewal Modal */}
+          {isRenewalModalOpen && selectedInstallmentForRenewal && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+              <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200 space-y-5 animate-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                  <div>
+                    <h3 className="text-base font-extrabold text-gray-900">Renew Payment Link</h3>
+                    <p className="text-xs text-gray-500">{selectedInstallmentForRenewal.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRenewalModalOpen(false);
+                      setRenewalErrorMsg('');
+                      setRenewalSuccessMsg('');
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Authoritative Financial Balances */}
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Scheduled Installment:</span>
+                    <strong className="text-gray-900">{formatCurrency(selectedInstallmentForRenewal.scheduledAmount)}</strong>
+                  </div>
+                  <div className="flex justify-between text-emerald-700">
+                    <span>Verified Amount Paid:</span>
+                    <strong className="text-emerald-700">{formatCurrency(selectedInstallmentForRenewal.verifiedPaidAmount)}</strong>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-gray-200 text-sm">
+                    <span className="font-bold text-gray-900">Replacement Link Amount:</span>
+                    <strong className="font-black text-amber-700">
+                      {formatCurrency(selectedInstallmentForRenewal.outstandingAmount)}
+                    </strong>
+                  </div>
+                  <p className="text-[11px] text-gray-400 pt-1">
+                    * Per authoritative rules, replacement link will request strictly the current outstanding balance.
+                  </p>
+                </div>
+
+                {/* Expiry Date Picker */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-gray-700">
+                    New Link Expiry Date
+                  </label>
+                  <input
+                    type="date"
+                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                    value={newExpiryDateStr}
+                    onChange={(e) => setNewExpiryDateStr(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p className="text-[11px] text-gray-400">
+                    Original installment due date ({formatDate(selectedInstallmentForRenewal.dueDate)}) remains preserved.
+                  </p>
+                </div>
+
+                {/* Success / Error Messages */}
+                {renewalSuccessMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{renewalSuccessMsg}</span>
+                  </div>
+                )}
+
+                {renewalErrorMsg && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{renewalErrorMsg}</span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRenewalModalOpen(false);
+                      setRenewalErrorMsg('');
+                      setRenewalSuccessMsg('');
+                    }}
+                    disabled={isRenewing}
+                    className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRenewPaymentLink}
+                    disabled={isRenewing || !newExpiryDateStr}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-xs"
+                  >
+                    {isRenewing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Renewing Link...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Issue Replacement Link</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}

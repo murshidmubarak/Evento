@@ -134,14 +134,23 @@ Fields:
 
 - eventId
 - quotationId
+- quotationRevision
 - clientId
-- paymentType
+- paymentType ('advance' | 'installment')
+- installmentIndex (number, target/starting installment)
 - amount
 - currency
-- status
+- status ('created' | 'pending' | 'paid' | 'failed' | 'refunded')
 - razorpayOrderId
 - razorpayPaymentId
+- razorpaySignature
 - receiptReference
+- isFullPayment (boolean)
+- allocations (array of durable multi-installment allocations):
+  - installmentIndex (number)
+  - installmentId (string)
+  - installmentTitle (string)
+  - allocatedAmount (number)
 - createdAt
 - updatedAt
 

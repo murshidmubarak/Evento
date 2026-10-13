@@ -119,6 +119,19 @@ Reference:
 payments.eventId → events._id
 
 
+### 4.1 Payment → Installments (Multi-Allocation)
+
+A single verified Payment transaction can be allocated across multiple scheduled installments within the accepted Quotation:
+
+- Provider transaction identity is preserved (single provider payment and order, never artificially duplicated).
+- The `Payment.allocations` array durably records the allocation breakdown across the quotation's configured `paymentPlan`:
+  `allocations: [{ installmentIndex, installmentId, installmentTitle, allocatedAmount }]`
+- Relationship:
+  Payment (1) → Installment Allocations (N) [Embedded]
+- Installment verified amounts and outstanding balances are derived by aggregating verified payment allocations attributable to each installment.
+- For full-quotation settlement, `isFullPayment: true` records that the payment settled the remaining quotation balance in a single transaction.
+
+
 ## 5. Client → Payments
 
 One Client can make many Payments.
@@ -455,3 +468,18 @@ SERVICES  QUOTATIONS     EXPENSES                         |
               |            |             |
               ▼            ▼             ▼
           MESSAGES      FEEDBACK       GALLERY
+
+### Installment Payment & Link Renewal Relationships
+
+```text
+Quotation.paymentPlan[i] (1)
+     │
+     ├── (Many) Payment (paymentType: 'installment', installmentIndex: i)
+     │              ├── Verified payments (status: 'paid') -> aggregate to verifiedPaidAmount
+     │              └── Outstanding amount = scheduledAmount - sum(verifiedPaidAmount)
+     │
+     └── (Many) Payment Links & History
+                    ├── Active link (linkStatus: 'active')
+                    ├── Previous expired/replaced links (linkStatus: 'replaced', previousPaymentId chain)
+                    └── Renewal audit (renewedAt, renewedBy -> ref: users)
+```

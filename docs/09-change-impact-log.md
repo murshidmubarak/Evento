@@ -295,4 +295,65 @@ Change local UI text in one page.
 - Tests: Added integration tests 36–48 in `backend/tests/payments.test.ts` verifying the reference financial fixture (₹100,000 required, ₹40,000 partial payment keeping event `awaiting_payment`, ₹60,000 completion confirming event, idempotency, duplicate protection, and RBAC).
 **Impact:**
 - No breaking changes. Existing quotation builder, payment schedule configuration, and quotation revisions remain completely intact. No arbitrary financial calculations in browser. All 254 backend integration tests pass. Frontend production build and tests pass cleanly.
-
+
+
+## Payment Milestone 2 of 3: Installments, Expiry, Admin Renewal & History
+- **Impact Classification**: Medium (Backward-compatible schema and API extension)
+- **Date**: 2026-10-13
+- **Modules Affected**:
+  - `backend/src/modules/payments/` (Model, Repository, Service, Validation, Controller, Routes)
+  - `backend/src/modules/email/` (Renewal email notification)
+  - `frontend/src/features/payments/` (Types, API client)
+  - `frontend/src/pages/client/ClientAdvancePayment.tsx`
+  - `frontend/src/pages/admin/AdminEventDetails.tsx`
+- **Database Changes**:
+  - `Payment` model extended with `paymentType`, `installmentIndex`, `installmentTitle`, `razorpayPaymentLinkId`, `paymentLinkUrl`, `linkExpiresAt`, `linkStatus`, `previousPaymentId`, `renewedAt`, `renewedBy`.
+  - Added compound indexes for fast installment and link queries.
+  - `Quotation` paymentPlan elements optionally store `installmentId`.
+- **API Contracts Added/Updated**:
+  - `POST /api/payments/create-order` (supports installmentIndex and partial installment payments)
+  - `POST /api/payments/verify` (supports installment payments and quotation paymentPlan status sync)
+  - `GET /api/payments/schedule/:eventId` (authoritative schedule summary)
+  - `POST /api/payments/renew-link` (Admin-only payment link renewal)
+- **Business Rule Guarantees**:
+  - Authoritative calculation: outstanding balance = scheduled amount - sum of verified payments.
+  - Advance prerequisite strictly enforced before later installments become payable.
+  - Expired links rejected with exact message: "This payment link expired on [date]. Please contact the Admin for further assistance.".
+  - Advance expiry preserves state without automatic cancellation; confirmed event status preserved on later installment expiry.
+  - Admin renewal generates replacement link for strictly the current outstanding balance.
+  - Previous link history preserved in payment records with replacement chain.
+  - Reminder scheduler deferred to Milestone 3.
+
+
+## Payment Milestone 2 Extension: Full Payment Option, Excess Payment Allocation & Financial Validation
+- **Impact Classification**: Medium (Backward-compatible schema extension and financial validation enhancements)
+- **Date**: 2026-10-13
+- **Modules Affected**:
+  - `backend/src/modules/payments/` (`payment.model.ts`, `payment.repository.ts`, `payment.service.ts`, `payment.validation.ts`, `payment.controller.ts`, `payment.routes.ts`)
+  - `backend/tests/payments.test.ts`
+  - `frontend/src/features/payments/` (`payment.types.ts`, `paymentsApi.ts`)
+  - `frontend/src/pages/client/ClientAdvancePayment.tsx`
+  - `frontend/src/pages/admin/AdminEventDetails.tsx`
+- **Database Schema Changes**:
+  - `Payment` model extended with:
+    - `isFullPayment` (boolean): flags whether transaction was intended to settle full remaining quotation balance.
+    - `allocations` (array of `IPaymentAllocation`): `{ installmentIndex, installmentId, installmentTitle, allocatedAmount }`.
+  - Added indexes on `quotationRevision` and compound `quotationId` queries.
+- **API Contracts Added/Updated**:
+  - `POST /api/payments/preview-allocation`: provides live calculation of payment distribution across installments before checkout.
+  - `POST /api/payments/create-order`: extended with `paymentOption: 'current_installment' | 'custom' | 'full_balance'`, `customAmount`, `isFullPayment`, and `allowExcess`.
+  - `POST /api/payments/verify`: enhanced with multi-installment status synchronization, receipt details (`allocations`, `resultingBalances`, `isFullPayment`, `isQuotationFullyPaid`, `eventStatus`).
+  - `GET /api/payments/schedule/:eventId`: includes `scheduleConsistency` report, `totalQuotationOutstanding`, `isQuotationFullyPaid`, `canPayFullBalance`, and verified payment records with durable itemized `allocations`.
+- **Financial & Business Rule Guarantees**:
+  - Authoritative financial values: Final quotation amounts and verified payment records remain the sole source of truth; no client-side financial computation trusted.
+  - Automatic installment cascading: Excess payments beyond current installment automatically allocate to subsequent milestones in configured quotation schedule order.
+  - Single provider transaction identity: One payment transaction spanning multiple installments generates exactly one Razorpay Order and one Payment document.
+  - Quotation schedule consistency: Before enabling cross-installment or full payment, sum of installment amounts must equal quotation `finalAmount`. Inconsistent schedules are rejected with an informative error identifying both totals.
+  - Strict overpayment prevention: Any payment exceeding total outstanding quotation balance is rejected before order creation with clear message (`"Payment amount cannot exceed the total outstanding balance of ₹[amount]."`).
+  - Event confirmation rule preserved: Event confirmed only when required advance (index 0) has been fully settled and verified. Full payments or excess payments settling the advance immediately confirm the event in the same transaction.
+  - Backward compatibility: Milestone 1 advance payments and Milestone 2 installment/renewal workflows fully operational with 0 regressions.
+- **Verification & Test Status**:
+  - Full payment test suite: 61/61 tests pass (`backend/tests/payments.test.ts`).
+  - Repository test suite: 282/282 tests pass across all 32 test suites.
+  - TypeScript type-check and production builds for both backend and frontend pass cleanly with 0 errors.
+

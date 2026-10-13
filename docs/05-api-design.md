@@ -558,12 +558,102 @@ POST /api/payments/create-order
 Access:
 Client who owns the related Event
 
-Purpose:
-Create Razorpay order.
+Request Body:
+```json
+{
+  "eventId": "string (required)",
+  "installmentIndex": 0,
+  "paymentOption": "current_installment | custom | full_balance",
+  "partialAmount": 50000,
+  "customAmount": 150000,
+  "isFullPayment": false,
+  "allowExcess": true
+}
+```
+
+Supported Payment Options:
+- `current_installment`: Pays strictly the current eligible installment's remaining balance (e.g. if ₹100,000 of ₹200,000 advance has already been paid, the backend automatically deducts the paid amount and issues the order for the remaining ₹100,000). Rejects attempts exceeding the remaining installment balance under Option A.
+- `custom`: Client enters arbitrary amount. If amount exceeds current installment, excess automatically cascades to subsequent installments in configured order up to total quotation outstanding.
+- `full_balance`: Settles all outstanding installments in one provider payment using backend-calculated authoritative remaining balance.
+
+Backend Validation:
+- Client owns Event and accepts active quotation revision.
+- Schedule consistency validation: sum of scheduled installments must equal quotation `finalAmount`. If mismatched, blocks cross-installment / full payment with HTTP 400 identifying both amounts.
+- Overpayment validation: requested amount must not exceed `Total Outstanding` (`finalAmount` - cumulative verified payments). Returns HTTP 400: `"Payment amount cannot exceed the total outstanding balance of ₹[balance]."`.
+- Advance prerequisite: for standalone subsequent installment payments without excess/full flags, full advance must be verified.
+- Checks payment-link expiry for the target installment.
+- Calculates and stores planned `allocations: [{ installmentIndex, installmentId, installmentTitle, allocatedAmount }]` on the Payment record.
+- Reuses existing pending order for exact same amount or cancels obsolete pending orders idempotently.
 
 Important:
-
 Creating an order does NOT mean payment is successful.
+
+
+## Preview Payment Allocation
+
+POST /api/payments/preview-allocation
+
+Access:
+Client who owns the related Event, or Admin
+
+Purpose:
+Provides an authoritative live calculation of how a proposed payment amount will be distributed across scheduled installments before proceeding to Razorpay checkout.
+
+Request Body:
+```json
+{
+  "eventId": "string (required)",
+  "targetAmount": 150000,
+  "paymentOption": "custom",
+  "isFullPayment": false,
+  "installmentIndex": 0
+}
+```
+
+Response Body:
+```json
+{
+  "targetAmount": 150000,
+  "totalQuotationOutstanding": 372000,
+  "allocations": [
+    {
+      "installmentIndex": 0,
+      "installmentId": "6640...01",
+      "installmentTitle": "Booking Advance",
+      "allocatedAmount": 100000
+    },
+    {
+      "installmentIndex": 1,
+      "installmentId": "6640...02",
+      "installmentTitle": "Final Settlement",
+      "allocatedAmount": 50000
+    }
+  ],
+  "resultingBalances": [
+    {
+      "installmentIndex": 0,
+      "title": "Booking Advance",
+      "scheduledAmount": 100000,
+      "previouslyPaid": 0,
+      "allocatedAmount": 100000,
+      "resultingOutstanding": 0,
+      "resultingStatus": "Paid"
+    },
+    {
+      "installmentIndex": 1,
+      "title": "Final Settlement",
+      "scheduledAmount": 272000,
+      "previouslyPaid": 0,
+      "allocatedAmount": 50000,
+      "resultingOutstanding": 222000,
+      "resultingStatus": "Partially Paid"
+    }
+  ],
+  "remainingUnallocated": 0,
+  "willConfirmEvent": true,
+  "isQuotationFullySettled": false
+}
+```
 
 
 ## Verify Payment
@@ -571,31 +661,93 @@ Creating an order does NOT mean payment is successful.
 POST /api/payments/verify
 
 Access:
-Authenticated payment request
-
-Purpose:
-Verify Razorpay payment on backend.
+Authenticated client owning payment record
 
 Request Body:
+```json
 {
-  razorpay_order_id,
-  razorpay_payment_id,
-  razorpay_signature
+  "razorpay_order_id": "string",
+  "razorpay_payment_id": "string",
+  "razorpay_signature": "string"
 }
+```
 
 Backend verifies:
-
 - Payment Order existence and ownership
 - Razorpay signature via HMAC-SHA256
-- Idempotency (if already paid, return success)
+- Provider capture amount against authoritative order amount
+- Idempotency (if already paid, return existing verified state without double-crediting)
+- Rejection of superseded quotation revisions
 
 After successful verification:
+- Payment -> `paid`
+- Durable allocations persisted: `allocations: [{ installmentIndex, installmentId, installmentTitle, allocatedAmount }]`
+- Advance installment: If verified payments allocated to advance reach required advance, Event transitions to `confirmed`.
+- Subsequent installments: Status updated to `Paid` or `Partially Paid`.
+- Active payment links for fully settled installments marked `paid`.
+- Returns verified payment receipt details:
+  - `quotationNumber`, `quotationRevision`
+  - `eventId`, `eventStatus`
+  - `finalAmount`, `totalVerifiedPaid`, `totalOutstanding`
+  - `razorpayPaymentId`, `receiptReference`
+  - `isFullPayment`, `isQuotationFullyPaid`
+  - `allocations`, `resultingBalances`
 
-Payment → paid
 
-If the required advance is paid:
+## Get Payment Schedule Summary
 
-Event → confirmed
+GET /api/payments/schedule/:eventId
+
+Access:
+Client who owns the Event, or Admin
+
+Purpose:
+Get authoritative payment schedule summary with per-installment calculations, schedule consistency status, multi-installment allocation details on verified transactions, and full-settlement eligibility.
+
+Key Response Fields:
+- `scheduleConsistency`: `{ isConsistent: boolean, scheduleTotal: number, quotationFinalAmount: number, mismatch: number }`
+- `totalQuotationAmount`: Total final amount from accepted quotation.
+- `totalVerifiedPaid`: Total verified amount received across all installments.
+- `totalQuotationOutstanding`: Authoritative remaining balance (`round2(finalAmount - totalVerifiedPaid)`).
+- `isQuotationFullyPaid`: `true` when `totalQuotationOutstanding === 0`.
+- `canPayFullBalance`: `true` when consistent, not fully paid, and payment workflow permits.
+- `installments`: Array of installments with `scheduledAmount`, `verifiedPaidAmount`, `outstandingAmount`, `status`, `isOverdue`, `isExpired`, `links`.
+- `verifiedPayments`: Array of verified transactions, each containing itemized `allocations` and `isFullPayment`.
+
+
+## Renew Payment Link
+
+POST /api/payments/renew-link
+
+Access:
+Admin (role: 'admin') only
+
+Request Body:
+```json
+{
+  "eventId": "string",
+  "installmentIndex": 1,
+  "newExpiryDate": "2026-10-31T00:00:00.000Z",
+  "newExpiryDays": 7
+}
+```
+
+Backend Validation:
+- Admin authorized.
+- Installment has expired and has outstanding balance.
+- Replacement link requests strictly the current outstanding balance.
+- Original due date is preserved.
+- Previous expired link is archived to history with status replaced.
+- Duplicate renewal protection: rejects if active unexpired link already exists.
+- Renewal email sent to Client with new link and expiry date.
+
+
+## Get Advance Summary
+
+GET /api/payments/advance-summary/:eventId
+
+Access:
+Client who owns the Event, or Admin
 
 
 ## Get My Payments
@@ -604,8 +756,6 @@ GET /api/payments
 
 Access:
 Client
-
-Returns only the Client's own payments.
 
 
 ## Get Payment
@@ -618,11 +768,10 @@ Authorized users
 
 ## Admin Payment List
 
-GET /api/admin/payments
+GET /api/payments/admin
 
 Access:
 Admin
-
 
 # 9. Event Manager Assignment APIs
 

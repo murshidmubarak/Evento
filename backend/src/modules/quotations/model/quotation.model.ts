@@ -34,6 +34,7 @@ export interface IQuotationItem {
 }
 
 export interface IPaymentInstallment {
+  installmentId?: string;
   title: string;
   percentage?: number;
   amount: number;
@@ -136,6 +137,7 @@ const quotationItemSchema = new Schema<IQuotationItem>(
 
 const paymentInstallmentSchema = new Schema<IPaymentInstallment>(
   {
+    installmentId: { type: String },
     title: { type: String, required: true },
     percentage: { type: Number },
     amount: { type: Number, required: true, min: 0 },

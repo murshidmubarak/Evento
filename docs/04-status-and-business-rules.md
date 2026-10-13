@@ -312,6 +312,67 @@ refunded
 - **Duplicate Transaction Safeguards**:
   - Subsequent verification requests for an already verified transaction return the authoritative state idempotently without double-counting amounts.
   - Repeated orders or stale revisions cannot alter historical verified records.
+- **Subsequent Installment Eligibility**:
+  - The Event must belong to the authenticated Client.
+  - The quotation must be in `accepted` status and match the active revision.
+  - Prerequisite: Initial required advance must be fully paid (`outstandingAdvance === 0`) and the Event must be in `confirmed` (or `in_progress`) status.
+  - The installment index must be valid, not expired, and have an outstanding balance (`outstandingAmount > 0`).
+  - Fully paid installments are not eligible for payment.
+- **Installment-Level Payment & Partial Tracking**:
+  - `Verified Paid Amount` = Sum of all verified (`status: 'paid'`) payments associated with that specific installment index.
+  - `Outstanding Amount` = Scheduled Installment Amount − Verified Paid Amount.
+  - Only verified provider payments reduce the outstanding balance. Failed, pending, or unverified attempts are excluded.
+  - When partial payment is received on an installment, its status transitions to `Partially Paid`.
+  - When cumulative verified payments equal the scheduled installment amount (`Outstanding Amount === 0`), the installment status transitions to `Paid`.
+  - Paying an installment on a confirmed event preserves the Event's `confirmed` status at all times.
+- **Due Date and Overdue Handling**:
+  - Derived from the scheduled `dueDate` configured in the quotation builder `paymentPlan`.
+  - If the due date passes while `Outstanding Amount > 0`, the installment is derived as overdue (`isOverdue: true`, status `Overdue`).
+  - An installment becoming overdue does not cancel or invalidate an already-confirmed event.
+- **Payment-Link Expiry Validation**:
+  - Payment link expiry is enforced strictly on the backend by comparing against the installment's `expiryDate`.
+  - Expired link payment attempts are rejected with HTTP 400 and exact message: `"This payment link expired on [expiry date]. Please contact the Admin for further assistance."`.
+  - Verified payment history, amounts paid, and outstanding balances remain preserved.
+  - Frontend renders a "Contact Admin" UI action button without introducing chat or messaging functionality.
+- **Advance Expiry vs Later Installment Expiry**:
+  - *Advance link expiry*: Rejects payment; preserves partial verified payments; leaves event in `awaiting_payment` (no invented automatic cancellation).
+  - *Later installment expiry*: Rejects payment; leaves event in `confirmed` status; leaves contract balance intact; permits authorized Admin renewal.
+- **Authorized Admin Link Renewal**:
+  - Restricted strictly to authorized Admin (`role: 'admin'`). Client and manager requests return HTTP 403.
+  - Authoritative balance recalculation: Replacement link requests strictly the current `Outstanding Amount` (e.g. ₹72,000, not the full scheduled ₹272,000).
+  - Preserves original installment due date.
+  - Assigns a valid future expiry date.
+  - Previous link history is preserved: existing link status transitions to `replaced`, maintaining link ID, URL, expiry, and creation timestamp.
+  - Duplicate renewal protection: Renewal is rejected if a valid, unexpired active link already exists for the installment.
+  - Fully paid installments cannot be renewed.
+  - Generates replacement link and delivers renewal notification with new link and expiry date to the Client via `EmailService`.
+- **Payment Milestone 2 Extension — Full Payment, Excess Allocation & Financial Validation**:
+  - **Three Client Payment Choices**:
+    - **Option A (Pay Current Installment / Advance)**: Pays strictly the current outstanding balance of the active eligible installment (`outstandingAmount` or `outstandingAdvance`). If the customer has already paid part of the advance (e.g. ₹1,00,000 of ₹2,00,000), Option A automatically deducts the already paid amount in the backend too, ensuring the payable amount is strictly the remaining balance (₹1,00,000). If the original undeducted scheduled amount is submitted under Option A, the backend automatically deducts the previously paid amount; any amount exceeding the remaining balance under Option A without Option B (custom) is rejected with clear validation identifying the outstanding balance, required amount, and amount already paid.
+    - **Option B (Pay Custom Amount)**: Allows entering an arbitrary custom amount. The amount can exceed the current installment's outstanding balance, up to the total outstanding quotation balance. Excess amounts automatically cascade to settle subsequent installments in configured schedule order.
+    - **Option C (Pay Full Remaining Balance)**: Settles all remaining installments across the entire quotation in a single transaction. Available only when total quotation outstanding balance > 0, the quotation is eligible, and the schedule is consistent. The payable amount is calculated authoritatively by the backend (`finalAmount - totalVerifiedPaidAmount`).
+  - **Automatic Installment Allocation Order**:
+    - Verified payment amounts are allocated strictly in the order of installments configured in the quotation's `paymentPlan`.
+    - Earliest unpaid installment is settled first; remaining funds cascade to the next installment until the verified amount is fully allocated.
+    - The client is never asked to manually allocate amounts between installments.
+    - Historical allocations are immutable and durable; subsequent balance calculations aggregate verified allocations without rewriting historical records.
+  - **Single Provider Transaction Identity**:
+    - A payment covering multiple installments generates exactly ONE Razorpay Order and ONE `Payment` document.
+    - Artificial duplicate transactions are strictly prohibited.
+    - `Payment.allocations` stores the itemized distribution: `[{ installmentIndex, installmentId, installmentTitle, allocatedAmount }]`.
+  - **Quotation Schedule Consistency Validation**:
+    - Before permitting full-quotation settlement or cross-installment excess allocation, the backend validates that $\sum \text{installment.amount} == \text{finalAmount}$.
+    - If the schedule total differs from `finalAmount`, cross-installment and full-balance settlement are blocked with HTTP 400 and an error identifying the exact schedule total and quotation final amount.
+    - Neither the frontend nor the backend silently adjusts installment or quotation amounts.
+  - **Overpayment Prevention**:
+    - Total Outstanding = `finalAmount` − Cumulative verified payments across all installments.
+    - Any payment request where `requestedAmount > Total Outstanding` is rejected with HTTP 400: `"Payment amount cannot exceed the total outstanding balance of ₹[amount]."`.
+    - Razorpay orders are never created for overpayment amounts.
+  - **Preservation of Event Confirmation Rule**:
+    - The event transitions from `awaiting_payment` to `confirmed` strictly when cumulative verified payments allocated to the advance installment (index 0) equal the required advance (`outstandingAdvance === 0`).
+    - An excess payment or full payment confirming the advance triggers event confirmation immediately in the same verification call, without requiring a second payment.
+    - If a payment leaves the advance partially unpaid, the event remains `awaiting_payment`.
+
 8. Event Manager Assignment Rules
 
 Event Manager assignment happens after Event confirmation.

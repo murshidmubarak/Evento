@@ -311,9 +311,23 @@ Implement:
 - [DONE] Partial advance payments support and outstanding advance balance tracking
 - [DONE] Event confirmation strictly enforced only when full required advance is verified
 - [DONE] Admin payment visibility (`GET /api/payments/admin` and `AdminEventDetails.tsx`)
-- [DONE] Payment history display on Client Advance Payment and Admin Event pages
-- [PENDING - Prompt 2] Subsequent installment renewal and link generation
-- [PENDING - Prompt 3] Automated email payment reminders & scheduler
+- [DONE - Milestone 2] Subsequent installments, installment-level payment tracking, partial installment payments, and outstanding balances
+- [DONE - Milestone 2] Authoritative payment schedule summary endpoint (`GET /api/payments/schedule/:eventId`)
+- [DONE - Milestone 2] Backend payment-link expiry validation and rejection with exact required notice
+- [DONE - Milestone 2] Authorized Admin payment-link renewal for outstanding balances (`POST /api/payments/renew-link`)
+- [DONE - Milestone 2] Payment-link history preservation and replacement tracking
+- [DONE - Milestone 2] Renewal notification email delivery to Client via EmailService
+- [DONE - Milestone 2] Client installment overview and interactive partial installment payment UI
+- [DONE - Milestone 2] Admin payment and installment management interface with renewal action
+- [DONE - Milestone 2 Extension] Three Client payment choices: Option A (Pay Current Installment/Advance), Option B (Pay Custom Amount with cascading excess), Option C (Pay Full Remaining Balance in one transaction)
+- [DONE - Milestone 2 Extension] Authoritative quotation schedule consistency validation (sum of installments equals quotation finalAmount) blocking unsafe cross-installment payments
+- [DONE - Milestone 2 Extension] Strict overpayment prevention: requests exceeding total outstanding balance rejected with clear error message
+- [DONE - Milestone 2 Extension] Automatic installment allocation cascading verified funds across scheduled milestones in configured order
+- [DONE - Milestone 2 Extension] Durable immutable payment allocation records (`Payment.allocations`) preserving single provider transaction identity
+- [DONE - Milestone 2 Extension] Live interactive frontend payment allocation preview table and API (`POST /api/payments/preview-allocation`)
+- [DONE - Milestone 2 Extension] Comprehensive post-verification receipt card displaying quotation, event status, transaction, and multi-installment attribution
+- [DONE - Milestone 2 Extension] Automated test suite (Tests A–J) covering all extension scenarios with 100% pass rate (61/61 payments tests passing)
+- [PENDING - Milestone 3] Automated email payment reminders & cron scheduler
 
 Never trust frontend payment success alone.
 

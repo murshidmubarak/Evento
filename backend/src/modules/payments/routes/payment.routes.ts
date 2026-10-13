@@ -1,14 +1,27 @@
 import { Router } from 'express';
-import { createOrder, verifyOrder, getAdvanceSummary, getAdminPayments } from '../controller/payment.controller.js';
+import {
+  createOrder,
+  verifyOrder,
+  previewAllocation,
+  getAdvanceSummary,
+  getPaymentScheduleSummary,
+  renewPaymentLink,
+  getAdminPayments,
+} from '../controller/payment.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
-import { validateCreateOrder, validateVerifyOrder } from '../validation/payment.validation.js';
+import {
+  validateCreateOrder,
+  validateVerifyOrder,
+  validatePreviewAllocation,
+  validateRenewPaymentLink,
+} from '../validation/payment.validation.js';
 
 const router = Router();
 
 /**
  * @route   POST /api/payments/create-order
- * @desc    Create a payment order for an event
+ * @desc    Create a payment order for an advance or installment
  * @access  Private (Client)
  */
 router.post(
@@ -17,6 +30,19 @@ router.post(
   authorize('client'), // Only clients can create their orders
   validateCreateOrder,
   createOrder
+);
+
+/**
+ * @route   POST /api/payments/preview-allocation
+ * @desc    Preview multi-installment allocation and resulting balances before checkout
+ * @access  Private (Client)
+ */
+router.post(
+  '/preview-allocation',
+  authenticate,
+  authorize('client'),
+  validatePreviewAllocation,
+  previewAllocation
 );
 
 /**
@@ -42,6 +68,31 @@ router.get(
   authenticate,
   authorize('client', 'admin', 'event_manager'),
   getAdvanceSummary
+);
+
+/**
+ * @route   GET /api/payments/schedule/:eventId
+ * @desc    Get complete payment schedule summary, installments, link history, and status
+ * @access  Private (Client, Admin, Event Manager)
+ */
+router.get(
+  '/schedule/:eventId',
+  authenticate,
+  authorize('client', 'admin', 'event_manager'),
+  getPaymentScheduleSummary
+);
+
+/**
+ * @route   POST /api/payments/renew-link
+ * @desc    Authorized Admin renewal of an expired payment link for outstanding balance
+ * @access  Private (Admin)
+ */
+router.post(
+  '/renew-link',
+  authenticate,
+  authorize('admin'),
+  validateRenewPaymentLink,
+  renewPaymentLink
 );
 
 /**

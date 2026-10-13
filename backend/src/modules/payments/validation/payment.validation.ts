@@ -1,20 +1,46 @@
 import { Request, Response, NextFunction } from 'express';
 
 export const validateCreateOrder = (req: Request, res: Response, next: NextFunction): void => {
-  const { eventId, partialAmount } = req.body;
+  const { eventId, partialAmount, amount, customAmount, installmentIndex } = req.body;
   
   if (!eventId || typeof eventId !== 'string') {
     res.status(400).json({ success: false, message: 'Valid eventId is required' });
     return;
   }
 
-  if (partialAmount !== undefined && partialAmount !== null) {
-    if (typeof partialAmount !== 'number' || isNaN(partialAmount) || partialAmount <= 0) {
-      res.status(400).json({ success: false, message: 'Partial payment amount must be a number greater than 0' });
+  if (installmentIndex !== undefined && installmentIndex !== null) {
+    if (typeof installmentIndex !== 'number' || isNaN(installmentIndex) || installmentIndex < 0 || !Number.isInteger(installmentIndex)) {
+      res.status(400).json({ success: false, message: 'installmentIndex must be a non-negative integer' });
+      return;
+    }
+  }
+
+  const requestedAmount = customAmount !== undefined ? customAmount : (partialAmount !== undefined ? partialAmount : amount);
+  if (requestedAmount !== undefined && requestedAmount !== null) {
+    if (typeof requestedAmount !== 'number' || isNaN(requestedAmount) || requestedAmount <= 0) {
+      res.status(400).json({ success: false, message: 'Payment amount must be a number greater than 0' });
       return;
     }
   }
   
+  next();
+};
+
+export const validatePreviewAllocation = (req: Request, res: Response, next: NextFunction): void => {
+  const { eventId, amount } = req.body;
+
+  if (!eventId || typeof eventId !== 'string') {
+    res.status(400).json({ success: false, message: 'Valid eventId is required' });
+    return;
+  }
+
+  if (amount !== undefined && amount !== null) {
+    if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+      res.status(400).json({ success: false, message: 'Payment amount must be a number greater than 0' });
+      return;
+    }
+  }
+
   next();
 };
 
@@ -34,6 +60,30 @@ export const validateVerifyOrder = (req: Request, res: Response, next: NextFunct
   if (!razorpay_signature || typeof razorpay_signature !== 'string') {
     res.status(400).json({ success: false, message: 'Valid razorpay_signature is required' });
     return;
+  }
+
+  next();
+};
+
+export const validateRenewPaymentLink = (req: Request, res: Response, next: NextFunction): void => {
+  const { eventId, installmentIndex, newExpiryDate } = req.body;
+
+  if (!eventId || typeof eventId !== 'string') {
+    res.status(400).json({ success: false, message: 'Valid eventId is required' });
+    return;
+  }
+
+  if (installmentIndex === undefined || installmentIndex === null || typeof installmentIndex !== 'number' || isNaN(installmentIndex) || installmentIndex < 0 || !Number.isInteger(installmentIndex)) {
+    res.status(400).json({ success: false, message: 'Valid installmentIndex is required as a non-negative integer' });
+    return;
+  }
+
+  if (newExpiryDate !== undefined && newExpiryDate !== null) {
+    const d = new Date(newExpiryDate);
+    if (isNaN(d.getTime())) {
+      res.status(400).json({ success: false, message: 'newExpiryDate must be a valid date' });
+      return;
+    }
   }
 
   next();

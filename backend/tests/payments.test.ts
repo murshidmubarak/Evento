@@ -32,6 +32,8 @@ describe('Payments API', () => {
   let eventId1: string;
   let eventId2: string; // Not in awaiting_payment
   let eventId3: string; // Belonging to client 2
+  let partialEventId: string;
+  let partialQuotationId: string;
 
   let server: any;
   let port: number;
@@ -488,9 +490,6 @@ describe('Payments API', () => {
   });
 
   describe('Partial Advance Payments, Advance Summary & Event Confirmation (Prompt 1 Milestone)', () => {
-    let partialEventId: string;
-    let partialQuotationId: string;
-
     before(async () => {
       // Create reference fixture matching prompt:
       // Final amount: 372,000; Required advance: 100,000; Remaining: 272,000
@@ -786,6 +785,1435 @@ describe('Payments API', () => {
         headers: { Authorization: `Bearer ${clientToken1}` },
       });
       assert.equal(res.status, 403);
+    });
+  });
+
+  describe('Payment Milestone 2: Installments, Expiry, Admin Renewal & History', () => {
+    let unconfirmedEventId: string;
+    let unconfirmedQuotationId: string;
+    let expiredAdvanceEventId: string;
+    let expiredAdvanceQuotationId: string;
+
+    before(async () => {
+      // Event with unconfirmed status / unpaid advance to test prerequisite
+      const evUnconf = await Event.create({
+        clientId: clientId1,
+        title: 'Unconfirmed Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 30),
+        startTime: '10:00',
+        endTime: '14:00',
+        location: { address: 'Unconf Hall' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+      unconfirmedEventId = evUnconf.id;
+
+      const qtnUnconf = await Quotation.create({
+        quotationNumber: 'QTN-UNCONF-1',
+        revision: 1,
+        eventId: unconfirmedEventId,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 20000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 20000 }],
+        subtotal: 20000,
+        discount: 0,
+        taxableAmount: 20000,
+        finalAmount: 20000,
+        advanceAmount: 5000,
+        remainingAmount: 15000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          {
+            title: 'Advance',
+            amount: 5000,
+            dueDate: new Date(Date.now() + 86400000 * 5),
+            expiryDate: new Date(Date.now() + 86400000 * 10),
+            status: 'Pending',
+          },
+          {
+            title: 'Balance',
+            amount: 15000,
+            dueDate: new Date(Date.now() + 86400000 * 15),
+            expiryDate: new Date(Date.now() + 86400000 * 20),
+            status: 'Pending',
+          },
+        ],
+      });
+      unconfirmedQuotationId = qtnUnconf.id;
+
+      // Event with expired advance link
+      const yesterday = new Date(Date.now() - 86400000);
+      const evExpAdv = await Event.create({
+        clientId: clientId1,
+        title: 'Expired Advance Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 30),
+        startTime: '10:00',
+        endTime: '14:00',
+        location: { address: 'Exp Hall' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+      expiredAdvanceEventId = evExpAdv.id;
+
+      const qtnExpAdv = await Quotation.create({
+        quotationNumber: 'QTN-EXP-ADV-1',
+        revision: 1,
+        eventId: expiredAdvanceEventId,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 10000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 10000 }],
+        subtotal: 10000,
+        discount: 0,
+        taxableAmount: 10000,
+        finalAmount: 10000,
+        advanceAmount: 3000,
+        remainingAmount: 7000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          {
+            title: 'Booking Advance',
+            amount: 3000,
+            dueDate: new Date(Date.now() - 86400000 * 2),
+            expiryDate: yesterday,
+            status: 'Pending',
+          },
+          {
+            title: 'Final',
+            amount: 7000,
+            dueDate: new Date(Date.now() + 86400000 * 15),
+            expiryDate: new Date(Date.now() + 86400000 * 20),
+            status: 'Pending',
+          },
+        ],
+      });
+      expiredAdvanceQuotationId = qtnExpAdv.id;
+    });
+
+    it('49. Payment schedule endpoint: Client can retrieve authoritative schedule for own event', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.success, true);
+      assert.equal(body.data.quotationNumber, 'QTN-2026-003');
+      assert.equal(body.data.finalAmount, 372000);
+      assert.equal(body.data.requiredAdvance, 100000);
+      assert.equal(body.data.advancePaidAmount, 100000);
+      assert.equal(body.data.isAdvanceSettled, true);
+      assert.equal(body.data.totalPaidAmount, 100000);
+      assert.equal(body.data.totalOutstandingAmount, 272000);
+      assert.equal(body.data.installments.length, 2);
+
+      // Advance installment check
+      const advInst = body.data.installments[0];
+      assert.equal(advInst.isAdvance, true);
+      assert.equal(advInst.status, 'Paid');
+      assert.equal(advInst.paidAmount, 100000);
+      assert.equal(advInst.outstandingAmount, 0);
+
+      // Remaining installment check
+      const remInst = body.data.installments[1];
+      assert.equal(remInst.isAdvance, false);
+      assert.equal(remInst.title, 'Final settlement');
+      assert.equal(remInst.scheduledAmount, 272000);
+      assert.equal(remInst.paidAmount, 0);
+      assert.equal(remInst.outstandingAmount, 272000);
+      assert.equal(remInst.isEligibleForPayment, true);
+    });
+
+    it('50. Payment schedule access control: Unauthorized client cannot view schedule -> 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken2}` },
+      });
+      assert.equal(res.status, 403);
+    });
+
+    it('51. Payment schedule access control: Admin can view schedule for any event', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.success, true);
+    });
+
+    it('52. Advance prerequisite: Cannot create installment order when advance is not fully settled -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: unconfirmedEventId, installmentIndex: 1 }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(body.message.includes('Initial advance payment must be fully paid'));
+    });
+
+    it('53. Installment validation: Rejects partial amount <= 0 or exceeding outstanding balance -> 400', async () => {
+      // Exceeds scheduled 272,000
+      const resExceed = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, partialAmount: 300000 }),
+      });
+      assert.equal(resExceed.status, 400);
+      const exceedBody = (await resExceed.json()) as any;
+      assert.ok(exceedBody.message.includes('exceed'));
+
+      // Negative or zero
+      const resZero = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, partialAmount: 0 }),
+      });
+      assert.equal(resZero.status, 400);
+    });
+
+    let instOrderId1: string;
+    let instPaymentId1: string;
+
+    it('54. Creates order for partial installment payment (₹200,000 of ₹272,000 scheduled)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, partialAmount: 200000 }),
+      });
+      assert.equal(res.status, 201);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.amount, 200000);
+      assert.equal(body.data.scheduledAmount, 272000);
+      assert.equal(body.data.outstandingAmount, 272000);
+      assert.equal(body.data.installmentIndex, 1);
+      instOrderId1 = body.data.razorpayOrderId;
+      instPaymentId1 = body.data.paymentId;
+
+      // Check payment model record
+      const payRecord = await Payment.findById(instPaymentId1);
+      assert.ok(payRecord);
+      assert.equal(payRecord.paymentType, 'installment');
+      assert.equal(payRecord.installmentIndex, 1);
+      assert.equal(payRecord.status, 'pending');
+    });
+
+    it('55. Verifies partial installment payment (₹200,000): installment status is Partially Paid, event remains confirmed', async () => {
+      const rzpPayId = 'pay_inst1_partial_200k';
+      const sig = crypto
+        .createHmac('sha256', env.razorpayKeySecret)
+        .update(`${instOrderId1}|${rzpPayId}`)
+        .digest('hex');
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: instOrderId1,
+          razorpay_payment_id: rzpPayId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.amountPaid, 200000);
+      assert.equal(body.data.installmentIndex, 1);
+      assert.equal(body.data.installmentStatus, 'Partially Paid');
+      assert.equal(body.data.outstandingAmount, 72000);
+      assert.equal(body.data.isFullyPaid, false);
+      assert.equal(body.data.eventStatus, 'confirmed');
+
+      // Check database state
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'confirmed');
+
+      const qtn = await Quotation.findById(partialQuotationId);
+      assert.equal(qtn?.paymentPlan?.[1]?.status, 'Partially Paid');
+
+      // Schedule summary check
+      const schedRes = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      const schedBody = (await schedRes.json()) as any;
+      const inst1 = schedBody.data.installments[1];
+      assert.equal(inst1.paidAmount, 200000);
+      assert.equal(inst1.outstandingAmount, 72000);
+      assert.equal(inst1.status, 'Partially Paid');
+      assert.equal(inst1.isEligibleForPayment, true);
+    });
+
+    it('56. Backend enforces payment-link expiry: rejects attempt with exact required message', async () => {
+      // Set installment 1 expiry date to yesterday
+      const yesterday = new Date(Date.now() - 86400000);
+      await Quotation.updateOne(
+        { _id: partialQuotationId },
+        { $set: { 'paymentPlan.1.expiryDate': yesterday } }
+      );
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1 }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(
+        body.message.startsWith('This payment link expired on ') &&
+        body.message.endsWith('. Please contact the Admin for further assistance.'),
+        `Expected exact expiry message pattern, got: ${body.message}`
+      );
+
+      // Financial balance and event state must remain intact
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'confirmed');
+    });
+
+    it('57. Expired advance link: rejects payment with exact message and does not alter event status', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: expiredAdvanceEventId }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(
+        body.message.startsWith('This payment link expired on ') &&
+        body.message.endsWith('. Please contact the Admin for further assistance.')
+      );
+
+      // Event must remain in awaiting_payment (no invented automatic cancellation)
+      const ev = await Event.findById(expiredAdvanceEventId);
+      assert.equal(ev?.status, 'awaiting_payment');
+    });
+
+    it('58. Admin renewal authorization: Non-admin users cannot renew payment link -> 403', async () => {
+      // Client attempt
+      const clientRes = await fetch(`http://127.0.0.1:${port}/api/payments/renew-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, newExpiryDays: 7 }),
+      });
+      assert.equal(clientRes.status, 403);
+
+      // Event Manager attempt
+      const mgrRes = await fetch(`http://127.0.0.1:${port}/api/payments/renew-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, newExpiryDays: 7 }),
+      });
+      assert.equal(mgrRes.status, 403);
+    });
+
+    let renewedLinkUrl: string;
+
+    it('59. Authorized Admin renews expired link: replacement amount is strictly the outstanding balance (₹72,000)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/renew-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          eventId: partialEventId,
+          installmentIndex: 1,
+          newExpiryDays: 7,
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.success, true);
+      assert.equal(body.data.outstandingAmount, 72000, 'Renewal amount must strictly be outstanding balance ₹72,000, not ₹272,000');
+      assert.equal(body.data.installmentIndex, 1);
+      assert.ok(body.data.newExpiryDate);
+      assert.ok(body.data.paymentLinkUrl);
+      renewedLinkUrl = body.data.paymentLinkUrl;
+
+      // Check quotation in database: expiryDate is updated, original dueDate is preserved
+      const qtn = await Quotation.findById(partialQuotationId);
+      const inst = qtn?.paymentPlan?.[1];
+      assert.ok(inst);
+      assert.ok(new Date(inst.expiryDate).getTime() > Date.now());
+      // Original due date: 16 October 2026 preserved
+      assert.equal(new Date(inst.dueDate).getUTCDate(), 16);
+      assert.equal(new Date(inst.dueDate).getUTCMonth(), 9); // Month index 9 is October
+    });
+
+    it('60. Duplicate renewal protection: cannot renew while a valid active link already exists -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/renew-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          eventId: partialEventId,
+          installmentIndex: 1,
+          newExpiryDays: 7,
+        }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(body.message.includes('already has an active, valid payment link'));
+    });
+
+    it('61. Preserves payment-link history and distinguishes active link from previous history', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      const inst1 = body.data.installments[1];
+      assert.ok(inst1.activeLink);
+      assert.equal(inst1.activeLink.linkStatus, 'active');
+      assert.ok(Array.isArray(inst1.linkHistory));
+      assert.ok(inst1.linkHistory.length >= 1);
+    });
+
+    it('62. Client completes remaining installment balance (₹72,000) using renewed link', async () => {
+      const createRes = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, partialAmount: 72000 }),
+      });
+      assert.equal(createRes.status, 201);
+      const createBody = (await createRes.json()) as any;
+      assert.equal(createBody.data.amount, 72000);
+      const orderIdPart3 = createBody.data.razorpayOrderId;
+
+      const rzpPayId3 = 'pay_inst1_final_72k';
+      const sig3 = crypto
+        .createHmac('sha256', env.razorpayKeySecret)
+        .update(`${orderIdPart3}|${rzpPayId3}`)
+        .digest('hex');
+
+      const verifyRes = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderIdPart3,
+          razorpay_payment_id: rzpPayId3,
+          razorpay_signature: sig3,
+        }),
+      });
+      assert.equal(verifyRes.status, 200);
+      const verifyBody = (await verifyRes.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 72000);
+      assert.equal(verifyBody.data.outstandingAmount, 0);
+      assert.equal(verifyBody.data.isFullyPaid, true);
+      assert.equal(verifyBody.data.installmentStatus, 'Paid');
+      assert.equal(verifyBody.data.eventStatus, 'confirmed');
+
+      // Database state verification
+      const ev = await Event.findById(partialEventId);
+      assert.equal(ev?.status, 'confirmed');
+
+      const qtn = await Quotation.findById(partialQuotationId);
+      assert.equal(qtn?.paymentPlan?.[1]?.status, 'Paid');
+    });
+
+    it('63. Schedule reflects fully settled contract: outstanding balance ₹0 and installment status Paid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${partialEventId}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.totalPaidAmount, 372000);
+      assert.equal(body.data.totalOutstandingAmount, 0);
+      const inst1 = body.data.installments[1];
+      assert.equal(inst1.status, 'Paid');
+      assert.equal(inst1.paidAmount, 272000);
+      assert.equal(inst1.outstandingAmount, 0);
+      assert.equal(inst1.isEligibleForPayment, false);
+    });
+
+    it('64. Fully paid installment cannot be paid again -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1 }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(body.message.includes('fully paid'));
+    });
+
+    it('65. Fully paid installment cannot be renewed by Admin -> 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/renew-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ eventId: partialEventId, installmentIndex: 1, newExpiryDays: 7 }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(body.message.includes('already fully paid'));
+    });
+
+    it('66. Overdue installment status derived when past due date with outstanding balance', async () => {
+      // Event with an overdue installment
+      const pastDue = new Date(Date.now() - 86400000 * 5);
+      const futureExpiry = new Date(Date.now() + 86400000 * 5);
+      const evOverdue = await Event.create({
+        clientId: clientId1,
+        title: 'Overdue Installment Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 30),
+        startTime: '10:00',
+        endTime: '14:00',
+        location: { address: 'Overdue Hall' },
+        guestCount: 50,
+        status: 'confirmed',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-OVERDUE-1',
+        revision: 1,
+        eventId: evOverdue.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 20000, name: 'DJ', description: 'DJ Package', pricingType: 'package', amount: 20000 }],
+        subtotal: 20000,
+        discount: 0,
+        taxableAmount: 20000,
+        finalAmount: 20000,
+        advanceAmount: 5000,
+        remainingAmount: 15000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          {
+            title: 'Advance',
+            amount: 5000,
+            dueDate: new Date(Date.now() - 86400000 * 10),
+            expiryDate: futureExpiry,
+            status: 'Paid',
+          },
+          {
+            title: 'Installment 2',
+            amount: 15000,
+            dueDate: pastDue,
+            expiryDate: futureExpiry,
+            status: 'Pending',
+          },
+        ],
+      });
+
+      // Advance payment record to satisfy advance prerequisite
+      await Payment.create({
+        eventId: evOverdue.id,
+        clientId: clientId1,
+        quotationId: new mongoose.Types.ObjectId(),
+        quotationRevision: 1,
+        receiptReference: 'REC-TEST-OVERDUE',
+        paymentType: 'advance',
+        installmentIndex: 0,
+        amount: 5000,
+        currency: 'INR',
+        razorpayOrderId: 'order_overdue_adv',
+        razorpayPaymentId: 'pay_overdue_adv',
+        status: 'paid',
+        paymentMethod: 'razorpay',
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${evOverdue.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      const overdueInst = body.data.installments[1];
+      assert.equal(overdueInst.isOverdue, true);
+      assert.equal(overdueInst.status, 'Overdue');
+    });
+  });
+
+  describe('Payment Milestone 2 Extension: Full Payment, Excess Allocation & Validation', () => {
+    const futureExpiry = new Date(Date.now() + 86400000 * 7);
+    const futureDue1 = new Date(Date.now() + 86400000 * 3);
+    const futureDue2 = new Date(Date.now() + 86400000 * 14);
+
+    // Test A: Pay current advance (₹1,00,000)
+    it('Test A: Pay current advance (₹1,00,000) -> Advance fully paid, event confirmed, no duplicate allocation', async () => {
+      const evA = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event A',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 20),
+        startTime: '10:00',
+        endTime: '16:00',
+        location: { address: 'Hall A' },
+        guestCount: 80,
+        status: 'awaiting_payment',
+      });
+
+      const qtnA = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-A',
+        revision: 1,
+        eventId: evA.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Create order for advance (Option A)
+      const resOrder = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evA.id }),
+      });
+      assert.equal(resOrder.status, 201);
+      const orderBody = (await resOrder.json()) as any;
+      assert.equal(orderBody.data.amount, 100000);
+      assert.equal(orderBody.data.requiredAdvance, 100000);
+
+      // 2. Verify payment
+      const pId = 'pay_ext_a_' + Date.now();
+      const sig = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${orderBody.data.razorpayOrderId}|${pId}`).digest('hex');
+
+      const resVerify = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderBody.data.razorpayOrderId,
+          razorpay_payment_id: pId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(resVerify.status, 200);
+      const verifyBody = (await resVerify.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 100000);
+      assert.equal(verifyBody.data.totalAdvancePaid, 100000);
+      assert.equal(verifyBody.data.outstandingAdvance, 0);
+      assert.equal(verifyBody.data.isFullyPaid, true);
+      assert.equal(verifyBody.data.eventStatus, 'confirmed');
+
+      // Verify DB state
+      const evUpdated = await Event.findById(evA.id);
+      assert.equal(evUpdated?.status, 'confirmed');
+
+      const qtnUpdated = await Quotation.findById(qtnA.id);
+      assert.equal(qtnUpdated?.paymentPlan?.[0]?.status, 'Paid');
+      assert.equal(qtnUpdated?.paymentPlan?.[1]?.status, 'Pending');
+
+      const payments = await Payment.find({ eventId: evA.id });
+      assert.equal(payments.length, 1);
+      assert.equal(payments[0].status, 'paid');
+    });
+
+    // Test B: Custom payment exceeding advance (₹1,50,000 paid)
+    it('Test B: Custom payment exceeding advance (₹1,50,000) -> ₹100,000 to advance, ₹50,000 to final settlement, event confirmed, single provider transaction', async () => {
+      const evB = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event B',
+        eventType: 'Wedding',
+        date: new Date(Date.now() + 86400000 * 25),
+        startTime: '11:00',
+        endTime: '18:00',
+        location: { address: 'Hall B' },
+        guestCount: 120,
+        status: 'awaiting_payment',
+      });
+
+      const qtnB = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-B',
+        revision: 1,
+        eventId: evB.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Create order for custom amount ₹1,50,000 with paymentOption: 'custom'
+      const resOrder = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evB.id, customAmount: 150000, paymentOption: 'custom' }),
+      });
+      assert.equal(resOrder.status, 201);
+      const orderBody = (await resOrder.json()) as any;
+      assert.equal(orderBody.data.amount, 150000);
+
+      // Allocations should cover advance and spill into final settlement
+      assert.ok(Array.isArray(orderBody.data.allocations));
+      assert.equal(orderBody.data.allocations.length, 2);
+      assert.equal(orderBody.data.allocations[0].installmentIndex, 0);
+      assert.equal(orderBody.data.allocations[0].allocatedAmount, 100000);
+      assert.equal(orderBody.data.allocations[1].installmentIndex, 1);
+      assert.equal(orderBody.data.allocations[1].allocatedAmount, 50000);
+
+      // 2. Verify payment
+      const pId = 'pay_ext_b_' + Date.now();
+      const sig = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${orderBody.data.razorpayOrderId}|${pId}`).digest('hex');
+
+      const resVerify = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderBody.data.razorpayOrderId,
+          razorpay_payment_id: pId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(resVerify.status, 200);
+      const verifyBody = (await resVerify.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 150000);
+      assert.equal(verifyBody.data.totalAdvancePaid, 100000);
+      assert.equal(verifyBody.data.outstandingAdvance, 0);
+      assert.equal(verifyBody.data.eventStatus, 'confirmed');
+
+      // 3. Inspect schedule balances
+      const resSchedule = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${evB.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(resSchedule.status, 200);
+      const scheduleBody = (await resSchedule.json()) as any;
+
+      const inst0 = scheduleBody.data.installments[0];
+      assert.equal(inst0.verifiedPaidAmount, 100000);
+      assert.equal(inst0.outstandingAmount, 0);
+      assert.equal(inst0.baseStatus, 'Paid');
+
+      const inst1 = scheduleBody.data.installments[1];
+      assert.equal(inst1.verifiedPaidAmount, 50000);
+      assert.equal(inst1.outstandingAmount, 222000);
+      assert.equal(inst1.baseStatus, 'Partially Paid');
+
+      // Single provider transaction identity in DB
+      const payments = await Payment.find({ eventId: evB.id });
+      assert.equal(payments.length, 1);
+      assert.equal(payments[0].amount, 150000);
+      assert.equal(payments[0].allocations?.length, 2);
+    });
+
+    // Test C: Full quotation payment (₹3,72,000)
+    it('Test C: Full quotation payment (₹3,72,000) -> Advance fully paid, final settlement fully paid, outstanding ₹0, event confirmed', async () => {
+      const evC = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event C',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 30),
+        startTime: '09:00',
+        endTime: '17:00',
+        location: { address: 'Hall C' },
+        guestCount: 150,
+        status: 'awaiting_payment',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-C',
+        revision: 1,
+        eventId: evC.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Order full balance
+      const resOrder = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evC.id, isFullPayment: true, paymentOption: 'full_balance' }),
+      });
+      assert.equal(resOrder.status, 201);
+      const orderBody = (await resOrder.json()) as any;
+      assert.equal(orderBody.data.amount, 372000);
+
+      // 2. Verify payment
+      const pId = 'pay_ext_c_' + Date.now();
+      const sig = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${orderBody.data.razorpayOrderId}|${pId}`).digest('hex');
+
+      const resVerify = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderBody.data.razorpayOrderId,
+          razorpay_payment_id: pId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(resVerify.status, 200);
+      const verifyBody = (await resVerify.json()) as any;
+      assert.equal(verifyBody.data.amountPaid, 372000);
+      assert.equal(verifyBody.data.totalPaidAmount, 372000);
+      assert.equal(verifyBody.data.totalOutstandingAmount, 0);
+      assert.equal(verifyBody.data.isQuotationFullyPaid, true);
+      assert.equal(verifyBody.data.eventStatus, 'confirmed');
+
+      // Schedule verification
+      const resSchedule = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${evC.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(resSchedule.status, 200);
+      const scheduleBody = (await resSchedule.json()) as any;
+      assert.equal(scheduleBody.data.totalPaidAmount, 372000);
+      assert.equal(scheduleBody.data.totalOutstandingAmount, 0);
+      assert.equal(scheduleBody.data.isQuotationFullyPaid, true);
+      assert.equal(scheduleBody.data.canPayFullBalance, false);
+      assert.equal(scheduleBody.data.installments[0].baseStatus, 'Paid');
+      assert.equal(scheduleBody.data.installments[1].baseStatus, 'Paid');
+    });
+
+    // Test D: Full remaining balance after a partial payment (₹40,000 paid, then ₹3,32,000 paid)
+    it('Test D: Full remaining balance after a partial payment (₹40,000 paid, then ₹3,32,000 paid) -> ₹60,000 to advance, ₹2,72,000 to final, total verified ₹3,72,000', async () => {
+      const evD = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event D',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 35),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall D' },
+        guestCount: 60,
+        status: 'awaiting_payment',
+      });
+
+      const qtnD = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-D',
+        revision: 1,
+        eventId: evD.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Initial partial payment: ₹40,000
+      const resP1 = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evD.id, partialAmount: 40000 }),
+      });
+      assert.equal(resP1.status, 201);
+      const b1 = (await resP1.json()) as any;
+
+      const pId1 = 'pay_ext_d1_' + Date.now();
+      const sig1 = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${b1.data.razorpayOrderId}|${pId1}`).digest('hex');
+      const resV1 = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: b1.data.razorpayOrderId,
+          razorpay_payment_id: pId1,
+          razorpay_signature: sig1,
+        }),
+      });
+      assert.equal(resV1.status, 200);
+
+      // Verify event is not yet confirmed
+      const evAfterPart = await Event.findById(evD.id);
+      assert.equal(evAfterPart?.status, 'awaiting_payment');
+
+      // 2. Client chooses Pay Full Remaining Balance
+      const resOrderFull = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evD.id, isFullPayment: true, paymentOption: 'full_balance' }),
+      });
+      assert.equal(resOrderFull.status, 201);
+      const bFull = (await resOrderFull.json()) as any;
+      // Authoritative remaining balance: 372,000 - 40,000 = 332,000
+      assert.equal(bFull.data.amount, 332000);
+
+      // Check planned allocations
+      assert.equal(bFull.data.allocations?.length, 2);
+      assert.equal(bFull.data.allocations[0].installmentIndex, 0);
+      assert.equal(bFull.data.allocations[0].allocatedAmount, 60000);
+      assert.equal(bFull.data.allocations[1].installmentIndex, 1);
+      assert.equal(bFull.data.allocations[1].allocatedAmount, 272000);
+
+      // 3. Verify the full balance payment
+      const pId2 = 'pay_ext_d2_' + Date.now();
+      const sig2 = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${bFull.data.razorpayOrderId}|${pId2}`).digest('hex');
+      const resV2 = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: bFull.data.razorpayOrderId,
+          razorpay_payment_id: pId2,
+          razorpay_signature: sig2,
+        }),
+      });
+      assert.equal(resV2.status, 200);
+      const v2Body = (await resV2.json()) as any;
+      assert.equal(v2Body.data.amountPaid, 332000);
+      assert.equal(v2Body.data.totalPaidAmount, 372000);
+      assert.equal(v2Body.data.totalOutstandingAmount, 0);
+      assert.equal(v2Body.data.isQuotationFullyPaid, true);
+      assert.equal(v2Body.data.eventStatus, 'confirmed');
+
+      const evFinal = await Event.findById(evD.id);
+      assert.equal(evFinal?.status, 'confirmed');
+    });
+
+    // Test E: Reject overpayment (Outstanding: ₹22,000, attempt: ₹30,000)
+    it('Test E: Reject overpayment (Outstanding: ₹22,000, attempt: ₹30,000) -> 400 Bad Request with clear balance message', async () => {
+      const evE = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event E',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 40),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall E' },
+        guestCount: 50,
+        status: 'confirmed',
+      });
+
+      const qtnE = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-E',
+        revision: 1,
+        eventId: evE.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Paid' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Partially Paid' },
+        ],
+      });
+
+      // Existing verified payments: ₹100,000 advance + ₹250,000 towards final settlement = ₹350,000 total
+      await Payment.create({
+        eventId: evE.id,
+        clientId: clientId1,
+        quotationId: qtnE.id,
+        quotationRevision: 1,
+        receiptReference: 'REC-TEST-E1',
+        paymentType: 'advance',
+        installmentIndex: 0,
+        amount: 100000,
+        currency: 'INR',
+        razorpayOrderId: 'order_e1',
+        razorpayPaymentId: 'pay_e1',
+        status: 'paid',
+        paymentMethod: 'razorpay',
+      });
+
+      await Payment.create({
+        eventId: evE.id,
+        clientId: clientId1,
+        quotationId: qtnE.id,
+        quotationRevision: 1,
+        receiptReference: 'REC-TEST-E2',
+        paymentType: 'installment',
+        installmentIndex: 1,
+        amount: 250000,
+        currency: 'INR',
+        razorpayOrderId: 'order_e2',
+        razorpayPaymentId: 'pay_e2',
+        status: 'paid',
+        paymentMethod: 'razorpay',
+      });
+
+      // Client attempts to pay ₹30,000 (when only ₹22,000 is outstanding)
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evE.id, installmentIndex: 1, customAmount: 30000, paymentOption: 'custom' }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(
+        body.message.includes('Payment amount cannot exceed the total outstanding balance of ₹22,000'),
+        `Expected authoritative balance message, got: ${body.message}`
+      );
+
+      // Verify no new Payment record was created
+      const payments = await Payment.find({ eventId: evE.id });
+      assert.equal(payments.length, 2);
+    });
+
+    // Test F: Reject overpayment through a single transaction (Quotation: ₹3,72,000, attempt: ₹4,00,000)
+    it('Test F: Reject overpayment through a single transaction (Quotation: ₹3,72,000, attempt: ₹4,00,000) -> 400 before order creation', async () => {
+      const evF = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event F',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 45),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall F' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-F',
+        revision: 1,
+        eventId: evF.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evF.id, customAmount: 400000, paymentOption: 'custom' }),
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as any;
+      assert.ok(
+        body.message.includes('Payment amount cannot exceed the total outstanding balance of ₹3,72,000'),
+        `Expected authoritative balance message, got: ${body.message}`
+      );
+
+      // No payment records exist
+      const payments = await Payment.find({ eventId: evF.id });
+      assert.equal(payments.length, 0);
+    });
+
+    // Test G: Invalid schedule (Plan totals ₹3,80,000 vs finalAmount ₹3,72,000 and ₹3,60,000 vs ₹3,72,000)
+    it('Test G: Invalid schedule (Plan totals ₹3,80,000 vs quotation ₹3,72,000) -> Blocks full payment and cross-installment, identifies mismatch', async () => {
+      const evG = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event G',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 50),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall G' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      // Schedule sum = 100,000 + 280,000 = 380,000 != 372,000
+      const qtnG = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-G',
+        revision: 1,
+        eventId: evG.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 280000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Full balance attempt blocked
+      const resFull = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evG.id, isFullPayment: true }),
+      });
+      assert.equal(resFull.status, 400);
+      const fullBody = (await resFull.json()) as any;
+      assert.ok(fullBody.message.includes('₹3,80,000'), `Expected 380,000 in error, got: ${fullBody.message}`);
+      assert.ok(fullBody.message.includes('₹3,72,000'), `Expected 372,000 in error, got: ${fullBody.message}`);
+
+      // 2. Excess cross-installment payment attempt blocked
+      const resExcess = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evG.id, customAmount: 150000, paymentOption: 'custom' }),
+      });
+      assert.equal(resExcess.status, 400);
+      const excessBody = (await resExcess.json()) as any;
+      assert.ok(excessBody.message.includes('₹3,80,000'), `Expected 380,000 in error, got: ${excessBody.message}`);
+
+      // 3. Repeat with plan total below quotation final amount (₹3,60,000 vs ₹3,72,000)
+      qtnG.paymentPlan[1].amount = 260000;
+      await qtnG.save();
+
+      const resBelow = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evG.id, isFullPayment: true }),
+      });
+      assert.equal(resBelow.status, 400);
+      const belowBody = (await resBelow.json()) as any;
+      assert.ok(belowBody.message.includes('₹3,60,000'), `Expected 360,000 in error, got: ${belowBody.message}`);
+    });
+
+    // Test H: Duplicate verification idempotency
+    it('Test H: Duplicate verification -> Payment and allocations not duplicated, balances not reduced twice', async () => {
+      const evH = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event H',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 55),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall H' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-H',
+        revision: 1,
+        eventId: evH.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      const resOrder = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evH.id, customAmount: 150000, paymentOption: 'custom' }),
+      });
+      assert.equal(resOrder.status, 201);
+      const orderBody = (await resOrder.json()) as any;
+
+      const pId = 'pay_ext_h_' + Date.now();
+      const sig = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${orderBody.data.razorpayOrderId}|${pId}`).digest('hex');
+
+      // First verification
+      const resV1 = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderBody.data.razorpayOrderId,
+          razorpay_payment_id: pId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(resV1.status, 200);
+
+      // Duplicate verification call with exact same details
+      const resV2 = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: orderBody.data.razorpayOrderId,
+          razorpay_payment_id: pId,
+          razorpay_signature: sig,
+        }),
+      });
+      assert.equal(resV2.status, 200);
+      const b2 = (await resV2.json()) as any;
+      assert.equal(b2.data.status, 'paid');
+      assert.equal(b2.data.amountPaid, 150000);
+
+      // Verify DB count has exactly 1 Payment record
+      const payments = await Payment.find({ eventId: evH.id });
+      assert.equal(payments.length, 1);
+
+      // Verify schedule total paid is exactly ₹1,50,000 (not ₹3,00,000)
+      const resSchedule = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${evH.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(resSchedule.status, 200);
+      const scheduleBody = (await resSchedule.json()) as any;
+      assert.equal(scheduleBody.data.totalPaidAmount, 150000);
+      assert.equal(scheduleBody.data.totalOutstandingAmount, 222000);
+    });
+
+    // Test I: Authorization - Client A cannot initiate or retrieve a payment for Client B's quotation or event
+    it('Test I: Authorization -> Client A cannot initiate or retrieve a payment for Client B quotation or event', async () => {
+      const evI = await Event.create({
+        clientId: clientId2, // Belongs to Client 2
+        title: 'Client 2 Event',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 60),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall I' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-I',
+        revision: 1,
+        eventId: evI.id,
+        clientId: clientId2,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // Client 1 tries to create order for Client 2's event
+      const resCreate = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evI.id }),
+      });
+      assert.equal(resCreate.status, 403);
+
+      // Client 1 tries to preview allocation for Client 2's event
+      const resPreview = await fetch(`http://127.0.0.1:${port}/api/payments/preview-allocation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evI.id, amount: 150000 }),
+      });
+      assert.equal(resPreview.status, 403);
+
+      // Client 1 tries to access Client 2's schedule
+      const resSched = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${evI.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(resSched.status, 403);
+    });
+
+    // Test J: Allocation Preview Endpoint
+    it('Test J: Allocation Preview Endpoint -> Returns planned allocation and resulting balances before checkout', async () => {
+      const evJ = await Event.create({
+        clientId: clientId1,
+        title: 'Milestone 2 Extension Event J',
+        eventType: 'Corporate',
+        date: new Date(Date.now() + 86400000 * 65),
+        startTime: '10:00',
+        endTime: '15:00',
+        location: { address: 'Hall J' },
+        guestCount: 50,
+        status: 'awaiting_payment',
+      });
+
+      await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-J',
+        revision: 1,
+        eventId: evJ.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 372000, name: 'DJ', description: 'Package', pricingType: 'package', amount: 372000 }],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 100000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 272000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/payments/preview-allocation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evJ.id, amount: 150000 }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as any;
+      assert.equal(body.data.targetAmount, 150000);
+      assert.equal(body.data.willConfirmEvent, true);
+      assert.equal(body.data.allocations.length, 2);
+      assert.equal(body.data.allocations[0].allocatedAmount, 100000);
+      assert.equal(body.data.allocations[1].allocatedAmount, 50000);
+      assert.equal(body.data.resultingBalances[0].resultingOutstanding, 0);
+      assert.equal(body.data.resultingBalances[0].resultingStatus, 'Paid');
+      assert.equal(body.data.resultingBalances[1].resultingOutstanding, 222000);
+      assert.equal(body.data.resultingBalances[1].resultingStatus, 'Partially Paid');
+    });
+
+    it('Test K: Option A deducts previously paid advance amount (₹100,000 of ₹200,000 paid) and validates correctly', async () => {
+      const evK = await Event.create({
+        clientId: clientId1,
+        title: 'Advance Deduction Event',
+        eventType: 'Corporate',
+        date: new Date('2026-11-20'),
+        startTime: '10:00',
+        endTime: '18:00',
+        location: { address: 'Hall K' },
+        guestCount: 200,
+        status: 'awaiting_payment',
+      });
+
+      const qtnK = await Quotation.create({
+        quotationNumber: 'QTN-M2-EXT-K',
+        revision: 1,
+        eventId: evK.id,
+        clientId: clientId1,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [{ serviceId, quantity: 1, unitPrice: 400000, name: 'Corporate Package', description: 'Package', pricingType: 'package', amount: 400000 }],
+        subtotal: 400000,
+        discount: 0,
+        taxableAmount: 400000,
+        finalAmount: 400000,
+        advanceAmount: 200000,
+        remainingAmount: 200000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          { title: 'Booking Advance', amount: 200000, dueDate: futureDue1, expiryDate: futureExpiry, status: 'Pending' },
+          { title: 'Final Settlement', amount: 200000, dueDate: futureDue2, expiryDate: futureExpiry, status: 'Pending' },
+        ],
+      });
+
+      // 1. Client pays first ₹100,000 towards the ₹200,000 advance
+      const order1Res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evK.id, partialAmount: 100000 }),
+      });
+      assert.equal(order1Res.status, 201);
+      const order1Data = (await order1Res.json()) as any;
+      assert.equal(order1Data.data.amount, 100000);
+
+      const rzpPayId1 = 'pay_k_part1';
+      const sig1 = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${order1Data.data.razorpayOrderId}|${rzpPayId1}`).digest('hex');
+      const verify1Res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: order1Data.data.razorpayOrderId,
+          razorpay_payment_id: rzpPayId1,
+          razorpay_signature: sig1,
+        }),
+      });
+      assert.equal(verify1Res.status, 200);
+
+      // Verify event is still awaiting_payment and advance has ₹100,000 remaining
+      const evCheck1 = await Event.findById(evK.id);
+      assert.equal(evCheck1?.status, 'awaiting_payment');
+
+      // 2. Advance summary and schedule summary show deducted remaining balance
+      const summaryRes = await fetch(`http://127.0.0.1:${port}/api/payments/advance-summary/${evK.id}`, {
+        headers: { Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(summaryRes.status, 200);
+      const summaryBody = (await summaryRes.json()) as any;
+      assert.equal(summaryBody.data.requiredAdvance, 200000);
+      assert.equal(summaryBody.data.advancePaidAmount, 100000);
+      assert.equal(summaryBody.data.outstandingAdvance, 100000);
+      assert.equal(summaryBody.data.installments[0].outstandingAmount, 100000);
+
+      // 3. Preview for Option A (current_installment) reflects deducted amount (₹100,000)
+      const prevRes = await fetch(`http://127.0.0.1:${port}/api/payments/preview-allocation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evK.id, paymentOption: 'current_installment' }),
+      });
+      assert.equal(prevRes.status, 200);
+      const prevBody = (await prevRes.json()) as any;
+      assert.equal(prevBody.data.targetAmount, 100000);
+
+      // 4. Option A rejection validation: if caller tries to pay ₹150,000 under current_installment -> 400
+      const exceedRes = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evK.id, paymentOption: 'current_installment', customAmount: 150000 }),
+      });
+      assert.equal(exceedRes.status, 400);
+      const exceedBody = (await exceedRes.json()) as any;
+      assert.ok(exceedBody.message.includes('cannot exceed the outstanding advance balance of ₹1,00,000'));
+
+      // 5. Option A creates order for deducted remaining advance (₹100,000)
+      const order2Res = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({ eventId: evK.id, paymentOption: 'current_installment' }),
+      });
+      assert.equal(order2Res.status, 201);
+      const order2Data = (await order2Res.json()) as any;
+      assert.equal(order2Data.data.amount, 100000);
+
+      // 6. Completing the remaining ₹100,000 settles full advance and confirms event
+      const rzpPayId2 = 'pay_k_part2';
+      const sig2 = crypto.createHmac('sha256', env.razorpayKeySecret).update(`${order2Data.data.razorpayOrderId}|${rzpPayId2}`).digest('hex');
+      const verify2Res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+        body: JSON.stringify({
+          razorpay_order_id: order2Data.data.razorpayOrderId,
+          razorpay_payment_id: rzpPayId2,
+          razorpay_signature: sig2,
+        }),
+      });
+      assert.equal(verify2Res.status, 200);
+      const verify2Data = (await verify2Res.json()) as any;
+      assert.equal(verify2Data.data.totalAdvancePaid, 200000);
+      assert.equal(verify2Data.data.outstandingAdvance, 0);
+      assert.equal(verify2Data.data.eventStatus, 'confirmed');
+
+      const evFinal = await Event.findById(evK.id);
+      assert.equal(evFinal?.status, 'confirmed');
     });
   });
 });
