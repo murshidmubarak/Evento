@@ -343,7 +343,7 @@ describe('Payment Reminder BullMQ Queue & Background Worker Architecture', () =>
     });
 
     const quotation = await Quotation.findById(testQuotationId);
-    quotation!.paymentPlan[1].status = 'Paid';
+    quotation!.paymentPlan![1].status = 'Paid';
     await quotation!.save();
 
     // Worker executes JIT balance check
@@ -389,7 +389,7 @@ describe('Payment Reminder BullMQ Queue & Background Worker Architecture', () =>
     const dueIn5Days = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
 
     const quotation = await Quotation.findById(testQuotationId);
-    quotation!.paymentPlan[1].dueDate = dueIn5Days;
+    quotation!.paymentPlan![1].dueDate = dueIn5Days;
     await quotation!.save();
 
     // Payment link expiring in 48 hours (> 24 hours)

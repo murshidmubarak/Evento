@@ -61,7 +61,7 @@ export const ClientAdvancePayment = () => {
   // Selected Installment for payment
   const [selectedInstallmentIndex, setSelectedInstallmentIndex] = useState<number>(0);
 
-  // Milestone 2 Extension: 3 distinct payment choices
+  // 3 distinct payment options
   // Option A: 'current_installment'
   // Option B: 'custom'
   // Option C: 'full_balance'
@@ -150,7 +150,6 @@ export const ClientAdvancePayment = () => {
         });
         setAllocationPreview(preview);
       } catch (err) {
-        // Fallback / keep existing or null
         setAllocationPreview(null);
       } finally {
         setIsPreviewLoading(false);
@@ -184,7 +183,7 @@ export const ClientAdvancePayment = () => {
     } else if (isNaN(num) || num <= 0) {
       setAmountError('Payment amount must be greater than zero.');
     } else if (num > totalQuotationOutstanding) {
-      setAmountError(`Payment amount cannot exceed the total outstanding balance of ${formatCurrency(totalQuotationOutstanding)}.`);
+      setAmountError(`Payment amount cannot exceed the total balance of ${formatCurrency(totalQuotationOutstanding)}.`);
     }
   };
 
@@ -203,7 +202,7 @@ export const ClientAdvancePayment = () => {
         return;
       }
       if (parsedCustomAmount > totalQuotationOutstanding) {
-        setAmountError(`Payment amount cannot exceed the total outstanding balance of ${formatCurrency(totalQuotationOutstanding)}.`);
+        setAmountError(`Payment amount cannot exceed total outstanding balance of ${formatCurrency(totalQuotationOutstanding)}.`);
         return;
       }
     }
@@ -221,7 +220,7 @@ export const ClientAdvancePayment = () => {
         return;
       }
 
-      // Create Order via Backend (authoritative amount check on server)
+      // Create Order via Backend (authoritative calculation)
       const orderData = await createPaymentOrder(
         id,
         selectedPayableAmount,
@@ -239,10 +238,10 @@ export const ClientAdvancePayment = () => {
         key: orderData.keyId,
         amount: Math.round(orderData.amount * 100),
         currency: orderData.currency || 'INR',
-        name: 'EventOps ERP',
+        name: 'Evento Luxury Experiences',
         description: paymentOption === 'full_balance'
           ? `Full Settlement for Quotation ${summary.quotationNumber || 'Event'}`
-          : `Payment for ${currentInstallment.title} - ${summary.quotationNumber || 'Event'}`,
+          : `Payment for ${currentInstallment.title} • ${summary.quotationNumber || 'Event'}`,
         order_id: orderData.razorpayOrderId,
         handler: async (response: {
           razorpay_order_id: string;
@@ -257,7 +256,6 @@ export const ClientAdvancePayment = () => {
               razorpay_signature: response.razorpay_signature,
             });
             setVerificationResult(verified);
-            // Refresh authoritative summary from backend
             await fetchSummary();
           } catch (verifyErr: any) {
             setVerificationError(
@@ -273,7 +271,7 @@ export const ClientAdvancePayment = () => {
           },
         },
         theme: {
-          color: '#4F46E5',
+          color: '#0f172a',
         },
       };
 
@@ -292,73 +290,81 @@ export const ClientAdvancePayment = () => {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-28 space-y-4">
-        <Loader2 className="w-9 h-9 animate-spin text-indigo-600" />
-        <p className="text-sm font-medium text-gray-500">Loading payment schedule details...</p>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <div className="relative">
+          <div className="w-12 h-12 rounded-full border-2 border-slate-200 border-t-slate-900 animate-spin" />
+        </div>
+        <p className="text-sm font-medium text-slate-500 tracking-tight">Retrieving verified payment schedule...</p>
       </div>
     );
   }
 
   if (error || !summary) {
     return (
-      <div className="max-w-2xl mx-auto my-12 bg-white p-8 rounded-2xl border border-gray-200 shadow-sm text-center">
-        <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 border border-rose-100">
+      <div className="max-w-lg mx-auto my-16 bg-white p-8 rounded-2xl border border-slate-200 shadow-xs text-center space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
           <AlertCircle className="w-6 h-6" />
         </div>
-        <h2 className="text-lg font-bold text-gray-900 mb-2">Payment Unavailable</h2>
-        <p className="text-sm text-gray-600 mb-6">{error || 'Could not find payment details for this event.'}</p>
-        <Link
-          to={`/client/events/${id}`}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-bold transition-all"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Event Details
-        </Link>
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Payment Information Unavailable</h2>
+          <p className="text-sm text-slate-500 mt-1 leading-relaxed">{error || 'Could not find payment schedule for this event.'}</p>
+        </div>
+        <div className="pt-2">
+          <Link
+            to={`/client/events/${id}`}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-all shadow-xs"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Return to Event</span>
+          </Link>
+        </div>
       </div>
     );
   }
 
   const isConfirmed = summary.eventStatus === 'confirmed';
   const isAdvanceFullyPaid = summary.isAdvanceFullyPaid;
+  const totalQuotation = summary.totalQuotationAmount || 0;
+  const totalPaid = summary.totalPaidAmount ?? summary.advancePaidAmount ?? 0;
+  const percentSettled = totalQuotation > 0 ? Math.min(100, Math.round((totalPaid / totalQuotation) * 100)) : 0;
 
   const formatExpiryDisplay = (dateStr?: string | Date) => {
     if (!dateStr) return 'the specified date';
     const d = new Date(dateStr);
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-500 pb-20">
-      {/* Top Breadcrumb & Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-5xl mx-auto space-y-6 pb-24 text-slate-900 animate-in fade-in duration-300">
+      
+      {/* ─── Breadcrumb & Navigation Header ─── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
         <div className="flex items-center gap-3">
           <Link
             to={`/client/events/${id}`}
-            className="p-2.5 border border-gray-200 bg-white hover:bg-gray-50 rounded-xl transition-colors text-gray-500 shadow-xs"
+            aria-label="Back to event details"
+            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-2xs"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Event #{summary.eventId.slice(-6)}
-              </span>
-              <span className="text-gray-300">•</span>
-              <span className="text-xs font-medium text-indigo-600 font-mono">
-                {summary.quotationNumber} (Rev {summary.quotationRevision})
-              </span>
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <span>Event #{summary.eventId.slice(-6)}</span>
+              <span className="text-slate-300">/</span>
+              <span className="text-slate-700 font-mono text-[11px] font-semibold">{summary.quotationNumber}</span>
+              <span className="text-slate-400 text-[11px]">(Rev {summary.quotationRevision})</span>
             </div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2.5 mt-0.5">
               <span>{summary.eventTitle}</span>
-              {isConfirmed ? (
-                <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 text-xs font-bold uppercase rounded-md border border-emerald-200">
-                  Confirmed
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 text-xs font-bold uppercase rounded-md border border-amber-200">
-                  Awaiting Payment
-                </span>
-              )}
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                  isConfirmed
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                    : 'bg-amber-50 text-amber-700 border-amber-200/80'
+                }`}
+              >
+                {isConfirmed ? 'Confirmed' : 'Awaiting Advance'}
+              </span>
             </h1>
           </div>
         </div>
@@ -366,133 +372,107 @@ export const ClientAdvancePayment = () => {
         {summary.quotationId && (
           <Link
             to={`/client/quotations/${summary.quotationId}`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors self-start sm:self-auto"
           >
-            <FileText className="w-4 h-4 text-gray-400" />
-            View Accepted Quotation
+            <FileText className="w-3.5 h-3.5 text-slate-400" />
+            <span>View Quotation</span>
           </Link>
         )}
       </div>
 
-      {/* Schedule Inconsistency Alert Banner (Section 8) */}
+      {/* ─── Schedule Inconsistency Warning ─── */}
       {!isScheduleConsistent && (
-        <div className="p-5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-950 flex items-start gap-3.5 shadow-xs">
-          <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="text-sm font-extrabold text-rose-900">
-              Payment Schedule Inconsistency Detected
-            </h4>
-            <p className="text-xs text-rose-800 leading-relaxed">
+        <div className="p-4 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-start gap-3 shadow-2xs">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 space-y-1">
+            <h4 className="font-semibold text-amber-950">Installment Schedule Under Reconciliation</h4>
+            <p className="text-amber-800 leading-relaxed">
               {summary.scheduleMismatchMessage ||
                 'The sum of scheduled installment amounts does not reconcile with the final quotation amount.'}
             </p>
-            <p className="text-xs font-semibold text-rose-700 pt-1">
-              Cross-installment excess payments and full settlement are paused to safeguard financial integrity. Please contact the Administrator to reconcile the schedule.
+            <p className="text-amber-700 font-medium">
+              Flexible excess payments and full settlement are paused. Please pay the designated milestone or reach out to your event manager.
             </p>
           </div>
         </div>
       )}
 
-      {/* Verification Success: Full Settlement / Partial Receipt Banner (Section 14) */}
+      {/* ─── Payment Success / Verification Receipt Banner ─── */}
       {verificationResult && (
         <div
-          className={`p-6 rounded-2xl border ${
+          className={`p-5 rounded-2xl border ${
             verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment
-              ? 'bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-300 text-emerald-950'
-              : verificationResult.isFullyPaid
-              ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
-              : 'bg-indigo-50/90 border-indigo-200 text-indigo-950'
-          } shadow-sm animate-in zoom-in-95 duration-300 space-y-4`}
+              ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+              : 'bg-slate-900 border-slate-800 text-white'
+          } shadow-sm animate-in zoom-in-95 duration-200 space-y-4`}
         >
-          <div className="flex items-start gap-4">
+          <div className="flex items-start gap-3.5">
             <div
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                 verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment
-                  ? 'bg-emerald-600 text-white ring-4 ring-emerald-100'
-                  : verificationResult.isFullyPaid
                   ? 'bg-emerald-600 text-white'
-                  : 'bg-indigo-600 text-white'
+                  : 'bg-emerald-500 text-white'
               }`}
             >
-              <CheckCircle2 className="w-6 h-6" />
+              <CheckCircle2 className="w-5 h-5" />
             </div>
-            <div className="space-y-1 flex-1">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h3 className="text-lg font-black tracking-tight">
+            <div className="flex-1 space-y-1 min-w-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-semibold tracking-tight">
                   {verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment
-                    ? 'Quotation Fully Settled & Verified!'
+                    ? 'Payment Settled — Quotation Complete'
                     : verificationResult.paymentType === 'installment'
                     ? verificationResult.isFullyPaid
-                      ? 'Installment Fully Settled!'
-                      : 'Partial Installment Payment Verified!'
+                      ? 'Installment Fully Settled'
+                      : 'Partial Payment Verified'
                     : verificationResult.isFullyPaid
-                    ? 'Advance Payment Completed & Event Confirmed!'
-                    : 'Partial Advance Payment Verified!'}
+                    ? 'Advance Received — Event Confirmed'
+                    : 'Partial Advance Payment Verified'}
                 </h3>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-white/80 border border-emerald-200 text-emerald-800">
-                  Transaction Verified
+                <span
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                    verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-white/10 text-emerald-300 border border-white/10'
+                  }`}
+                >
+                  Verified
                 </span>
               </div>
-              <p className="text-xs leading-relaxed text-gray-700">
-                Received and verified payment of <strong>{formatCurrency(verificationResult.amountPaid)}</strong>.
+              <p
+                className={`text-xs leading-relaxed ${
+                  verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment
+                    ? 'text-emerald-800'
+                    : 'text-slate-300'
+                }`}
+              >
+                Received payment of <strong className="font-semibold">{formatCurrency(verificationResult.amountPaid)}</strong>.
                 {verificationResult.isQuotationFullyPaid || verificationResult.isFullPayment ? (
-                  <> All payment installments have been settled in full. Total quotation outstanding balance is now <strong>₹0</strong>.</>
+                  <> All installments are settled in full. Total outstanding balance is now ₹0.</>
                 ) : verificationResult.paymentType === 'installment' ? (
-                  <>
-                    {' '}Total paid for this installment: <strong>{formatCurrency(verificationResult.totalPaidForInstallment || 0)}</strong>.
-                    Outstanding balance: <strong>{formatCurrency(verificationResult.outstandingAmount || 0)}</strong>.
-                  </>
+                  <> Total paid towards this milestone is now {formatCurrency(verificationResult.totalPaidForInstallment || 0)}. Remaining: {formatCurrency(verificationResult.outstandingAmount || 0)}.</>
                 ) : (
-                  <>
-                    {' '}Total advance paid: <strong>{formatCurrency(verificationResult.totalAdvancePaid || 0)}</strong>.
-                    Outstanding advance: <strong>{formatCurrency(verificationResult.outstandingAdvance || 0)}</strong>.
-                  </>
+                  <> Total advance paid is now {formatCurrency(verificationResult.totalAdvancePaid || 0)}. Outstanding advance: {formatCurrency(verificationResult.outstandingAdvance || 0)}.</>
                 )}
               </p>
             </div>
           </div>
 
-          {/* Detailed Full Settlement Breakdown if applicable (Section 14) */}
+          {/* Multi-installment attribution breakdown */}
           {(verificationResult.isQuotationFullyPaid || (verificationResult.allocations && verificationResult.allocations.length > 1)) && (
-            <div className="bg-white/90 rounded-xl p-4 border border-emerald-200 space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold text-emerald-950 border-b border-gray-100 pb-2">
-                <span>Multi-Installment Allocation Receipt</span>
-                <span className="font-mono text-[11px] text-gray-500">
-                  Quotation: {verificationResult.quotationNumber || summary.quotationNumber} (Rev {verificationResult.quotationRevision || summary.quotationRevision})
-                </span>
+            <div className="bg-white/95 rounded-xl p-3.5 border border-slate-200/80 text-slate-800 text-xs space-y-2.5">
+              <div className="flex items-center justify-between font-medium text-slate-500 text-[11px] pb-1 border-b border-slate-100">
+                <span>Multi-Milestone Distribution</span>
+                <span className="font-mono text-slate-400">Ref: {verificationResult.quotationNumber || summary.quotationNumber}</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Total Quotation</span>
-                  <span className="font-extrabold text-gray-900">{formatCurrency(verificationResult.totalQuotationAmount || summary.totalQuotationAmount)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Total Paid</span>
-                  <span className="font-extrabold text-emerald-700">{formatCurrency(verificationResult.totalPaidAmount || summary.totalPaidAmount)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Outstanding</span>
-                  <span className="font-extrabold text-gray-900">{formatCurrency(verificationResult.totalOutstandingAmount ?? 0)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Event Status</span>
-                  <span className="font-extrabold text-emerald-700 uppercase">{verificationResult.eventStatus || 'Confirmed'}</span>
-                </div>
-              </div>
-
-              {verificationResult.allocations && verificationResult.allocations.length > 0 && (
-                <div className="pt-2 border-t border-gray-100 space-y-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-                    Installment Attribution:
-                  </span>
-                  <div className="space-y-1">
-                    {verificationResult.allocations.map((alloc, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs p-1.5 rounded bg-gray-50">
-                        <span className="font-medium text-gray-700">{alloc.installmentTitle}</span>
-                        <strong className="text-indigo-600 font-bold">{formatCurrency(alloc.allocatedAmount)}</strong>
-                      </div>
-                    ))}
-                  </div>
+              {verificationResult.allocations && (
+                <div className="space-y-1">
+                  {verificationResult.allocations.map((alloc, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-1 px-2 rounded bg-slate-50 text-[11px]">
+                      <span className="text-slate-700 font-medium">{alloc.installmentTitle}</span>
+                      <span className="font-semibold text-slate-900">{formatCurrency(alloc.allocatedAmount)}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -500,82 +480,104 @@ export const ClientAdvancePayment = () => {
         </div>
       )}
 
+      {/* ─── Verification Error Notice ─── */}
       {verificationError && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-start gap-3">
+        <div className="p-4 bg-rose-50 border border-rose-200/80 rounded-2xl text-rose-900 text-xs flex items-start gap-3 shadow-2xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-bold">Payment Issue Encountered</p>
-            <p>{verificationError}</p>
+            <p className="font-semibold text-rose-950">Payment Verification Issue</p>
+            <p className="text-rose-700">{verificationError}</p>
           </div>
         </div>
       )}
 
-      {/* Authoritative Financial Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Quotation Amount */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Total Quotation</span>
-          <div className="text-2xl font-black text-gray-900">{formatCurrency(summary.totalQuotationAmount)}</div>
-          <p className="text-[11px] text-gray-400">Total agreed event value</p>
+      {/* ─── Executive Financial Health Strip ─── */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 divide-y sm:divide-y-0 divide-slate-100">
+          {/* Total Value */}
+          <div className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-500">Total Contract Value</span>
+            <div className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+              {formatCurrency(summary.totalQuotationAmount)}
+            </div>
+            <p className="text-[11px] text-slate-400">Agreed event scope</p>
+          </div>
+
+          {/* Paid to Date */}
+          <div className="space-y-1 pt-3 sm:pt-0">
+            <span className="text-[11px] font-medium text-slate-500">Verified Paid</span>
+            <div className="text-xl sm:text-2xl font-bold tracking-tight text-emerald-700">
+              {formatCurrency(totalPaid)}
+            </div>
+            <p className="text-[11px] text-emerald-600 font-medium">
+              {percentSettled}% of quotation settled
+            </p>
+          </div>
+
+          {/* Required Advance */}
+          <div className="space-y-1 pt-3 sm:pt-0">
+            <span className="text-[11px] font-medium text-slate-500">Booking Advance</span>
+            <div className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+              {formatCurrency(summary.requiredAdvance)}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {isAdvanceFullyPaid ? (
+                <span className="text-emerald-700 font-medium flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Fully verified
+                </span>
+              ) : (
+                `Due: ${formatCurrency(summary.outstandingAdvance)}`
+              )}
+            </p>
+          </div>
+
+          {/* Outstanding Balance */}
+          <div className="space-y-1 pt-3 sm:pt-0">
+            <span className="text-[11px] font-medium text-slate-500">Remaining Balance</span>
+            <div className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+              {formatCurrency(totalQuotationOutstanding)}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {isQuotationFullyPaid ? 'Quotation fully settled' : 'Payable in milestones'}
+            </p>
+          </div>
         </div>
 
-        {/* Total Paid Across All Installments */}
-        <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-gradient-to-b from-white to-emerald-50/20 shadow-xs space-y-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Total Verified Paid</span>
-          <div className="text-2xl font-black text-emerald-700">{formatCurrency(summary.totalPaidAmount ?? summary.advancePaidAmount)}</div>
-          <p className="text-[11px] text-emerald-600 font-medium">
-            {summary.totalQuotationAmount > 0
-              ? `${Math.round(((summary.totalPaidAmount ?? summary.advancePaidAmount) / summary.totalQuotationAmount) * 100)}% settled`
-              : 'No payments yet'}
-          </p>
-        </div>
-
-        {/* Required Advance */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Required Advance</span>
-          <div className="text-2xl font-black text-indigo-600">{formatCurrency(summary.requiredAdvance)}</div>
-          <p className="text-[11px] text-gray-400">
-            {isAdvanceFullyPaid ? 'Fully verified (Confirmed)' : `Outstanding: ${formatCurrency(summary.outstandingAdvance)}`}
-          </p>
-        </div>
-
-        {/* Total Outstanding Balance */}
-        <div className="bg-white p-5 rounded-2xl border border-amber-100 bg-gradient-to-b from-white to-amber-50/20 shadow-xs space-y-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Remaining Balance</span>
-          <div className="text-2xl font-black text-amber-700">{formatCurrency(totalQuotationOutstanding)}</div>
-          <p className="text-[11px] text-amber-600 font-medium">
-            {isQuotationFullyPaid ? 'Quotation fully settled' : `${formatCurrency(totalQuotationOutstanding)} remaining`}
-          </p>
+        {/* Progress bar */}
+        <div className="pt-2 border-t border-slate-100 flex items-center gap-3">
+          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-slate-900 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${percentSettled}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-medium text-slate-500 shrink-0 tabular-nums">
+            {percentSettled}% Complete
+          </span>
         </div>
       </div>
 
-      {/* Payment Schedule Overview & Installment Selector */}
+      {/* ─── Milestone Payment Schedule Section ─── */}
       {summary.installments && summary.installments.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
-          <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
-              <h2 className="text-base font-extrabold text-gray-900">Milestone Payment Schedule</h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Review installment due dates, verified payments, and select an installment to pay
+              <h2 className="text-sm font-semibold text-slate-900">Milestone Payment Roadmap</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Select an installment below to make a payment or review milestone status
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-gray-500">
-                {summary.installments.filter((i) => i.baseStatus === 'Paid').length} of {summary.installments.length} Paid
-              </span>
-              {isQuotationFullyPaid && (
-                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase rounded-full">
-                  Fully Settled
-                </span>
-              )}
-            </div>
+            <span className="text-xs font-medium text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/60">
+              {summary.installments.filter((i) => i.baseStatus === 'Paid').length} of {summary.installments.length} Completed
+            </span>
           </div>
 
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-slate-100">
             {summary.installments.map((inst, idx) => {
               const isSelected = selectedInstallmentIndex === idx;
               const isAdv = idx === 0;
               const isLocked = !isAdv && !isAdvanceFullyPaid;
+              const isPaid = inst.baseStatus === 'Paid';
 
               return (
                 <div
@@ -587,80 +589,87 @@ export const ClientAdvancePayment = () => {
                     setAmountError('');
                     setVerificationError('');
                   }}
-                  className={`p-5 transition-all cursor-pointer flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedInstallmentIndex(idx);
+                      setPaymentOption('current_installment');
+                    }
+                  }}
+                  className={`p-4 sm:p-5 transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                     isSelected
-                      ? 'bg-indigo-50/50 border-l-4 border-indigo-600'
-                      : 'hover:bg-gray-50/80 border-l-4 border-transparent'
+                      ? 'bg-slate-50/90 ring-1 ring-slate-900/10'
+                      : 'hover:bg-slate-50/50'
                   }`}
                 >
-                  <div className="flex items-start sm:items-center gap-3.5">
+                  <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                    {/* Index Indicator */}
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs ${
-                        inst.baseStatus === 'Paid'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : inst.isExpired
-                          ? 'bg-rose-100 text-rose-800'
-                          : inst.isOverdue
-                          ? 'bg-amber-100 text-amber-800'
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-semibold ${
+                        isPaid
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
                           : isSelected
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-700'
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {inst.baseStatus === 'Paid' ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-700" />
-                      ) : (
-                        idx + 1
-                      )}
+                      {isPaid ? <Check className="w-4 h-4 stroke-[2.5]" /> : idx + 1}
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-extrabold text-gray-900">{inst.title}</span>
+                        <span className="text-sm font-semibold text-slate-900 truncate">
+                          {inst.title}
+                        </span>
                         {isAdv && (
-                          <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded uppercase tracking-wider border border-indigo-100">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200/60">
                             Required Advance
                           </span>
                         )}
-                        {/* Status Badges */}
-                        {inst.baseStatus === 'Paid' ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+
+                        {/* Status Pills */}
+                        {isPaid ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
                             Paid
                           </span>
                         ) : inst.isExpired ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-700 border border-rose-200/60">
                             Link Expired
                           </span>
                         ) : inst.isOverdue ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
                             Overdue
                           </span>
                         ) : inst.verifiedPaidAmount > 0 ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
                             Partially Paid
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 border border-gray-200">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200/60">
                             Pending
                           </span>
                         )}
+
                         {isLocked && (
-                          <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-semibold rounded flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200/60 flex items-center gap-1">
                             <Lock className="w-3 h-3" /> Advance Locked
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                      {/* Dates */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                         {inst.dueDate && (
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                          <span className="flex items-center gap-1 text-[11px]">
+                            <Calendar className="w-3 h-3 text-slate-400" />
                             Due: {formatDate(inst.dueDate)}
                           </span>
                         )}
                         {inst.expiryDate && (
-                          <span className={`flex items-center gap-1 ${inst.isExpired ? 'text-rose-600 font-semibold' : ''}`}>
-                            <Clock className="w-3.5 h-3.5 text-gray-400" />
+                          <span className={`flex items-center gap-1 text-[11px] ${inst.isExpired ? 'text-rose-600 font-medium' : ''}`}>
+                            <Clock className="w-3 h-3 text-slate-400" />
                             Expiry: {formatDate(inst.expiryDate)}
                           </span>
                         )}
@@ -668,24 +677,31 @@ export const ClientAdvancePayment = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
-                    <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-gray-400 block">Scheduled</span>
-                      <span className="text-sm font-black text-gray-900">{formatCurrency(inst.scheduledAmount)}</span>
+                  {/* Financial Breakdown for this milestone */}
+                  <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 text-right shrink-0">
+                    <div>
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 block">Scheduled</span>
+                      <span className="text-xs sm:text-sm font-semibold text-slate-900 tabular-nums">
+                        {formatCurrency(inst.scheduledAmount)}
+                      </span>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-gray-400 block">Verified Paid</span>
-                      <span className="text-sm font-black text-emerald-700">{formatCurrency(inst.verifiedPaidAmount)}</span>
+                    <div>
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 block">Verified Paid</span>
+                      <span className="text-xs sm:text-sm font-semibold text-emerald-700 tabular-nums">
+                        {formatCurrency(inst.verifiedPaidAmount)}
+                      </span>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-gray-400 block">Outstanding</span>
-                      <span className="text-sm font-black text-amber-700">{formatCurrency(inst.outstandingAmount)}</span>
+                    <div>
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 block">Outstanding</span>
+                      <span className="text-xs sm:text-sm font-semibold text-slate-900 tabular-nums">
+                        {formatCurrency(inst.outstandingAmount)}
+                      </span>
                     </div>
 
-                    <div className="hidden sm:block text-gray-400">
-                      <ChevronRight className={`w-5 h-5 transition-transform ${isSelected ? 'translate-x-1 text-indigo-600' : ''}`} />
+                    <div className="hidden sm:flex items-center text-slate-400 pl-2">
+                      <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isSelected ? 'translate-x-0.5 text-slate-900' : ''}`} />
                     </div>
                   </div>
                 </div>
@@ -695,64 +711,62 @@ export const ClientAdvancePayment = () => {
         </div>
       )}
 
-      {/* Main Payment Section: 3 Client Choices (Section 3), Preview (Section 11) & Checkout */}
+      {/* ─── Main Payment & Checkout Section ─── */}
       {currentInstallment && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: Payment Form & Options (7 cols) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* Left Column: Payment Options & Interactive Checkout (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
-              <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white flex items-center justify-between">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">
-                      Installment {selectedInstallmentIndex + 1} of {summary.installments?.length || 1}
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-extrabold text-gray-900 tracking-tight mt-0.5">
+                  <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">
+                    Installment {selectedInstallmentIndex + 1} of {summary.installments?.length || 1}
+                  </span>
+                  <h3 className="text-base font-semibold text-slate-900 tracking-tight mt-0.5">
                     {currentInstallment.title}
-                  </h2>
+                  </h3>
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>256-Bit SSL Protected</span>
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200/60">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
+                  <span>256-Bit Encrypted</span>
                 </div>
               </div>
 
-              <div className="p-6 space-y-6">
-                {/* Expired Payment Link Notice */}
+              <div className="p-5 sm:p-6 space-y-6">
+                
+                {/* Notice: Expired Link */}
                 {currentInstallment.isExpired && currentInstallment.outstandingAmount > 0 && (
-                  <div className="p-5 rounded-2xl bg-rose-50 border border-rose-200 space-y-3 animate-in fade-in">
+                  <div className="p-4 rounded-xl bg-rose-50/70 border border-rose-200/80 space-y-3">
                     <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-rose-900">Payment Link Expired</h4>
-                        <p className="text-xs text-rose-700 leading-relaxed font-medium">
-                          This payment link expired on {formatExpiryDisplay(currentInstallment.expiryDate)}. Please contact the Admin for further assistance.
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-1">
+                        <h4 className="font-semibold text-rose-950">Payment Window Expired</h4>
+                        <p className="text-rose-700 leading-relaxed">
+                          This payment link expired on {formatExpiryDisplay(currentInstallment.expiryDate)}. Please contact the administration team to generate an updated payment link.
                         </p>
                       </div>
                     </div>
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-lg text-xs font-bold transition-colors shadow-xs cursor-default"
-                      >
-                        <Mail className="w-4 h-4 text-gray-500" />
-                        <span>Contact Admin</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium shadow-2xs transition-colors"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Contact Event Manager</span>
+                    </button>
                   </div>
                 )}
 
-                {/* Subsequent Installment Locked by Advance Prerequisite */}
+                {/* Notice: Advance Required Before Paying Subsequent */}
                 {selectedInstallmentIndex > 0 && !isAdvanceFullyPaid && (
-                  <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 space-y-3 text-amber-900">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-3 text-amber-900 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div className="space-y-1">
-                        <h4 className="text-sm font-bold">Advance Payment Required</h4>
-                        <p className="text-xs text-amber-700 leading-relaxed">
-                          Subsequent installments can only be paid after the required advance payment (
-                          <strong>{formatCurrency(summary.requiredAdvance)}</strong>) has been fully verified and the event is confirmed.
+                        <h4 className="font-semibold text-amber-950">Advance Payment Required First</h4>
+                        <p className="text-amber-800 leading-relaxed">
+                          To activate and confirm your event, the booking advance of{' '}
+                          <strong className="font-semibold">{formatCurrency(summary.requiredAdvance)}</strong> must be settled first.
                         </p>
                       </div>
                     </div>
@@ -762,159 +776,175 @@ export const ClientAdvancePayment = () => {
                         setSelectedInstallmentIndex(0);
                         setPaymentOption('current_installment');
                       }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-medium transition-all shadow-2xs"
                     >
-                      <span>Pay Advance Milestone</span>
+                      <span>Pay Booking Advance</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
 
-                {/* Quotation Fully Paid Notice */}
+                {/* Notice: Quotation Fully Settled */}
                 {isQuotationFullyPaid ? (
-                  <div className="p-6 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-center space-y-3">
-                    <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-sm">
-                      <CheckCircle2 className="w-6 h-6" />
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200/80 text-center space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                      <CheckCircle2 className="w-5 h-5" />
                     </div>
-                    <h3 className="text-base font-extrabold text-emerald-900">
-                      Quotation Is Completely Paid!
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Quotation Fully Settled
                     </h3>
-                    <p className="text-xs text-emerald-700 max-w-md mx-auto leading-relaxed">
-                      All scheduled installments totaling {formatCurrency(summary.totalQuotationAmount)} have been verified and fully settled. Outstanding balance is ₹0.
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                      All scheduled installments totaling {formatCurrency(summary.totalQuotationAmount)} have been verified. No balance remains due.
                     </p>
                   </div>
                 ) : !currentInstallment.isExpired && (selectedInstallmentIndex === 0 || isAdvanceFullyPaid) ? (
-                  /* 3 Distinct Client Payment Choices (Section 3) */
-                  <div className="space-y-6">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                          Select Payment Option
-                        </label>
-                        <span className="text-[11px] font-semibold text-gray-400">
-                          3 Available Methods
-                        </span>
-                      </div>
+                  
+                  /* ─── 3 Client Payment Choices ─── */
+                  <div className="space-y-5">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-900 block mb-2">
+                        Select Payment Method
+                      </label>
 
-                      <div className="grid grid-cols-1 gap-3">
-                        {/* Option A: Pay Current Installment / Advance */}
+                      <div className="space-y-2.5">
+                        
+                        {/* Option A: Milestone Balance */}
                         <div
                           onClick={() => {
                             setPaymentOption('current_installment');
                             setAmountError('');
                           }}
-                          className={`p-4 rounded-xl border text-left transition-all cursor-pointer relative ${
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setPaymentOption('current_installment');
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             paymentOption === 'current_installment'
-                              ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600 text-indigo-950'
-                              : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                              ? 'border-slate-900 bg-slate-50/80 ring-1 ring-slate-900'
+                              : 'border-slate-200 hover:border-slate-300 bg-white'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               <div
-                                className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
                                   paymentOption === 'current_installment'
-                                    ? 'border-indigo-600 bg-indigo-600 text-white'
-                                    : 'border-gray-300'
+                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                    : 'border-slate-300'
                                 }`}
                               >
                                 {paymentOption === 'current_installment' && (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
                                 )}
                               </div>
-                              <span className="text-xs font-bold text-gray-900">
-                                Option A: Pay {currentInstallment.title} (Remaining Balance)
-                              </span>
+                              <div className="min-w-0">
+                                <span className="text-xs font-semibold text-slate-900 block truncate">
+                                  Current Milestone Due
+                                </span>
+                                <span className="text-[11px] text-slate-500 block truncate">
+                                  {currentInstallment.title}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-sm font-black text-gray-900">
+                            <span className="text-sm font-bold text-slate-900 shrink-0 tabular-nums">
                               {formatCurrency(installmentOutstanding)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-gray-500 pl-6">
-                            {selectedInstallmentIndex === 0 && (summary.advancePaidAmount ?? 0) > 0 ? (
-                              <span>
-                                Advance required: {formatCurrency(summary.requiredAdvance)}, previously paid: {formatCurrency(summary.advancePaidAmount)}. Deducted payable balance: <strong className="text-gray-900">{formatCurrency(installmentOutstanding)}</strong>
-                              </span>
-                            ) : currentInstallment.verifiedPaidAmount > 0 ? (
-                              <span>
-                                Scheduled: {formatCurrency(currentInstallment.scheduledAmount)}, previously paid: {formatCurrency(currentInstallment.verifiedPaidAmount)}. Deducted payable balance: <strong className="text-gray-900">{formatCurrency(installmentOutstanding)}</strong>
-                              </span>
-                            ) : (
-                              <span>Pay the exact outstanding balance of this milestone ({formatCurrency(installmentOutstanding)})</span>
-                            )}
-                          </p>
                         </div>
 
-                        {/* Option B: Pay Custom Amount */}
+                        {/* Option B: Custom Amount */}
                         <div
                           onClick={() => {
                             setPaymentOption('custom');
                             setAmountError('');
                           }}
-                          className={`p-4 rounded-xl border text-left transition-all cursor-pointer relative ${
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setPaymentOption('custom');
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                             paymentOption === 'custom'
-                              ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600 text-indigo-950'
-                              : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                              ? 'border-slate-900 bg-slate-50/80 ring-1 ring-slate-900'
+                              : 'border-slate-200 hover:border-slate-300 bg-white'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               <div
-                                className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
                                   paymentOption === 'custom'
-                                    ? 'border-indigo-600 bg-indigo-600 text-white'
-                                    : 'border-gray-300'
+                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                    : 'border-slate-300'
                                 }`}
                               >
                                 {paymentOption === 'custom' && (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
                                 )}
                               </div>
-                              <span className="text-xs font-bold text-gray-900">
-                                Option B: Pay Custom Amount
-                              </span>
+                              <div className="min-w-0">
+                                <span className="text-xs font-semibold text-slate-900 block truncate">
+                                  Custom Payment
+                                </span>
+                                <span className="text-[11px] text-slate-500 block truncate">
+                                  Allocate any flexible amount in schedule sequence
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                              Flexible Allocation
+                            <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60 shrink-0">
+                              Flexible
                             </span>
                           </div>
-                          <p className="text-[11px] text-gray-500 pl-6">
-                            Enter any custom amount. Excess beyond this installment automatically settles subsequent milestones in schedule order.
-                          </p>
 
-                          {/* Custom Amount Input Box */}
+                          {/* Custom input box */}
                           {paymentOption === 'custom' && (
-                            <div className="mt-4 pt-3 border-t border-indigo-100 space-y-2 animate-in fade-in" onClick={(e) => e.stopPropagation()}>
-                              <label className="block text-[11px] font-bold text-gray-700">
-                                Enter Custom Payment Amount (₹)
-                              </label>
+                            <div
+                              className="mt-3.5 pt-3 border-t border-slate-200/80 space-y-2 animate-in fade-in duration-150"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-between text-[11px]">
+                                <label htmlFor="custom-amount-input" className="font-medium text-slate-700">
+                                  Enter Amount (₹)
+                                </label>
+                                <span className="text-slate-400">
+                                  Max: {formatCurrency(totalQuotationOutstanding)}
+                                </span>
+                              </div>
                               <div className="relative">
-                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-sm">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium text-sm">
                                   ₹
                                 </span>
                                 <input
+                                  id="custom-amount-input"
                                   type="number"
                                   min="1"
                                   max={totalQuotationOutstanding}
-                                  placeholder={`Max total remaining ${formatCurrency(totalQuotationOutstanding)}`}
+                                  placeholder="0"
                                   value={customAmountStr}
                                   onChange={(e) => handleCustomAmountChange(e.target.value)}
-                                  className="w-full pl-8 pr-4 py-2.5 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-gray-900 bg-white"
+                                  className="w-full pl-7 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-1 focus:ring-slate-900 focus:border-slate-900"
                                 />
                               </div>
 
                               {amountError && (
-                                <p className="text-xs text-rose-600 font-semibold flex items-center gap-1">
-                                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <p className="text-[11px] text-rose-600 font-medium flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3 shrink-0" />
                                   <span>{amountError}</span>
                                 </p>
                               )}
 
                               {parsedCustomAmount > installmentOutstanding && parsedCustomAmount <= totalQuotationOutstanding && (
-                                <p className="text-[11px] text-indigo-700 font-medium flex items-center gap-1.5 bg-indigo-50/70 p-2 rounded-lg border border-indigo-100">
-                                  <Info className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
+                                <p className="text-[11px] text-slate-600 flex items-center gap-1.5 bg-slate-100/70 p-2 rounded-md">
+                                  <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
                                   <span>
-                                    {formatCurrency(installmentOutstanding)} settles {currentInstallment.title}; excess of {formatCurrency(parsedCustomAmount - installmentOutstanding)} will be credited towards next installment.
+                                    {formatCurrency(installmentOutstanding)} settles this installment; remaining {formatCurrency(parsedCustomAmount - installmentOutstanding)} rolls over to the next installment.
                                   </span>
                                 </p>
                               )}
@@ -922,92 +952,102 @@ export const ClientAdvancePayment = () => {
                           )}
                         </div>
 
-                        {/* Option C: Pay Full Remaining Balance (Section 3 & 6) */}
+                        {/* Option C: Pay Full Remaining Balance */}
                         {totalQuotationOutstanding > 0 && isScheduleConsistent && (
                           <div
                             onClick={() => {
                               setPaymentOption('full_balance');
                               setAmountError('');
                             }}
-                            className={`p-4 rounded-xl border text-left transition-all cursor-pointer relative ${
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setPaymentOption('full_balance');
+                              }
+                            }}
+                            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                               paymentOption === 'full_balance'
-                                ? 'border-emerald-600 bg-emerald-50/40 ring-1 ring-emerald-600 text-emerald-950'
-                                : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                                ? 'border-slate-900 bg-slate-50/80 ring-1 ring-slate-900'
+                                : 'border-slate-200 hover:border-slate-300 bg-white'
                             }`}
                           >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
                                 <div
-                                  className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
                                     paymentOption === 'full_balance'
-                                      ? 'border-emerald-600 bg-emerald-600 text-white'
-                                      : 'border-gray-300'
+                                      ? 'border-slate-900 bg-slate-900 text-white'
+                                      : 'border-slate-300'
                                   }`}
                                 >
                                   {paymentOption === 'full_balance' && (
-                                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-white" />
                                   )}
                                 </div>
-                                <span className="text-xs font-bold text-gray-900">
-                                  Option C: Pay Full Remaining Balance (One-Click Settlement)
-                                </span>
+                                <div className="min-w-0">
+                                  <span className="text-xs font-semibold text-slate-900 block truncate">
+                                    Full Quotation Settlement
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 block truncate">
+                                    Settle all remaining milestones in one transaction
+                                  </span>
+                                </div>
                               </div>
-                              <span className="text-sm font-black text-emerald-800">
+                              <span className="text-sm font-bold text-slate-900 shrink-0 tabular-nums">
                                 {formatCurrency(totalQuotationOutstanding)}
                               </span>
                             </div>
-                            <p className="text-[11px] text-gray-500 pl-6">
-                              Settle all outstanding milestones across the entire quotation in a single transaction.
-                            </p>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Frontend Allocation Preview Section (Section 11) */}
+                    {/* ─── Frontend Allocation Preview Ledger ─── */}
                     {allocationPreview && allocationPreview.allocations.length > 0 && (
-                      <div className="p-4 rounded-xl bg-gray-50/80 border border-gray-200 space-y-3 animate-in fade-in">
+                      <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-2.5 text-xs animate-in fade-in duration-150">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-gray-900 flex items-center gap-1.5">
-                            <Layers className="w-4 h-4 text-indigo-600" />
-                            Payment Allocation Preview
-                            {isPreviewLoading && <Loader2 className="w-3 h-3 text-indigo-600 animate-spin" />}
+                          <span className="font-semibold text-slate-900 flex items-center gap-1.5 text-xs">
+                            <Layers className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Payment Distribution Preview</span>
+                            {isPreviewLoading && <Loader2 className="w-3 h-3 text-slate-600 animate-spin" />}
                           </span>
-                          <span className="text-[11px] text-gray-500 font-semibold">
+                          <span className="text-[11px] font-medium text-slate-500 tabular-nums">
                             Total: {formatCurrency(allocationPreview.targetAmount)}
                           </span>
                         </div>
 
                         <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
+                          <table className="w-full text-left text-[11px]">
                             <thead>
-                              <tr className="border-b border-gray-200 text-[10px] uppercase font-bold text-gray-400">
-                                <th className="pb-2">Installment</th>
-                                <th className="pb-2 text-right">Scheduled</th>
-                                <th className="pb-2 text-right">Allocation</th>
-                                <th className="pb-2 text-right">Resulting Out.</th>
-                                <th className="pb-2 text-right">Status</th>
+                              <tr className="border-b border-slate-200/60 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                <th className="pb-1.5">Installment</th>
+                                <th className="pb-1.5 text-right">Scheduled</th>
+                                <th className="pb-1.5 text-right">Credit</th>
+                                <th className="pb-1.5 text-right">Balance</th>
+                                <th className="pb-1.5 text-right">Status</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100 font-medium">
+                            <tbody className="divide-y divide-slate-100">
                               {allocationPreview.resultingBalances.map((rb, idx) => (
-                                <tr key={idx} className="hover:bg-white/60 transition-colors">
-                                  <td className="py-2 text-gray-900 font-bold">{rb.title}</td>
-                                  <td className="py-2 text-right text-gray-600">{formatCurrency(rb.scheduledAmount)}</td>
-                                  <td className="py-2 text-right text-indigo-600 font-extrabold">
+                                <tr key={idx} className="hover:bg-white/80 transition-colors">
+                                  <td className="py-1.5 text-slate-800 font-medium truncate max-w-[120px]">{rb.title}</td>
+                                  <td className="py-1.5 text-right text-slate-500 tabular-nums">{formatCurrency(rb.scheduledAmount)}</td>
+                                  <td className="py-1.5 text-right font-semibold text-slate-900 tabular-nums">
                                     {formatCurrency(rb.allocatedAmount)}
                                   </td>
-                                  <td className="py-2 text-right text-amber-700 font-bold">
+                                  <td className="py-1.5 text-right text-slate-600 tabular-nums">
                                     {formatCurrency(rb.resultingOutstanding)}
                                   </td>
-                                  <td className="py-2 text-right">
+                                  <td className="py-1.5 text-right">
                                     <span
-                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      className={`px-1.5 py-0.5 rounded text-[9px] font-medium uppercase ${
                                         rb.resultingStatus === 'Paid'
-                                          ? 'bg-emerald-100 text-emerald-800'
+                                          ? 'bg-emerald-50 text-emerald-700'
                                           : rb.resultingStatus === 'Partially Paid'
-                                          ? 'bg-blue-100 text-blue-800'
-                                          : 'bg-gray-100 text-gray-600'
+                                          ? 'bg-blue-50 text-blue-700'
+                                          : 'bg-slate-100 text-slate-600'
                                       }`}
                                     >
                                       {rb.resultingStatus}
@@ -1016,42 +1056,32 @@ export const ClientAdvancePayment = () => {
                                 </tr>
                               ))}
                             </tbody>
-                            <tfoot>
-                              <tr className="border-t border-gray-200 font-black text-gray-900 text-xs">
-                                <td className="pt-2">Total Payment</td>
-                                <td colSpan={2} className="pt-2 text-right text-indigo-700">
-                                  {formatCurrency(allocationPreview.targetAmount)}
-                                </td>
-                                <td colSpan={2} className="pt-2 text-right text-emerald-700">
-                                  {allocationPreview.willConfirmEvent ? 'Event Will Confirm' : ''}
-                                </td>
-                              </tr>
-                            </tfoot>
                           </table>
                         </div>
                       </div>
                     )}
 
-                    {/* Payable Summary & Razorpay Checkout Action */}
-                    <div className="pt-2 space-y-4">
-                      <div className="flex items-baseline justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    {/* ─── Payable Summary & Razorpay Primary CTA ─── */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-baseline justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-100">
                         <div>
-                          <span className="text-xs font-semibold text-gray-500">Payable Now:</span>
-                          <p className="text-[11px] text-gray-400">
+                          <span className="text-[11px] font-medium text-slate-500 block">Total Payable Now</span>
+                          <span className="text-[11px] text-slate-400">
                             {paymentOption === 'full_balance'
-                              ? 'Full Remaining Quotation Balance'
+                              ? 'Full settlement across quotation'
                               : paymentOption === 'custom'
-                              ? 'Custom cross-installment payment'
-                              : 'Current milestone balance'}
-                          </p>
+                              ? 'Custom allocation'
+                              : 'Current milestone outstanding'}
+                          </span>
                         </div>
-                        <div className="text-2xl font-black text-gray-900">
+                        <div className="text-xl font-bold text-slate-900 tabular-nums">
                           {formatCurrency(selectedPayableAmount)}
                         </div>
                       </div>
 
                       <button
                         type="button"
+                        id="btn-pay-razorpay"
                         onClick={handleInitiatePayment}
                         disabled={
                           isInitiating ||
@@ -1061,17 +1091,17 @@ export const ClientAdvancePayment = () => {
                           !!amountError ||
                           (!isScheduleConsistent && paymentOption !== 'current_installment')
                         }
-                        className="w-full py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-sm transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                        className="w-full py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                       >
                         {isInitiating ? (
                           <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Preparing Secure Checkout...</span>
+                            <Loader2 className="w-4 h-4 animate-spin text-white" />
+                            <span>Opening Razorpay Gateway...</span>
                           </>
                         ) : isVerifying ? (
                           <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Verifying Payment Signature...</span>
+                            <Loader2 className="w-4 h-4 animate-spin text-white" />
+                            <span>Confirming Signature...</span>
                           </>
                         ) : (
                           <>
@@ -1080,18 +1110,29 @@ export const ClientAdvancePayment = () => {
                           </>
                         )}
                       </button>
+
+                      <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 pt-1">
+                        <span className="flex items-center gap-1">
+                          <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Bank-grade 256-bit SSL</span>
+                        </span>
+                        <span>•</span>
+                        <span>Verified Razorpay Integration</span>
+                        <span>•</span>
+                        <span>Instant Digital Receipt</span>
+                      </div>
                     </div>
 
-                    {/* Direct Payment Link (if active and available) */}
+                    {/* ─── Direct Shareable Payment Link ─── */}
                     {currentInstallment.currentPaymentLink && !currentInstallment.isExpired && (
-                      <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-2">
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                          <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                            <Sparkles className="w-3 h-3 text-slate-500" />
                             Direct Payment Link
                           </span>
                           {currentInstallment.currentPaymentLink.expiresAt && (
-                            <span className="text-[11px] text-gray-400">
+                            <span className="text-[10px] text-slate-400">
                               Expires: {formatDate(currentInstallment.currentPaymentLink.expiresAt)}
                             </span>
                           )}
@@ -1101,12 +1142,12 @@ export const ClientAdvancePayment = () => {
                             type="text"
                             readOnly
                             value={currentInstallment.currentPaymentLink.shortUrl}
-                            className="w-full text-xs font-mono bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-600 focus:outline-hidden"
+                            className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 focus:outline-hidden"
                           />
                           <button
                             type="button"
                             onClick={() => handleCopyLink(currentInstallment.currentPaymentLink!.shortUrl)}
-                            className="px-3 py-2 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg text-xs font-bold text-gray-700 flex items-center gap-1.5 shrink-0 transition-colors"
+                            className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 flex items-center gap-1.5 shrink-0 transition-colors shadow-2xs"
                           >
                             {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                             <span>{copiedLink ? 'Copied' : 'Copy'}</span>
@@ -1120,110 +1161,118 @@ export const ClientAdvancePayment = () => {
             </div>
           </div>
 
-          {/* Right Column: Installment Details & Financial Particulars (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
-            {/* Installment Summary Card */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
-              <div className="p-5 border-b border-gray-100 bg-gray-50/50">
-                <h3 className="text-sm font-extrabold text-gray-900">Installment Particulars</h3>
+          {/* Right Column: Particulars & Transaction History (5 cols) */}
+          <div className="lg:col-span-5 space-y-5">
+            
+            {/* Installment Particulars Card */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider">
+                  Milestone Specification
+                </h3>
               </div>
-              <div className="p-5 space-y-4 text-xs">
-                <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Installment Title:</span>
-                  <span className="font-bold text-gray-900">{currentInstallment.title}</span>
+              <div className="p-5 space-y-3 text-xs">
+                <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Milestone</span>
+                  <span className="font-medium text-slate-900">{currentInstallment.title}</span>
                 </div>
 
-                <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                  <span className="text-gray-500">Scheduled Amount:</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(currentInstallment.scheduledAmount)}</span>
+                <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Scheduled Target</span>
+                  <span className="font-medium text-slate-900 tabular-nums">
+                    {formatCurrency(currentInstallment.scheduledAmount)}
+                  </span>
                 </div>
 
-                <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                  <span className="text-emerald-700 font-medium">Verified Amount Paid:</span>
-                  <span className="font-bold text-emerald-700">{formatCurrency(currentInstallment.verifiedPaidAmount)}</span>
+                <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Verified Paid</span>
+                  <span className="font-medium text-emerald-700 tabular-nums">
+                    {formatCurrency(currentInstallment.verifiedPaidAmount)}
+                  </span>
                 </div>
 
-                <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                  <span className="text-amber-700 font-semibold">Outstanding Balance:</span>
-                  <span className="font-black text-amber-700 text-sm">
+                <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Remaining Balance</span>
+                  <span className="font-semibold text-slate-900 tabular-nums">
                     {formatCurrency(currentInstallment.outstandingAmount)}
                   </span>
                 </div>
 
                 {currentInstallment.dueDate && (
-                  <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                    <span className="text-gray-500">Due Date:</span>
-                    <span className="font-semibold text-gray-800">{formatDate(currentInstallment.dueDate)}</span>
+                  <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Due Date</span>
+                    <span className="text-slate-700">{formatDate(currentInstallment.dueDate)}</span>
                   </div>
                 )}
 
                 {currentInstallment.expiryDate && (
-                  <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                    <span className="text-gray-500">Link Expiry:</span>
-                    <span className={`font-semibold ${currentInstallment.isExpired ? 'text-rose-600 font-bold' : 'text-gray-800'}`}>
+                  <div className="flex items-center justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Window Expiry</span>
+                    <span className={currentInstallment.isExpired ? 'text-rose-600 font-medium' : 'text-slate-700'}>
                       {formatDate(currentInstallment.expiryDate)}
                     </span>
                   </div>
                 )}
 
                 <div className="flex items-center justify-between py-1">
-                  <span className="text-gray-500">Status:</span>
-                  <span className="font-bold uppercase tracking-wider text-[11px] text-gray-900">
+                  <span className="text-slate-500">Status</span>
+                  <span className="font-medium uppercase text-[10px] tracking-wider text-slate-700">
                     {currentInstallment.status}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Verified Transaction History for this event */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
-              <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-                <h3 className="text-sm font-extrabold text-gray-900 flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-indigo-600" />
-                  <span>Payment History</span>
+            {/* Verified Transaction History */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Verified Payments</span>
                 </h3>
-                <span className="text-[11px] font-bold text-gray-400">
-                  {summary.payments?.length || 0} Transactions
+                <span className="text-[11px] text-slate-400">
+                  {summary.payments?.length || 0} Recorded
                 </span>
               </div>
 
-              <div className="p-5">
+              <div className="p-4 sm:p-5">
                 {summary.payments && summary.payments.length > 0 ? (
-                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                     {summary.payments.map((p) => (
                       <div
                         key={p.id}
-                        className="p-3 bg-gray-50 rounded-xl border border-gray-100 space-y-1.5 text-xs"
+                        className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-xs"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="space-y-0.5 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-black text-gray-900">{formatCurrency(p.amount)}</span>
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800">
-                                Verified
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-slate-900 tabular-nums">
+                              {formatCurrency(p.amount)}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                              Captured
+                            </span>
+                            {p.isFullPayment && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase bg-slate-200 text-slate-800">
+                                Full Settlement
                               </span>
-                              {p.isFullPayment && (
-                                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-indigo-100 text-indigo-800">
-                                  Full Settled
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[10px] font-mono text-gray-400 truncate">
-                              {p.razorpayPaymentId || p.receiptReference}
-                            </p>
+                            )}
                           </div>
-                          <div className="text-right text-[10px] text-gray-400 shrink-0">
+                          <span className="text-[10px] text-slate-400 shrink-0">
                             {formatDate(p.createdAt)}
-                          </div>
+                          </span>
                         </div>
 
-                        {/* Attribution Breakdown Badges if Multi-Installment Allocation */}
+                        <p className="text-[10px] font-mono text-slate-400 truncate">
+                          {p.razorpayPaymentId || p.receiptReference}
+                        </p>
+
+                        {/* Attribution Breakdown */}
                         {p.allocations && p.allocations.length > 0 && (
-                          <div className="pt-1.5 border-t border-gray-200 flex flex-wrap gap-1">
+                          <div className="pt-1.5 border-t border-slate-200/60 flex flex-wrap gap-1">
                             {p.allocations.map((a, aIdx) => (
                               <span
                                 key={aIdx}
-                                className="px-1.5 py-0.5 rounded bg-white text-indigo-700 text-[10px] font-semibold border border-indigo-100"
+                                className="px-1.5 py-0.5 rounded bg-white text-slate-600 text-[10px] border border-slate-200/60"
                               >
                                 {a.installmentTitle}: {formatCurrency(a.allocatedAmount)}
                               </span>
@@ -1234,12 +1283,13 @@ export const ClientAdvancePayment = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-gray-400 text-xs">
-                    No verified payments recorded yet.
+                  <div className="text-center py-8 text-slate-400 text-xs">
+                    No verified transactions recorded yet.
                   </div>
                 )}
               </div>
             </div>
+
           </div>
         </div>
       )}
