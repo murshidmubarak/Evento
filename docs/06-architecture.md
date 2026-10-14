@@ -592,6 +592,75 @@ MongoDB updated authoritatively        Authoritative state refreshed in Frontend
 Creating a Razorpay order or payment link does not mean payment is successful. The backend performs the final authoritative payment verification.
 Neither browser parameters nor frontend state are ever trusted as proof of payment.
 
+### Pathway C: BullMQ + Redis + Background Worker Payment Reminder Architecture
+
+```text
+                  EventOps ERP
+                       |
+                       v
+            Existing Payment Data
+                    MongoDB
+                       |
+                       v
+             Reminder Scan Service
+                       |
+             Find Eligible Reminders
+                       |
+                       v
+            BullMQ Queue: payment-reminder-scan
+                       |
+                       v
+                 Redis
+                       |
+                       v
+             Background Worker (src/workers/paymentReminderWorker.ts)
+                       |
+       Revalidate Payment & Reserve Log in MongoDB (status: pending)
+                       |
+                       v
+            BullMQ Queue: payment-reminder-email (deterministic jobId)
+                       |
+                       v
+             Background Worker (Concurrency: 5, Max Retries: 3)
+                       |
+             Just-in-Time Revalidation (check if paid / cancelled)
+                       |
+                       v
+                Existing emailService (SMTP)
+                       |
+                       v
+                Client's Inbox
+                       |
+                       v
+             PaymentReminderLog in MongoDB (status: sent / skipped / failed)
+                       |
+                       v
+              Admin Reminder UI / Schedule Summary
+```
+
+#### Layered Architecture:
+**Route → Middleware → Controller → Service → BullMQ Queue / Worker → Repository/Model → MongoDB**
+
+#### Key Components:
+1. **Queues:**
+   - `payment-reminder-scan`: Handles periodic recurring scans and manual admin scan triggers. Concurrency: 1.
+   - `payment-reminder-email`: Handles individual email candidate dispatch. Concurrency: 5.
+2. **Scheduling Mechanism:**
+   - Recurring BullMQ JobScheduler (`periodic-payment-reminder-scan`) registered via `Queue.upsertJobScheduler()` with configurable interval (`REMINDER_CHECK_INTERVAL_MS`, default: 3600000ms / 1 hour).
+   - In-process `setInterval` timer has been deprecated and completely disabled.
+3. **Persistent Deduplication & Idempotency:**
+   - MongoDB `PaymentReminderLog.dedupKey` remains the single source of truth.
+   - Deterministic BullMQ job IDs: `email_<sha256(dedupKey)[0..32]>`.
+   - Atomic reservation before enqueuing prevents duplicate job generation across concurrent workers.
+4. **Authoritative JIT Revalidation:**
+   - Immediately prior to SMTP delivery, the worker re-queries MongoDB payments and quotation state. If the installment has been settled or the reminder is no longer applicable, sending is skipped and recorded as `status: 'skipped'`.
+5. **Retry & Failure Policy:**
+   - 3 attempts with exponential backoff (`delay: 5000ms`).
+   - Failed attempts update `PaymentReminderLog` with diagnostic error message (`status: 'failed'`).
+   - Temporary Redis/SMTP outages do not falsely report emails as sent.
+6. **Graceful Shutdown:**
+   - Standalone worker listens to `SIGINT` / `SIGTERM`, closes BullMQ workers and queues cleanly, and disconnects MongoDB.
+
 20. Financial Architecture
 
 All financial calculations happen on the backend.

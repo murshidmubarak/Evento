@@ -16,6 +16,7 @@ process.env.RAZORPAY_WEBHOOK_SECRET = 'test_webhook_secret';
 process.env.FRONTEND_URL = 'http://localhost:5173';
 process.env.SMTP_USER = '';
 process.env.SMTP_PASS = '';
+process.env.REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
 // ISOLATE TEST DATABASE:
 // Ensure tests always run against eventops_test so that test cleanup

@@ -446,7 +446,43 @@ Change local UI text in one page.
   - Repository test suite: 314/314 tests pass across all 34 test suites.
   - Frontend test suite: 20/20 tests pass (`vitest run`).
   - Frontend production build: `npm run build` cleanly succeeds in 7.66s.
-  - Backend production build: `npm run build` (`tsc`) cleanly succeeds with 0 errors.
+
+## Payment Architecture: BullMQ + Redis + Background Worker Payment Reminder Scheduler
+- **Impact Classification**: Medium (Architectural transport replacement: in-process setInterval scheduler replaced with BullMQ, Redis, and dedicated background worker without altering financial models, MongoDB collections, or business authorization)
+- **Date**: 2026-10-14
+- **Modules Affected**:
+  - `backend/package.json` (`bullmq`, `ioredis`, added `worker` and `worker:prod` scripts)
+  - `backend/src/config/env.ts` (centralized `redisUrl` getter validation)
+  - `backend/.env.example` (`REDIS_URL=redis://127.0.0.1:6379`)
+  - `backend/src/modules/payments/queues/payment-reminder.queue.ts` (BullMQ queues: `payment-reminder-scan` & `payment-reminder-email`, deterministic job IDs, retry policy, test mock isolation)
+  - `backend/src/workers/paymentReminderWorker.ts` (dedicated background worker entry point with graceful shutdown on SIGINT/SIGTERM)
+  - `backend/src/modules/payments/service/payment-reminder.service.ts` (`dispatchQueuedDueDateReminder`, `dispatchQueuedExpiryWarning`, return types)
+  - `backend/src/modules/payments/service/reminder-scheduler.service.ts` (deprecated in-process setInterval, routed `triggerManualRun` to BullMQ scan queue)
+  - `backend/src/modules/payments/controller/payment.controller.ts` (`triggerReminders` enqueues scan job asynchronously)
+  - `backend/src/server.ts` (decoupled Express HTTP lifecycle from reminder scheduler)
+  - `backend/tests/reminderQueue.test.ts` (10 dedicated tests covering queues, workers, JIT revalidation, idempotency, retry, boundary conditions)
+  - `backend/tests/payments.test.ts` (updated Test 93 assertions for asynchronous queue contract)
+  - `docs/04-status-and-business-rules.md`, `docs/05-api-design.md`, `docs/06-architecture.md`
+- **Database Schema Changes**:
+  - None. Preserved and reused existing `PaymentReminderLog` schema and atomic unique `dedupKey` deduplication.
+- **API Contracts Added/Updated**:
+  - `POST /api/payments/reminders/trigger`: Converted from synchronous email sending to asynchronous scan job enqueuing, returning `{ success: true, message: 'Payment reminder scan job enqueued successfully', data: { jobId, status: 'queued', enqueuedAt } }`.
+  - `GET /api/payments/event/:eventId/reminders`: Fully preserved without changes.
+  - `GET /api/payments/schedule/:eventId`: Fully preserved without changes.
+- **Financial & Business Rule Guarantees**:
+  - Core financial calculations (`round2`, line item taxes, remaining balance) and event confirmation gates preserved with zero regressions.
+  - Reminder boundary conditions preserved: Due-date reminders strictly within `0 <= daysUntilDue <= 2`; Link expiry warnings strictly within `0 < hoursUntilExpiry <= 24`.
+  - Authoritative JIT balance revalidation: If an installment is paid before worker execution, email is skipped and marked `status: 'skipped'`.
+  - Persistent deduplication: MongoDB `PaymentReminderLog.dedupKey` remains the source of truth, preventing double-sends even under worker crashes.
+  - Retry & backoff: 3 attempts with 5s exponential backoff; failures recorded diagnostically as `status: 'failed'`.
+- **Verification & Test Status**:
+  - Dedicated queue test suite: 10/10 tests pass (`backend/tests/reminderQueue.test.ts`).
+  - Payments test suite: 93/93 tests pass (`backend/tests/payments.test.ts`).
+  - Total backend test suite: 324/324 tests pass across all 35 suites (`npm test`).
+  - Type checking: `npm run type-check` cleanly succeeds with 0 errors.
+  - Backend production build: `npm run build` cleanly succeeds with 0 errors.
+  - Frontend production build: `npm run build` cleanly succeeds.
+
 
 
 

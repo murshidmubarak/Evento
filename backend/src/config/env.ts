@@ -80,4 +80,7 @@ export const env = {
   get enableReminderScheduler(): boolean {
     return process.env.ENABLE_REMINDER_SCHEDULER !== 'false';
   },
+  get redisUrl(): string {
+    return process.env.REDIS_URL || '';
+  },
 } as const;

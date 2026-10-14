@@ -16,6 +16,7 @@ import { WebhookReceipt } from '../src/modules/payments/model/webhook-receipt.mo
 import { PaymentReminderLog } from '../src/modules/payments/model/payment-reminder-log.model.js';
 import { paymentReminderService, PaymentReminderService } from '../src/modules/payments/service/payment-reminder.service.js';
 import { reminderSchedulerService } from '../src/modules/payments/service/reminder-scheduler.service.js';
+import { paymentReminderQueueService } from '../src/modules/payments/queues/payment-reminder.queue.js';
 import { emailService } from '../src/modules/email/service/email.service.js';
 import crypto from 'node:crypto';
 
@@ -3525,7 +3526,7 @@ describe('Payments API', () => {
       });
       assert.equal(forbiddenRes.status, 403);
 
-      // 2. Admin trigger successful
+      // 2. Admin trigger successful (enqueues scan job via BullMQ)
       const triggerRes = await fetch(`http://127.0.0.1:${port}/api/payments/reminders/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
@@ -3534,7 +3535,22 @@ describe('Payments API', () => {
       assert.equal(triggerRes.status, 200);
       const triggerData = (await triggerRes.json()) as any;
       assert.ok(triggerData.success);
-      assert.equal(triggerData.data.dueDateCount, 1);
+      assert.equal(triggerData.data.status, 'queued');
+      assert.ok(triggerData.data.jobId);
+
+      // 2b. Background worker executes the enqueued scan job
+      const scanJobs = paymentReminderQueueService.getMockScanJobs();
+      assert.ok(scanJobs.length > 0);
+      const latestScanJob = scanJobs[scanJobs.length - 1];
+      const scanResult = await paymentReminderQueueService.processScanJob(latestScanJob as any);
+      assert.equal(scanResult.dueRemindersQueued, 1);
+
+      // 2c. Background worker executes the enqueued individual email job
+      const emailJobs = paymentReminderQueueService.getMockEmailJobs();
+      assert.ok(emailJobs.length > 0);
+      const latestEmailJob = emailJobs[emailJobs.length - 1];
+      const emailResult = await paymentReminderQueueService.processEmailJob(latestEmailJob as any);
+      assert.equal(emailResult.status, 'sent');
 
       // 3. Admin schedule summary includes reminder metadata
       const summaryRes = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${m3EventId}`, {

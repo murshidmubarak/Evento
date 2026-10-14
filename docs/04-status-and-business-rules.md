@@ -1227,4 +1227,35 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
 ## Event Confirmation & Subsequent Installments
 
 - **Advance Requirement**: An event in `awaiting_payment` transitions to `confirmed` if and only if the cumulative verified payments for installment 0 equal or exceed the required advance amount (`quotation.advanceAmount`).
-- **Subsequent Installments**: Payments made against subsequent installments update the specific installment status to `Paid` (or `Partially Paid`), reduce the remaining quotation balance, and strictly preserve the event's existing `confirmed` status. Under no circumstance does an installment webhook revert a confirmed event.
+- **Subsequent Installments**: Payments made against subsequent installments update the specific installment status to `Paid` (or `Partially Paid`), reduce the remaining quotation balance, and strictly preserve the event's existing `confirmed` status. Under no circumstance does an installment webhook revert a confirmed event.
+
+## Automated Payment Reminders & Background Worker Rules
+
+### 1. Payment Due-Date Reminders
+- **Eligibility Window**: Installments due within the next 2 days, including today (`0 <= daysUntilDue <= 2`).
+- **Outstanding Balance Gate**: Installment must have `outstandingAmount > 0` (`status !== 'paid'`).
+- **Advance Gating**: For subsequent installments (index > 0), the event must already be confirmed with verified advance payment.
+- **Overdue Installments Policy**: Past-due installments (`daysUntilDue < 0`) are excluded from normal due-date reminders to prevent flooding clients with stale reminders.
+
+### 2. Payment Link Expiry Warnings
+- **Eligibility Window**: Active, unexpired payment links expiring within the next 24 hours (`0 < hoursUntilExpiry <= 24`).
+- **Outstanding Balance Gate**: The installment associated with the payment link must have `outstandingAmount > 0`.
+- **Status Gate**: Link must be in `active` status. Expired, cancelled, or superseded links are never warned.
+
+### 3. BullMQ Job Scheduling & Processing
+- **Queue Separation**:
+  - `payment-reminder-scan`: Discovers candidate records and reserves atomic MongoDB records. Concurrency: 1.
+  - `payment-reminder-email`: Sends individual emails and updates persistent delivery status. Concurrency: 5.
+- **Configured Interval**: Recurring scan runs via BullMQ JobScheduler at interval defined by `REMINDER_CHECK_INTERVAL_MS` (default: 3600000ms / 1 hour).
+- **In-Process Schedulers Prohibited**: No `setInterval` loop runs in the HTTP server process. All scheduling belongs to BullMQ and the background worker (`src/workers/paymentReminderWorker.ts`).
+
+### 4. Authoritative Just-in-Time (JIT) Revalidation
+- Before email dispatch, the background worker re-reads the latest payment state and quotation schedule directly from MongoDB.
+- If the client paid the installment while the job was in the Redis queue, the worker skips email sending, records `status: 'skipped'` in `PaymentReminderLog`, and stops processing.
+
+### 5. Persistent Deduplication & Idempotency
+- **Source of Truth**: MongoDB `PaymentReminderLog.dedupKey` remains the durable authority for reminder history.
+- **Atomic Reservation**: The scan worker attempts to create `PaymentReminderLog` with `status: 'pending'` before enqueuing. Duplicate key error (`E11000`) detects previous attempts and prevents queue flooding.
+- **Deterministic Job IDs**: BullMQ email jobs derive their ID deterministically: `email_<sha256(dedupKey)[0..32]>`.
+- **Retry Policy**: 3 attempts with exponential backoff (5s initial delay). Transient SMTP or Redis failures do not mark reminders as sent.
+- **Admin Visibility**: `GET /api/payments/event/:eventId/reminders` and `GET /api/payments/schedule/:eventId` reflect the real-time status of pending, sent, skipped, or failed reminders.

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { PaymentService } from '../service/payment.service.js';
-import { reminderSchedulerService } from '../service/reminder-scheduler.service.js';
+import { paymentReminderQueueService } from '../queues/payment-reminder.queue.js';
 import { paymentReminderService } from '../service/payment-reminder.service.js';
 import { catchAsync } from '../../../utils/catchAsync.js';
 import { ApiResponse } from '../../../utils/ApiResponse.js';
@@ -136,8 +136,13 @@ export const triggerReminders = catchAsync(async (req: Request, res: Response) =
   }
   const { referenceDate, eventId } = req.body || {};
   const refDateObj = referenceDate ? new Date(referenceDate) : new Date();
-  const result = await reminderSchedulerService.triggerManualRun(refDateObj, eventId);
-  new ApiResponse(200, 'Payment reminders triggered successfully', result).send(res);
+  const result = await paymentReminderQueueService.enqueueReminderScan({
+    referenceDate: refDateObj,
+    eventId,
+    isManual: true,
+    triggeredBy: req.user!.id,
+  });
+  new ApiResponse(200, 'Payment reminder scan job enqueued successfully', result).send(res);
 });
 
 export const getEventReminders = catchAsync(async (req: Request, res: Response) => {

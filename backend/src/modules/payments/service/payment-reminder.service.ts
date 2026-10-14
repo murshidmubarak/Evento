@@ -1,7 +1,8 @@
 import { Types } from 'mongoose';
 import { Event } from '../../events/model/event.model.js';
 import { Quotation } from '../../quotations/model/quotation.model.js';
-import { User } from '../../auth/model/user.model.js';
+import '../../auth/model/user.model.js';
+import '../../services/model/service.model.js';
 import { Payment } from '../model/payment.model.js';
 import {
   PaymentReminderLog,
@@ -56,7 +57,7 @@ export interface ExpiryWarningCandidate {
 
 export interface ReminderProcessingResult {
   candidateKey: string;
-  status: ReminderStatus;
+  status: ReminderStatus | 'already_sent' | 'already_skipped';
   logId?: string;
   error?: string;
   reason?: string;
@@ -248,31 +249,38 @@ export class PaymentReminderService {
       throw err;
     }
 
-    // 2. Authoritative Just-in-Time Re-Check
+    return this.dispatchQueuedDueDateReminder(log);
+  }
+
+  /**
+   * Dispatches a previously queued or reserved due-date reminder email with authoritative JIT checks.
+   */
+  async dispatchQueuedDueDateReminder(log: IPaymentReminderLog): Promise<ReminderProcessingResult> {
+    // 1. Authoritative Just-in-Time Re-Check
     const allVerifiedPayments = await this.paymentRepository.findAllVerifiedPayments(
-      candidate.eventId,
-      candidate.quotationId
+      log.eventId.toString(),
+      log.quotationId.toString()
     );
     const paidForInst = round2(
       allVerifiedPayments.reduce((acc, p) => {
         if (p.allocations && p.allocations.length > 0) {
-          const matchedAlloc = p.allocations.find((a: any) => a.installmentIndex === candidate.installmentIndex);
+          const matchedAlloc = p.allocations.find((a: any) => a.installmentIndex === log.installmentIndex);
           return acc + (matchedAlloc ? matchedAlloc.allocatedAmount : 0);
         }
         if (p.installmentIndex !== undefined) {
-          return p.installmentIndex === candidate.installmentIndex ? acc + p.amount : acc;
+          return p.installmentIndex === log.installmentIndex ? acc + p.amount : acc;
         }
-        return candidate.installmentIndex === 0 && p.paymentType === 'advance' ? acc + p.amount : acc;
+        return log.installmentIndex === 0 && p.paymentType === 'advance' ? acc + p.amount : acc;
       }, 0)
     );
-    const currentOutstanding = Math.max(0, round2(candidate.scheduledAmount - paidForInst));
+    const currentOutstanding = Math.max(0, round2(log.scheduledAmount - paidForInst));
 
     if (currentOutstanding <= 0) {
       log.status = 'skipped';
       log.failureReason = 'Installment settled before email delivery';
       await log.save();
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'skipped',
         logId: log._id.toString(),
         reason: 'fully_paid',
@@ -285,31 +293,37 @@ export class PaymentReminderService {
 
     // Check for updated active link if present
     const activeLink = await this.paymentRepository.findActiveLinkForInstallment(
-      candidate.eventId,
-      candidate.quotationId,
-      candidate.installmentIndex
+      log.eventId.toString(),
+      log.quotationId.toString(),
+      log.installmentIndex
     );
     if (activeLink) {
       log.paymentLinkUrl = activeLink.paymentLinkUrl;
       log.linkExpiryDate = activeLink.linkExpiresAt;
     }
 
-    // 3. Dispatch Email
+    // Resolve event and recipient from trusted application data
+    const event = await Event.findById(log.eventId).populate('clientId', 'name email');
+    const quotation = await Quotation.findById(log.quotationId);
+    const recipientEmail = (event?.clientId as any)?.email || log.recipientEmail;
+    const recipientName = (event?.clientId as any)?.name || log.recipientName;
+
+    // 2. Dispatch Email
     try {
       await emailService.sendPaymentDueDateReminder({
-        to: candidate.clientEmail,
-        clientName: candidate.clientName,
-        eventName: (await Event.findById(candidate.eventId))?.title || 'Event',
-        quotationNumber: candidate.quotationNumber,
-        quotationRevision: candidate.quotationRevision,
-        installmentTitle: candidate.installmentTitle,
-        scheduledAmount: candidate.scheduledAmount,
+        to: recipientEmail,
+        clientName: recipientName,
+        eventName: event?.title || 'Event',
+        quotationNumber: quotation?.quotationNumber || '',
+        quotationRevision: log.quotationRevision,
+        installmentTitle: log.installmentTitle,
+        scheduledAmount: log.scheduledAmount,
         verifiedPaidAmount: paidForInst,
         outstandingAmount: currentOutstanding,
-        dueDate: candidate.dueDate,
+        dueDate: log.dueDate || new Date(),
         linkExpiryDate: log.linkExpiryDate,
         paymentLinkUrl: log.paymentLinkUrl,
-        eventId: candidate.eventId,
+        eventId: log.eventId.toString(),
       });
 
       log.status = 'sent';
@@ -317,18 +331,19 @@ export class PaymentReminderService {
       await log.save();
 
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'sent',
         logId: log._id.toString(),
       };
     } catch (emailErr: any) {
-      console.error(`[PaymentReminderService] Failed to send due date reminder to ${candidate.clientEmail}:`, emailErr);
+      console.error(`[PaymentReminderService] Failed to send due date reminder to ${recipientEmail}:`, emailErr);
       log.status = 'failed';
       log.failureReason = emailErr.message || 'Email delivery failed';
+      log.retryCount = (log.retryCount || 0) + 1;
       await log.save();
 
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'failed',
         logId: log._id.toString(),
         error: log.failureReason,
@@ -483,48 +498,57 @@ export class PaymentReminderService {
       throw err;
     }
 
-    // 2. Authoritative Just-in-Time Re-Check
-    const currentLink = await Payment.findOne({
-      razorpayPaymentLinkId: candidate.paymentLinkId,
-    });
+    return this.dispatchQueuedExpiryWarning(log);
+  }
 
-    if (!currentLink || currentLink.linkStatus !== 'active' || (currentLink.linkExpiresAt && currentLink.linkExpiresAt <= new Date())) {
-      log.status = 'skipped';
-      log.failureReason = 'Payment link is no longer active or was superseded/expired';
-      await log.save();
-      return {
-        candidateKey: candidate.dedupKey,
-        status: 'skipped',
-        logId: log._id.toString(),
-        reason: 'link_superseded_or_inactive',
-      };
+  /**
+   * Dispatches a previously queued or reserved expiry warning email with authoritative JIT checks.
+   */
+  async dispatchQueuedExpiryWarning(log: IPaymentReminderLog): Promise<ReminderProcessingResult> {
+    // 1. Authoritative Just-in-Time Re-Check of Payment Link
+    if (log.paymentLinkId) {
+      const currentLink = await Payment.findOne({
+        razorpayPaymentLinkId: log.paymentLinkId,
+      });
+
+      if (!currentLink || currentLink.linkStatus !== 'active' || (currentLink.linkExpiresAt && currentLink.linkExpiresAt <= new Date())) {
+        log.status = 'skipped';
+        log.failureReason = 'Payment link is no longer active or was superseded/expired';
+        await log.save();
+        return {
+          candidateKey: log.dedupKey,
+          status: 'skipped',
+          logId: log._id.toString(),
+          reason: 'link_superseded_or_inactive',
+        };
+      }
     }
 
     // Re-check outstanding balance
     const allVerifiedPayments = await this.paymentRepository.findAllVerifiedPayments(
-      candidate.eventId,
-      candidate.quotationId
+      log.eventId.toString(),
+      log.quotationId.toString()
     );
     const paidForInst = round2(
       allVerifiedPayments.reduce((acc, p) => {
         if (p.allocations && p.allocations.length > 0) {
-          const matchedAlloc = p.allocations.find((a: any) => a.installmentIndex === candidate.installmentIndex);
+          const matchedAlloc = p.allocations.find((a: any) => a.installmentIndex === log.installmentIndex);
           return acc + (matchedAlloc ? matchedAlloc.allocatedAmount : 0);
         }
         if (p.installmentIndex !== undefined) {
-          return p.installmentIndex === candidate.installmentIndex ? acc + p.amount : acc;
+          return p.installmentIndex === log.installmentIndex ? acc + p.amount : acc;
         }
-        return candidate.installmentIndex === 0 && p.paymentType === 'advance' ? acc + p.amount : acc;
+        return log.installmentIndex === 0 && p.paymentType === 'advance' ? acc + p.amount : acc;
       }, 0)
     );
-    const currentOutstanding = Math.max(0, round2(candidate.scheduledAmount - paidForInst));
+    const currentOutstanding = Math.max(0, round2(log.scheduledAmount - paidForInst));
 
     if (currentOutstanding <= 0) {
       log.status = 'skipped';
       log.failureReason = 'Installment settled before warning delivery';
       await log.save();
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'skipped',
         logId: log._id.toString(),
         reason: 'fully_paid',
@@ -534,23 +558,28 @@ export class PaymentReminderService {
     log.paidAmount = paidForInst;
     log.outstandingAmount = currentOutstanding;
 
-    // 3. Dispatch Email
+    // Resolve event and quotation from trusted MongoDB records
+    const event = await Event.findById(log.eventId).populate('clientId', 'name email');
+    const quotation = await Quotation.findById(log.quotationId);
+    const recipientEmail = (event?.clientId as any)?.email || log.recipientEmail;
+    const recipientName = (event?.clientId as any)?.name || log.recipientName;
+
+    // 2. Dispatch Email
     try {
-      const event = await Event.findById(candidate.eventId);
       await emailService.sendPaymentLinkExpiryWarning({
-        to: candidate.clientEmail,
-        clientName: candidate.clientName,
+        to: recipientEmail,
+        clientName: recipientName,
         eventName: event?.title || 'Event',
-        quotationNumber: candidate.quotationNumber,
-        quotationRevision: candidate.quotationRevision,
-        installmentTitle: candidate.installmentTitle,
-        scheduledAmount: candidate.scheduledAmount,
+        quotationNumber: quotation?.quotationNumber || '',
+        quotationRevision: log.quotationRevision,
+        installmentTitle: log.installmentTitle,
+        scheduledAmount: log.scheduledAmount,
         verifiedPaidAmount: paidForInst,
         outstandingAmount: currentOutstanding,
-        dueDate: candidate.dueDate,
-        linkExpiryDate: candidate.linkExpiryDate,
-        paymentLinkUrl: candidate.paymentLinkUrl,
-        eventId: candidate.eventId,
+        dueDate: log.dueDate,
+        linkExpiryDate: log.linkExpiryDate || new Date(),
+        paymentLinkUrl: log.paymentLinkUrl || '',
+        eventId: log.eventId.toString(),
       });
 
       log.status = 'sent';
@@ -558,18 +587,19 @@ export class PaymentReminderService {
       await log.save();
 
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'sent',
         logId: log._id.toString(),
       };
     } catch (emailErr: any) {
-      console.error(`[PaymentReminderService] Failed to send expiry warning to ${candidate.clientEmail}:`, emailErr);
+      console.error(`[PaymentReminderService] Failed to send expiry warning to ${recipientEmail}:`, emailErr);
       log.status = 'failed';
       log.failureReason = emailErr.message || 'Email delivery failed';
+      log.retryCount = (log.retryCount || 0) + 1;
       await log.save();
 
       return {
-        candidateKey: candidate.dedupKey,
+        candidateKey: log.dedupKey,
         status: 'failed',
         logId: log._id.toString(),
         error: log.failureReason,

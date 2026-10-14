@@ -773,6 +773,72 @@ GET /api/payments/admin
 Access:
 Admin
 
+
+## Trigger Payment Reminder Scan (Asynchronous BullMQ)
+
+POST /api/payments/reminders/trigger
+
+Access:
+Admin (role: 'admin') only
+
+Purpose:
+Enqueues a payment reminder scan job to the BullMQ Redis queue (`payment-reminder-scan`). The background worker asynchronously executes the scan, discovers eligible candidates (due-date reminders `0 <= daysUntilDue <= 2` and link expiry warnings `0 < hoursUntilExpiry <= 24`), applies atomic MongoDB deduplication (`dedupKey`), and enqueues individual email dispatch jobs to `payment-reminder-email` with exponential backoff retry.
+
+Request Body (optional):
+```json
+{
+  "eventId": "string (optional: limits scan to specific event)",
+  "referenceDate": "ISO date string (optional: defaults to now)"
+}
+```
+
+Response (HTTP 200):
+```json
+{
+  "statusCode": 200,
+  "success": true,
+  "message": "Payment reminder scan job enqueued successfully",
+  "data": {
+    "jobId": "manual_scan_1791967252930_n5unwk",
+    "status": "queued",
+    "enqueuedAt": "2026-10-14T08:40:52.930Z"
+  }
+}
+```
+
+
+## Get Event Reminder History
+
+GET /api/payments/event/:eventId/reminders
+
+Access:
+Admin or Client who owns the Event
+
+Query Parameters (optional):
+- `installmentIndex`: number (optional filter)
+
+Response:
+```json
+{
+  "statusCode": 200,
+  "success": true,
+  "message": "Reminder logs retrieved successfully",
+  "data": [
+    {
+      "_id": "6acf41fbf71c28ace6b6c596",
+      "dedupKey": "due_date:event_id:inst_1:rev_1:2_days_before",
+      "reminderType": "due_date",
+      "status": "sent",
+      "sentAt": "2026-10-14T08:40:53.120Z",
+      "recipientEmail": "client@example.com",
+      "outstandingAmount": 200000,
+      "scheduledAmount": 200000,
+      "dueDate": "2026-10-16T12:00:00.000Z"
+    }
+  ]
+}
+```
+
 # 9. Event Manager Assignment APIs
 
 Base:

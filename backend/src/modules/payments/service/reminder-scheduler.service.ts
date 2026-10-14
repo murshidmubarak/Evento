@@ -1,4 +1,5 @@
 import { paymentReminderService, ReminderProcessingResult } from './payment-reminder.service.js';
+import { paymentReminderQueueService, EnqueueScanResult } from '../queues/payment-reminder.queue.js';
 
 export interface SchedulerRunSummary {
   startedAt: Date;
@@ -11,7 +12,6 @@ export interface SchedulerRunSummary {
 
 export class ReminderSchedulerService {
   private timer: NodeJS.Timeout | null = null;
-  private isRunningJob: boolean = false;
   private intervalMs: number = 3600000; // 1 hour default
 
   constructor() {
@@ -23,36 +23,16 @@ export class ReminderSchedulerService {
 
   /**
    * Starts the background scheduler loop.
+   * @deprecated Scheduling is now performed by the BullMQ JobScheduler in the dedicated worker process.
    */
-  start(customIntervalMs?: number): void {
-    if (this.timer) {
-      return; // Already running
-    }
-
-    if (customIntervalMs && customIntervalMs >= 1000) {
-      this.intervalMs = customIntervalMs;
-    }
-
-    // Run first check shortly after boot (e.g., 5 seconds) to catch pending items
-    const initialDelay = process.env.NODE_ENV === 'test' ? 0 : 5000;
-    setTimeout(() => {
-      this.executeJob().catch((err) => {
-        console.error('[ReminderScheduler] Initial execution error:', err);
-      });
-    }, initialDelay);
-
-    // Schedule periodic execution
-    this.timer = setInterval(() => {
-      this.executeJob().catch((err) => {
-        console.error('[ReminderScheduler] Scheduled execution error:', err);
-      });
-    }, this.intervalMs);
-
-    console.log(`⏰ [ReminderScheduler] Started background reminder service (interval: ${this.intervalMs / 1000}s)`);
+  start(_customIntervalMs?: number): void {
+    console.warn(
+      '⚠️ [ReminderScheduler] In-process setInterval scheduler is deprecated. Payment reminder scheduling is managed via BullMQ in the dedicated worker (npm run worker).'
+    );
   }
 
   /**
-   * Stops the background scheduler loop cleanly.
+   * Stops any legacy background scheduler loop cleanly.
    */
   stop(): void {
     if (this.timer) {
@@ -70,63 +50,30 @@ export class ReminderSchedulerService {
   }
 
   /**
-   * Triggers an immediate execution of the reminder job.
+   * Triggers an asynchronous reminder scan job via BullMQ.
    */
-  async triggerManualRun(referenceDate: Date = new Date(), eventId?: string): Promise<SchedulerRunSummary> {
-    return this.executeJob(referenceDate, eventId);
+  async triggerManualRun(referenceDate: Date = new Date(), eventId?: string): Promise<EnqueueScanResult> {
+    return paymentReminderQueueService.enqueueReminderScan({
+      referenceDate,
+      eventId,
+      isManual: true,
+    });
   }
 
   /**
-   * Internal job runner with concurrency protection and safe error handling.
+   * Direct synchronous execution utility for testing or debugging without BullMQ.
    */
-  private async executeJob(referenceDate: Date = new Date(), eventId?: string): Promise<SchedulerRunSummary> {
-    if (this.isRunningJob) {
-      console.log('⏳ [ReminderScheduler] Job execution already in progress, skipping overlap.');
-      return {
-        startedAt: new Date(),
-        completedAt: new Date(),
-        dueDateCount: 0,
-        expiryCount: 0,
-        dueDateReminders: [],
-        expiryWarnings: [],
-      };
-    }
-
-    this.isRunningJob = true;
+  async executeJobDirectly(referenceDate: Date = new Date(), eventId?: string): Promise<SchedulerRunSummary> {
     const startedAt = new Date();
-
-    try {
-      const results = await paymentReminderService.runAllReminders(referenceDate, eventId);
-
-      const summary: SchedulerRunSummary = {
-        startedAt,
-        completedAt: new Date(),
-        dueDateCount: results.dueDateReminders.length,
-        expiryCount: results.expiryWarnings.length,
-        dueDateReminders: results.dueDateReminders,
-        expiryWarnings: results.expiryWarnings,
-      };
-
-      if (summary.dueDateCount > 0 || summary.expiryCount > 0) {
-        console.log(
-          `🔔 [ReminderScheduler] Processed ${summary.dueDateCount} due-date reminder(s) and ${summary.expiryCount} expiry warning(s).`
-        );
-      }
-
-      return summary;
-    } catch (error) {
-      console.error('❌ [ReminderScheduler] Unexpected error during reminder processing:', error);
-      return {
-        startedAt,
-        completedAt: new Date(),
-        dueDateCount: 0,
-        expiryCount: 0,
-        dueDateReminders: [],
-        expiryWarnings: [],
-      };
-    } finally {
-      this.isRunningJob = false;
-    }
+    const results = await paymentReminderService.runAllReminders(referenceDate, eventId);
+    return {
+      startedAt,
+      completedAt: new Date(),
+      dueDateCount: results.dueDateReminders.length,
+      expiryCount: results.expiryWarnings.length,
+      dueDateReminders: results.dueDateReminders,
+      expiryWarnings: results.expiryWarnings,
+    };
   }
 }
 

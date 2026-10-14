@@ -21,6 +21,4 @@ const WebhookReceiptSchema = new Schema<IWebhookReceipt>(
   { timestamps: true }
 );
 
-WebhookReceiptSchema.index({ eventId: 1 }, { unique: true });
-
 export const WebhookReceipt = mongoose.model<IWebhookReceipt>('WebhookReceipt', WebhookReceiptSchema);
