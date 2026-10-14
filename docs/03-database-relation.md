@@ -497,3 +497,17 @@ WebhookReceipt (eventId: unique provider event ID)
              └── paymentId     -> Payment.razorpayPaymentId
 ```
 
+### Payment Reminder Log Relationships
+
+```text
+Quotation.paymentPlan[i] & Event (1)
+     │
+     └── (Many) PaymentReminderLog (ref: events._id, quotations._id)
+                    ├── installmentIndex: i
+                    ├── reminderType: 'due_date' | 'link_expiry'
+                    ├── dedupKey: unique deterministic key preventing duplicate sends
+                    ├── paymentLinkId (optional -> Payment.razorpayPaymentLinkId)
+                    └── Delivery status: 'pending' | 'sent' | 'failed' | 'skipped'
+```
+
+

@@ -373,6 +373,38 @@ refunded
     - An excess payment or full payment confirming the advance triggers event confirmation immediately in the same verification call, without requiring a second payment.
     - If a payment leaves the advance partially unpaid, the event remains `awaiting_payment`.
 
+- **Payment Milestone 3 — Automated Payment Reminders, Expiry Warnings & Scheduling Rules**:
+  - **Eligibility Verification**:
+    - Reminders are sent only for installments belonging to confirmed events and accepted quotations matching the active revision.
+    - Advance payments on unconfirmed events (`awaiting_payment`) are eligible for due-date reminders if an outstanding balance exists.
+    - Reminders require an outstanding balance (`outstandingAmount > 0`), a valid due date or active payment link, and an eligible Client.
+  - **Due-Date Reminder Timing & Catch-up Policy**:
+    - Due-date reminder emails are sent **two days before** the scheduled installment due date (reminder window: $T_{\text{due}} - 2 \text{ days}$).
+    - Catch-up policy: If a scheduler job initializes and finds overdue installments whose reminder window passed, it **skips** sending old reminders to prevent a barrage of stale emails.
+  - **Payment-Link Expiry Warning Timing**:
+    - Expiry warnings are sent **one day (within 24 hours) before** the current active Razorpay Payment Link's expiry date ($T_{\text{expiry}} - 24 \text{ hours}$).
+    - The warning must reference strictly the current valid, active link. Expired, cancelled, or superseded links are never sent as active payment links.
+  - **Authoritative Balance Recalculation**:
+    - Reminder amounts are recalculated at runtime using authoritative backend payments data.
+    - If an installment is partially paid (e.g. ₹2,00,000 paid towards a ₹2,72,000 installment), the reminder explicitly presents the **outstanding balance of ₹72,000**, never the original scheduled amount of ₹2,72,000.
+    - Unverified, failed, or pending transactions are excluded from calculations.
+  - **Just-In-Time Verification & Fully Paid Installments**:
+    - Immediately prior to sending any reminder, the system rechecks the installment balance.
+    - If the installment was settled just before dispatch, the reminder is skipped and recorded with status `skipped` and skip reason `"Settled before sending"`.
+    - Fully paid installments (`outstandingAmount === 0`) never receive payment reminders or expiry warnings.
+  - **Renewed Payment Link Behavior**:
+    - When an Admin renews an expired payment link, the previous link is archived with status `replaced`.
+    - Future expiry warnings evaluate only the **replacement link** using its new expiry date and the current outstanding balance.
+    - Expired links are never warned as payable.
+  - **Persistent Reminder Deduplication**:
+    - Deduplication is guaranteed durably in MongoDB through the `PaymentReminderLog` collection with a unique index on `dedupKey`.
+    - Due-date dedup key: `due_date:<quotationId>:r<rev>:inst<index>:<due_date_iso>`.
+    - Link expiry dedup key: `link_expiry:<quotationId>:r<rev>:inst<index>:<paymentLinkId>:<expiry_date_iso>`.
+    - Duplicate job executions, concurrent worker processes, and process restarts cannot generate duplicate reminders for the same window.
+  - **Separation of Email Delivery State from Financial State**:
+    - Email delivery failures (SMTP timeouts, authentication errors, provider downtime) are tracked in `PaymentReminderLog` with status `failed` and diagnostic failure reasons.
+    - An email failure **never** alters installment amounts, paid balances, payment records, quotation statuses, or event statuses.
+
 8. Event Manager Assignment Rules
 
 Event Manager assignment happens after Event confirmation.

@@ -28,6 +28,7 @@ import {
   ChevronUp,
   History,
   X,
+  Bell,
 } from 'lucide-react';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
 import { getAdvanceSummary, renewPaymentLink } from '../../features/payments/paymentsApi';
@@ -524,6 +525,50 @@ export const AdminEventDetails = () => {
                                     </>
                                   )}
                                 </button>
+                              </div>
+                            )}
+
+                            {/* Reminder status indicators */}
+                            {(inst.latestDueDateReminder || inst.latestExpiryWarning) && (
+                              <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
+                                {inst.latestDueDateReminder && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${
+                                      inst.latestDueDateReminder.status === 'sent'
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                        : inst.latestDueDateReminder.status === 'failed'
+                                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                        : 'bg-gray-50 text-gray-600 border border-gray-200'
+                                    }`}
+                                    title={inst.latestDueDateReminder.failureReason || `Sent to ${inst.latestDueDateReminder.recipientEmail}`}
+                                  >
+                                    <Bell className="w-2.5 h-2.5" />
+                                    {inst.latestDueDateReminder.status === 'sent'
+                                      ? `Due Reminder Sent (${formatDate(inst.latestDueDateReminder.sentAt)})`
+                                      : inst.latestDueDateReminder.status === 'failed'
+                                      ? 'Due Reminder Failed'
+                                      : `Due Reminder: ${inst.latestDueDateReminder.status}`}
+                                  </span>
+                                )}
+                                {inst.latestExpiryWarning && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${
+                                      inst.latestExpiryWarning.status === 'sent'
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                        : inst.latestExpiryWarning.status === 'failed'
+                                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                        : 'bg-gray-50 text-gray-600 border border-gray-200'
+                                    }`}
+                                    title={inst.latestExpiryWarning.failureReason || `Sent to ${inst.latestExpiryWarning.recipientEmail}`}
+                                  >
+                                    <AlertCircle className="w-2.5 h-2.5" />
+                                    {inst.latestExpiryWarning.status === 'sent'
+                                      ? `Expiry Warning Sent (${formatDate(inst.latestExpiryWarning.sentAt)})`
+                                      : inst.latestExpiryWarning.status === 'failed'
+                                      ? 'Expiry Warning Failed'
+                                      : `Expiry Warning: ${inst.latestExpiryWarning.status}`}
+                                  </span>
+                                )}
                               </div>
                             )}
 

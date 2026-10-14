@@ -13,6 +13,10 @@ import jwt from 'jsonwebtoken';
 import { env } from '../src/config/env.js';
 import { Sequence } from '../src/modules/users/model/sequence.model.js';
 import { WebhookReceipt } from '../src/modules/payments/model/webhook-receipt.model.js';
+import { PaymentReminderLog } from '../src/modules/payments/model/payment-reminder-log.model.js';
+import { paymentReminderService, PaymentReminderService } from '../src/modules/payments/service/payment-reminder.service.js';
+import { reminderSchedulerService } from '../src/modules/payments/service/reminder-scheduler.service.js';
+import { emailService } from '../src/modules/email/service/email.service.js';
 import crypto from 'node:crypto';
 
 describe('Payments API', () => {
@@ -57,6 +61,7 @@ describe('Payments API', () => {
     await User.deleteMany({});
     await Sequence.deleteMany({});
     await WebhookReceipt.deleteMany({});
+    await PaymentReminderLog.deleteMany({});
 
     // Users
     const admin = await User.create({ name: 'Admin', email: 'adminp@test.com', password: 'hash', role: 'admin' });
@@ -1133,10 +1138,10 @@ describe('Payments API', () => {
       const qtn = await Quotation.findById(partialQuotationId);
       const inst = qtn?.paymentPlan?.[1];
       assert.ok(inst);
-      assert.ok(new Date(inst.expiryDate).getTime() > Date.now());
+      assert.ok(new Date(inst.expiryDate!).getTime() > Date.now());
       // Original due date: 16 October 2026 preserved
-      assert.equal(new Date(inst.dueDate).getUTCDate(), 16);
-      assert.equal(new Date(inst.dueDate).getUTCMonth(), 9); // Month index 9 is October
+      assert.equal(new Date(inst.dueDate!).getUTCDate(), 16);
+      assert.equal(new Date(inst.dueDate!).getUTCMonth(), 9); // Month index 9 is October
     });
 
     it('60. Duplicate renewal protection: cannot renew while a valid active link already exists -> 400', async () => {
@@ -1884,7 +1889,7 @@ describe('Payments API', () => {
       assert.ok(excessBody.message.includes('₹3,80,000'), `Expected 380,000 in error, got: ${excessBody.message}`);
 
       // 3. Repeat with plan total below quotation final amount (₹3,60,000 vs ₹3,72,000)
-      qtnG.paymentPlan[1].amount = 260000;
+      qtnG.paymentPlan![1].amount = 260000;
       await qtnG.save();
 
       const resBelow = await fetch(`http://127.0.0.1:${port}/api/payments/create-order`, {
@@ -3051,6 +3056,509 @@ describe('Payments API', () => {
 
       const evAfterInst = await Event.findById(qtnAdv.eventId);
       assert.equal(evAfterInst?.status, 'confirmed');
+    });
+  });
+
+  describe('Payment Milestone 3: Automated Reminders, Expiry Warnings & Scheduler', () => {
+    let m3EventId: string;
+    let m3QuotationId: string;
+    let m3ClientId: string;
+    let m3ClientToken: string;
+    let m3ClientEmail: string;
+    let m3QuotationNumber: string;
+
+    beforeEach(async () => {
+      // Clear reminder logs, previous test users, quotations, events, and payments
+      await PaymentReminderLog.deleteMany({});
+      await User.deleteMany({ email: /m3client/ });
+      await Quotation.deleteMany({ quotationNumber: /QTN-M3/ });
+      await Event.deleteMany({ title: 'M3 Gala Dinner' });
+
+      m3ClientEmail = `m3client_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
+      m3QuotationNumber = `QTN-M3-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+
+      const m3Client = await User.create({
+        name: 'M3 Client',
+        email: m3ClientEmail,
+        password: 'hash',
+        role: 'client',
+      });
+      m3ClientId = m3Client.id;
+      m3ClientToken = generateToken(m3ClientId, 'client');
+
+      const evM3 = await Event.create({
+        clientId: m3ClientId,
+        title: 'M3 Gala Dinner',
+        eventType: 'Corporate',
+        date: new Date('2026-11-25'),
+        startTime: '18:00',
+        endTime: '23:00',
+        location: { address: 'Grand Ballroom' },
+        guestCount: 200,
+        status: 'confirmed', // Already confirmed advance
+      });
+      m3EventId = evM3.id;
+
+      const qtnM3 = await Quotation.create({
+        quotationNumber: m3QuotationNumber,
+        revision: 1,
+        eventId: m3EventId,
+        clientId: m3ClientId,
+        status: 'accepted',
+        createdBy: adminId,
+        items: [
+          {
+            serviceId,
+            quantity: 1,
+            unitPrice: 372000,
+            name: 'Gala Package',
+            description: 'Full Event',
+            pricingType: 'package',
+            amount: 372000,
+          },
+        ],
+        subtotal: 372000,
+        discount: 0,
+        taxableAmount: 372000,
+        finalAmount: 372000,
+        advanceAmount: 100000,
+        remainingAmount: 272000,
+        validUntil: new Date(Date.now() + 86400000),
+        paymentPlan: [
+          {
+            title: 'Booking Advance',
+            amount: 100000,
+            dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+            expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            status: 'Paid',
+          },
+          {
+            title: 'Final Settlement',
+            amount: 272000,
+            dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000 - 3600000), // Due in ~47 hours (within 2 days)
+            expiryDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+            status: 'Pending',
+          },
+        ],
+      });
+      m3QuotationId = qtnM3.id;
+
+      // Seed verified advance payment of ₹100,000 so installment 1 is eligible
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'advance',
+        installmentIndex: 0,
+        installmentTitle: 'Booking Advance',
+        allocations: [{ installmentIndex: 0, installmentTitle: 'Booking Advance', allocatedAmount: 100000 }],
+        amount: 100000,
+        currency: 'INR',
+        status: 'paid',
+        receiptReference: `rcpt_m3_adv_${Date.now()}`,
+      });
+    });
+
+    it('81. Due-date reminder: Eligible installment receives reminder 2 days before due date', async () => {
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0].installmentTitle, 'Final Settlement');
+      assert.equal(candidates[0].outstandingAmount, 272000);
+      assert.equal(candidates[0].scheduledAmount, 272000);
+
+      const runResults = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(runResults.dueDateReminders.length, 1);
+      assert.equal(runResults.dueDateReminders[0].status, 'sent');
+
+      const log = await PaymentReminderLog.findOne({
+        quotationId: m3QuotationId,
+        installmentIndex: 1,
+        reminderType: 'due_date',
+      });
+      assert.ok(log);
+      assert.equal(log.status, 'sent');
+      assert.equal(log.outstandingAmount, 272000);
+      assert.equal(log.recipientEmail, m3ClientEmail);
+      assert.ok(log.sentAt);
+    });
+
+    it('82. Due-date reminder on partially paid installment: Uses actual authoritative outstanding amount', async () => {
+      // Record verified partial payment of ₹200,000 on installment 1
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        allocations: [{ installmentIndex: 1, installmentTitle: 'Final Settlement', allocatedAmount: 200000 }],
+        amount: 200000,
+        currency: 'INR',
+        status: 'paid',
+        receiptReference: `rcpt_m3_part_${Date.now()}`,
+      });
+
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0].scheduledAmount, 272000);
+      assert.equal(candidates[0].verifiedPaidAmount, 200000);
+      assert.equal(candidates[0].outstandingAmount, 72000); // Authoritative outstanding ₹72,000
+
+      const runResults = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(runResults.dueDateReminders[0].status, 'sent');
+
+      const log = await PaymentReminderLog.findOne({
+        quotationId: m3QuotationId,
+        installmentIndex: 1,
+        reminderType: 'due_date',
+      });
+      assert.ok(log);
+      assert.equal(log.scheduledAmount, 272000);
+      assert.equal(log.paidAmount, 200000);
+      assert.equal(log.outstandingAmount, 72000);
+    });
+
+    it('83. Fully paid installment: Skipped and receives no reminder', async () => {
+      // Record full payment of ₹272,000 on installment 1
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        allocations: [{ installmentIndex: 1, installmentTitle: 'Final Settlement', allocatedAmount: 272000 }],
+        amount: 272000,
+        currency: 'INR',
+        status: 'paid',
+        receiptReference: `rcpt_m3_full_${Date.now()}`,
+      });
+
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 0); // No candidates!
+
+      const runResults = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(runResults.dueDateReminders.length, 0);
+
+      const logsCount = await PaymentReminderLog.countDocuments({
+        quotationId: m3QuotationId,
+        installmentIndex: 1,
+      });
+      assert.equal(logsCount, 0);
+    });
+
+    it('84. Overdue installment handling: Catch-up policy skips flood of old past reminders', async () => {
+      // Update installment 1 due date to 5 days ago
+      await Quotation.findByIdAndUpdate(m3QuotationId, {
+        'paymentPlan.1.dueDate': new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      });
+
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 0); // Excluded by catch-up policy (daysUntilDue < 0)
+    });
+
+    it('85. Persistent deduplication: Repeated execution does not send duplicate reminders', async () => {
+      // 1. First run sends reminder
+      const firstRun = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(firstRun.dueDateReminders.length, 1);
+      assert.equal(firstRun.dueDateReminders[0].status, 'sent');
+
+      // 2. Second run detects existing log and skips
+      const candidatesSecond = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidatesSecond.length, 0);
+
+      const secondRun = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(secondRun.dueDateReminders.length, 0);
+
+      // Verify only 1 log exists
+      const logsCount = await PaymentReminderLog.countDocuments({
+        quotationId: m3QuotationId,
+        installmentIndex: 1,
+        reminderType: 'due_date',
+      });
+      assert.equal(logsCount, 1);
+    });
+
+    it('86. Server restart / process re-run: Preserves sent record and does not resend', async () => {
+      // Run first time
+      await paymentReminderService.runAllReminders(new Date(), m3EventId);
+
+      // Simulate new server instance
+      const freshReminderService = new PaymentReminderService();
+      const freshCandidates = await freshReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(freshCandidates.length, 0);
+
+      const freshRun = await freshReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(freshRun.dueDateReminders.length, 0);
+    });
+
+    it('87. Payment link expiry warning: Active link expiring in <24h receives warning', async () => {
+      // Create active payment link expiring in 12 hours
+      const linkExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        amount: 272000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: `rcpt_m3_plink_${Date.now()}`,
+        razorpayPaymentLinkId: 'plink_m3_exp_001',
+        paymentLinkUrl: 'https://rzp.io/i/m3link1',
+        linkExpiresAt,
+        linkStatus: 'active',
+      });
+
+      const candidates = await paymentReminderService.findEligibleExpiryWarnings(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0].paymentLinkId, 'plink_m3_exp_001');
+      assert.equal(candidates[0].outstandingAmount, 272000);
+
+      const runResults = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(runResults.expiryWarnings.length, 1);
+      assert.equal(runResults.expiryWarnings[0].status, 'sent');
+
+      const log = await PaymentReminderLog.findOne({
+        paymentLinkId: 'plink_m3_exp_001',
+        reminderType: 'link_expiry',
+      });
+      assert.ok(log);
+      assert.equal(log.status, 'sent');
+      assert.equal(log.paymentLinkUrl, 'https://rzp.io/i/m3link1');
+    });
+
+    it('88. Expired link: Never warned as active', async () => {
+      // Create link that is already expired
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        amount: 272000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: `rcpt_m3_expired_${Date.now()}`,
+        razorpayPaymentLinkId: 'plink_m3_already_expired',
+        paymentLinkUrl: 'https://rzp.io/i/expired',
+        linkExpiresAt: new Date(Date.now() - 3600000), // Expired 1 hour ago
+        linkStatus: 'expired',
+      });
+
+      const candidates = await paymentReminderService.findEligibleExpiryWarnings(new Date(), m3EventId);
+      assert.equal(candidates.length, 0); // Never warned
+    });
+
+    it('89. Superseded link: Skipped after Admin renewal', async () => {
+      // Create superseded link
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        amount: 272000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: `rcpt_m3_replaced_${Date.now()}`,
+        razorpayPaymentLinkId: 'plink_m3_old_replaced',
+        paymentLinkUrl: 'https://rzp.io/i/old',
+        linkExpiresAt: new Date(Date.now() + 10 * 60 * 60 * 1000),
+        linkStatus: 'replaced',
+      });
+
+      const candidates = await paymentReminderService.findEligibleExpiryWarnings(new Date(), m3EventId);
+      assert.equal(candidates.length, 0); // Replaced links skipped
+    });
+
+    it('90. Replacement link after Admin renewal: Warned before new expiry date with outstanding balance', async () => {
+      // Partial payment of ₹200,000 on installment 1
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        allocations: [{ installmentIndex: 1, installmentTitle: 'Final Settlement', allocatedAmount: 200000 }],
+        amount: 200000,
+        currency: 'INR',
+        status: 'paid',
+        receiptReference: `rcpt_m3_part_rep_${Date.now()}`,
+      });
+
+      // Old superseded link
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        amount: 272000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: `rcpt_m3_old_${Date.now()}`,
+        razorpayPaymentLinkId: 'plink_m3_old',
+        paymentLinkUrl: 'https://rzp.io/i/old',
+        linkExpiresAt: new Date(Date.now() - 3600000),
+        linkStatus: 'replaced',
+      });
+
+      // Replacement link for ₹72,000 expiring in 18 hours
+      const newExpiry = new Date(Date.now() + 18 * 60 * 60 * 1000);
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        amount: 72000,
+        currency: 'INR',
+        status: 'created',
+        receiptReference: `rcpt_m3_new_${Date.now()}`,
+        razorpayPaymentLinkId: 'plink_m3_replacement_002',
+        paymentLinkUrl: 'https://rzp.io/i/replacement',
+        linkExpiresAt: newExpiry,
+        linkStatus: 'active',
+      });
+
+      const candidates = await paymentReminderService.findEligibleExpiryWarnings(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0].paymentLinkId, 'plink_m3_replacement_002');
+      assert.equal(candidates[0].outstandingAmount, 72000);
+      assert.equal(candidates[0].scheduledAmount, 272000);
+
+      const runResults = await paymentReminderService.runAllReminders(new Date(), m3EventId);
+      assert.equal(runResults.expiryWarnings.length, 1);
+      assert.equal(runResults.expiryWarnings[0].status, 'sent');
+
+      const log = await PaymentReminderLog.findOne({
+        paymentLinkId: 'plink_m3_replacement_002',
+      });
+      assert.ok(log);
+      assert.equal(log.outstandingAmount, 72000);
+      assert.equal(log.paymentLinkUrl, 'https://rzp.io/i/replacement');
+    });
+
+    it('91. Just-in-time check: Full payment immediately before reminder cancels/skips reminder', async () => {
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+
+      // Simulate full payment arriving right before candidate processing
+      await Payment.create({
+        eventId: m3EventId,
+        quotationId: m3QuotationId,
+        clientId: m3ClientId,
+        paymentType: 'installment',
+        installmentIndex: 1,
+        installmentTitle: 'Final Settlement',
+        allocations: [{ installmentIndex: 1, installmentTitle: 'Final Settlement', allocatedAmount: 272000 }],
+        amount: 272000,
+        currency: 'INR',
+        status: 'paid',
+        receiptReference: `rcpt_m3_jit_${Date.now()}`,
+      });
+
+      const result = await paymentReminderService.processDueDateReminder(candidates[0]);
+      assert.equal(result.status, 'skipped');
+      assert.equal(result.reason, 'fully_paid');
+
+      const log = await PaymentReminderLog.findOne({
+        quotationId: m3QuotationId,
+        installmentIndex: 1,
+        reminderType: 'due_date',
+      });
+      assert.ok(log);
+      assert.equal(log.status, 'skipped');
+      assert.equal(log.failureReason, 'Installment settled before email delivery');
+    });
+
+    it('92. Email delivery failure handling: Diagnostic failure recorded, payment/event state untouched', async () => {
+      const candidates = await paymentReminderService.findEligibleDueDateReminders(new Date(), m3EventId);
+      assert.equal(candidates.length, 1);
+
+      // Temporarily mock emailService to simulate SMTP failure
+      const originalSend = emailService.sendPaymentDueDateReminder;
+      emailService.sendPaymentDueDateReminder = async () => {
+        throw new Error('SMTP connection timeout: Connection refused by mail server');
+      };
+
+      try {
+        const result = await paymentReminderService.processDueDateReminder(candidates[0]);
+        assert.equal(result.status, 'failed');
+        assert.ok(result.error?.includes('SMTP connection timeout'));
+
+        const log = await PaymentReminderLog.findOne({
+          quotationId: m3QuotationId,
+          installmentIndex: 1,
+          reminderType: 'due_date',
+        });
+        assert.ok(log);
+        assert.equal(log.status, 'failed');
+        assert.ok(log.failureReason?.includes('SMTP connection timeout'));
+
+        // Crucial guarantee: Verify payment & event state remain completely untouched
+        const eventAfterFail = await Event.findById(m3EventId);
+        assert.equal(eventAfterFail?.status, 'confirmed');
+
+        const qtnAfterFail = await Quotation.findById(m3QuotationId);
+        assert.equal(qtnAfterFail?.finalAmount, 372000);
+        assert.equal(qtnAfterFail?.paymentPlan?.[1]?.amount, 272000);
+      } finally {
+        // Restore original method
+        emailService.sendPaymentDueDateReminder = originalSend;
+      }
+    });
+
+    it('93. Admin trigger and visibility: POST /api/payments/reminders/trigger and schedule summary reflection', async () => {
+      // 1. Non-admin forbidden
+      const forbiddenRes = await fetch(`http://127.0.0.1:${port}/api/payments/reminders/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clientToken1}` },
+      });
+      assert.equal(forbiddenRes.status, 403);
+
+      // 2. Admin trigger successful
+      const triggerRes = await fetch(`http://127.0.0.1:${port}/api/payments/reminders/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ eventId: m3EventId }),
+      });
+      assert.equal(triggerRes.status, 200);
+      const triggerData = (await triggerRes.json()) as any;
+      assert.ok(triggerData.success);
+      assert.equal(triggerData.data.dueDateCount, 1);
+
+      // 3. Admin schedule summary includes reminder metadata
+      const summaryRes = await fetch(`http://127.0.0.1:${port}/api/payments/schedule/${m3EventId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(summaryRes.status, 200);
+      const summaryData = (await summaryRes.json()) as any;
+      const inst1 = summaryData.data.installments[1];
+      assert.ok(inst1.latestDueDateReminder);
+      assert.equal(inst1.latestDueDateReminder.status, 'sent');
+      assert.equal(inst1.latestDueDateReminder.recipientEmail, m3ClientEmail);
+      assert.ok(inst1.reminderLogs.length > 0);
+
+      // 4. Get event reminder logs API
+      const logsRes = await fetch(`http://127.0.0.1:${port}/api/payments/event/${m3EventId}/reminders`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(logsRes.status, 200);
+      const logsData = (await logsRes.json()) as any;
+      assert.ok(Array.isArray(logsData.data));
+      assert.equal(logsData.data.length, 1);
+      assert.equal(logsData.data[0].reminderType, 'due_date');
     });
   });
 });

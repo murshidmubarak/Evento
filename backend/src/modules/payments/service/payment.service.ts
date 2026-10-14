@@ -10,6 +10,7 @@ import { round2 } from '../../../utils/money.js';
 import { emailService } from '../../email/service/email.service.js';
 import { User } from '../../auth/model/user.model.js';
 import { Payment } from '../model/payment.model.js';
+import { PaymentReminderLog } from '../model/payment-reminder-log.model.js';
 import { verifyRazorpayWebhookSignature } from '../utils/webhook-signature.js';
 
 export class PaymentService {
@@ -766,6 +767,15 @@ export class PaymentService {
         const activeLink = await this.paymentRepository.findActiveLinkForInstallment(eventId, acceptedQuotation.id, idx);
         const linkHistory = await this.paymentRepository.findLinkHistoryForInstallment(eventId, acceptedQuotation.id, idx);
 
+        // Reminder history & latest statuses
+        const reminderLogs = await PaymentReminderLog.find({
+          eventId,
+          installmentIndex: idx,
+        }).sort({ createdAt: -1 });
+
+        const latestDueDateReminder = reminderLogs.find((r) => r.reminderType === 'due_date');
+        const latestExpiryWarning = reminderLogs.find((r) => r.reminderType === 'link_expiry');
+
         // Payment eligibility:
         // - Advance: event awaiting_payment & outstandingAdvance > 0 & not expired
         // - Subsequent: full advance settled & event confirmed & outstanding > 0 & not expired
@@ -858,6 +868,34 @@ export class PaymentService {
             allocations: p.allocations,
             isFullPayment: p.isFullPayment,
             createdAt: p.createdAt,
+          })),
+          latestDueDateReminder: latestDueDateReminder
+            ? {
+                id: latestDueDateReminder.id,
+                status: latestDueDateReminder.status,
+                sentAt: latestDueDateReminder.sentAt,
+                recipientEmail: latestDueDateReminder.recipientEmail,
+                failureReason: latestDueDateReminder.failureReason,
+              }
+            : null,
+          latestExpiryWarning: latestExpiryWarning
+            ? {
+                id: latestExpiryWarning.id,
+                status: latestExpiryWarning.status,
+                sentAt: latestExpiryWarning.sentAt,
+                recipientEmail: latestExpiryWarning.recipientEmail,
+                failureReason: latestExpiryWarning.failureReason,
+                paymentLinkId: latestExpiryWarning.paymentLinkId,
+              }
+            : null,
+          reminderLogs: reminderLogs.slice(0, 5).map((r) => ({
+            id: r.id,
+            reminderType: r.reminderType,
+            reminderWindow: r.reminderWindow,
+            status: r.status,
+            sentAt: r.sentAt,
+            failureReason: r.failureReason,
+            createdAt: r.createdAt,
           })),
         };
       })

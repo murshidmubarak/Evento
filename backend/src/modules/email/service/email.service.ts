@@ -22,9 +22,43 @@ export interface SendPaymentLinkRenewalEmailInput {
   paymentLinkUrl: string;
 }
 
+export interface SendPaymentDueDateReminderInput {
+  to: string;
+  clientName?: string;
+  eventName: string;
+  quotationNumber: string;
+  quotationRevision: number;
+  installmentTitle: string;
+  scheduledAmount: number;
+  verifiedPaidAmount: number;
+  outstandingAmount: number;
+  dueDate: Date | string;
+  linkExpiryDate?: Date | string;
+  paymentLinkUrl?: string;
+  eventId: string;
+}
+
+export interface SendPaymentLinkExpiryWarningInput {
+  to: string;
+  clientName?: string;
+  eventName: string;
+  quotationNumber: string;
+  quotationRevision: number;
+  installmentTitle: string;
+  scheduledAmount: number;
+  verifiedPaidAmount: number;
+  outstandingAmount: number;
+  dueDate?: Date | string;
+  linkExpiryDate: Date | string;
+  paymentLinkUrl: string;
+  eventId: string;
+}
+
 export interface IEmailService {
   sendVerificationOtp(input: SendVerificationOtpInput): Promise<void>;
   sendPaymentLinkRenewalEmail(input: SendPaymentLinkRenewalEmailInput): Promise<void>;
+  sendPaymentDueDateReminder(input: SendPaymentDueDateReminderInput): Promise<void>;
+  sendPaymentLinkExpiryWarning(input: SendPaymentLinkExpiryWarningInput): Promise<void>;
 }
 
 export class EmailService implements IEmailService {
@@ -155,6 +189,193 @@ export class EmailService implements IEmailService {
       });
     } catch (error) {
       console.error('[EmailService] Failed to send payment link renewal email:', error);
+      throw error;
+    }
+  }
+
+  async sendPaymentDueDateReminder(input: SendPaymentDueDateReminderInput): Promise<void> {
+    const {
+      to,
+      clientName,
+      eventName,
+      quotationNumber,
+      quotationRevision,
+      installmentTitle,
+      scheduledAmount,
+      verifiedPaidAmount,
+      outstandingAmount,
+      dueDate,
+      linkExpiryDate,
+      paymentLinkUrl,
+      eventId,
+    } = input;
+
+    const formattedDueDate = new Date(dueDate).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    const formattedExpiryDate = linkExpiryDate
+      ? new Date(linkExpiryDate).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
+
+    const targetUrl = paymentLinkUrl || `${env.frontendUrl}/client/events/${eventId}/payment`;
+
+    // If SMTP not configured — safe dev/test fallback
+    if (!this.transporter) {
+      if (env.isDevelopment || env.nodeEnv === 'test') {
+        console.log(`\n📧 [EmailService DEV] Payment Due Date Reminder for ${to}:`);
+        console.log(`   Event: ${eventName} | Quotation: ${quotationNumber} (Rev ${quotationRevision})`);
+        console.log(`   Installment: ${installmentTitle} | Scheduled: ₹${scheduledAmount} | Paid: ₹${verifiedPaidAmount}`);
+        console.log(`   Outstanding Balance: ₹${outstandingAmount} | Due Date: ${formattedDueDate}`);
+        if (formattedExpiryDate) console.log(`   Link Expiry Date: ${formattedExpiryDate}`);
+        console.log(`   Payment URL: ${targetUrl}\n`);
+        return;
+      }
+      throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env');
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.emailFrom,
+        to,
+        subject: `Payment Reminder: ${installmentTitle} Due Soon — ${eventName} (Quotation ${quotationNumber})`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff;">
+            <div style="border-bottom:1px solid #f3f4f6;padding-bottom:16px;margin-bottom:24px;">
+              <span style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#4f46e5;">EventOps ERP</span>
+              <h2 style="margin:8px 0 0;color:#111827;font-size:20px;">Upcoming Installment Due Date</h2>
+            </div>
+            <p style="color:#374151;font-size:15px;">Dear ${clientName || 'Client'},</p>
+            <p style="color:#4b5563;font-size:14px;line-height:1.5;">
+              This is a friendly reminder that an upcoming installment for your event <strong>${eventName}</strong> is approaching its scheduled due date.
+            </p>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin:24px 0;">
+              <table style="width:100%;font-size:13px;color:#374151;border-collapse:collapse;">
+                <tr><td style="padding:6px 0;color:#6b7280;">Quotation Reference:</td><td style="padding:6px 0;font-weight:600;text-align:right;">${quotationNumber} (Rev ${quotationRevision})</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Installment:</td><td style="padding:6px 0;font-weight:600;text-align:right;">${installmentTitle}</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Scheduled Amount:</td><td style="padding:6px 0;font-weight:600;text-align:right;">₹${scheduledAmount.toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Verified Amount Paid:</td><td style="padding:6px 0;font-weight:600;text-align:right;color:#059669;">₹${verifiedPaidAmount.toLocaleString('en-IN')}</td></tr>
+                <tr style="border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;"><td style="padding:10px 0;color:#111827;font-weight:700;">Outstanding Balance:</td><td style="padding:10px 0;font-weight:700;font-size:16px;text-align:right;color:#d97706;">₹${outstandingAmount.toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding:6px 0;color:#4f46e5;font-weight:600;">Due Date:</td><td style="padding:6px 0;font-weight:700;text-align:right;color:#4f46e5;">${formattedDueDate}</td></tr>
+                ${
+                  formattedExpiryDate
+                    ? `<tr><td style="padding:6px 0;color:#dc2626;font-weight:600;">Link Expiry:</td><td style="padding:6px 0;font-weight:700;text-align:right;color:#dc2626;">${formattedExpiryDate}</td></tr>`
+                    : ''
+                }
+              </table>
+            </div>
+            <div style="text-align:center;margin:32px 0;">
+              <a href="${targetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:15px;box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                Pay Outstanding Balance (₹${outstandingAmount.toLocaleString('en-IN')})
+              </a>
+            </div>
+            <p style="color:#6b7280;font-size:12px;text-align:center;margin-top:24px;">
+              Please complete your payment before <strong>${formattedDueDate}</strong>. If you have already initiated this transaction, please allow a short time for verification.
+            </p>
+          </div>
+        `,
+      });
+    } catch (error) {
+      console.error('[EmailService] Failed to send due date reminder email:', error);
+      throw error;
+    }
+  }
+
+  async sendPaymentLinkExpiryWarning(input: SendPaymentLinkExpiryWarningInput): Promise<void> {
+    const {
+      to,
+      clientName,
+      eventName,
+      quotationNumber,
+      quotationRevision,
+      installmentTitle,
+      scheduledAmount,
+      verifiedPaidAmount,
+      outstandingAmount,
+      dueDate,
+      linkExpiryDate,
+      paymentLinkUrl,
+    } = input;
+
+    const formattedDueDate = dueDate
+      ? new Date(dueDate).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })
+      : null;
+    const formattedExpiryDate = new Date(linkExpiryDate).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    // If SMTP not configured — safe dev/test fallback
+    if (!this.transporter) {
+      if (env.isDevelopment || env.nodeEnv === 'test') {
+        console.log(`\n📧 [EmailService DEV] Payment Link Expiry Warning for ${to}:`);
+        console.log(`   Event: ${eventName} | Quotation: ${quotationNumber} (Rev ${quotationRevision})`);
+        console.log(`   Installment: ${installmentTitle} | Scheduled: ₹${scheduledAmount} | Paid: ₹${verifiedPaidAmount}`);
+        console.log(`   Outstanding Balance: ₹${outstandingAmount}`);
+        console.log(`   Link Expiry Date: ${formattedExpiryDate}`);
+        console.log(`   Payment Link: ${paymentLinkUrl}\n`);
+        return;
+      }
+      throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env');
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.emailFrom,
+        to,
+        subject: `Urgent: Payment Link Expiring Soon: ${installmentTitle} — ${eventName}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:auto;padding:32px;border:1px solid #fecaca;border-radius:12px;background:#ffffff;">
+            <div style="border-bottom:1px solid #fee2e2;padding-bottom:16px;margin-bottom:24px;">
+              <span style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#dc2626;">EventOps ERP — Urgent Notice</span>
+              <h2 style="margin:8px 0 0;color:#991b1b;font-size:20px;">Payment Link Expiring Soon</h2>
+            </div>
+            <p style="color:#374151;font-size:15px;">Dear ${clientName || 'Client'},</p>
+            <p style="color:#4b5563;font-size:14px;line-height:1.5;">
+              The payment link for <strong>${installmentTitle}</strong> (${eventName}) is expiring soon on <strong>${formattedExpiryDate}</strong>.
+            </p>
+            <div style="background:#fffaf0;border:1px solid #feebc8;border-radius:8px;padding:20px;margin:24px 0;">
+              <table style="width:100%;font-size:13px;color:#374151;border-collapse:collapse;">
+                <tr><td style="padding:6px 0;color:#6b7280;">Quotation Reference:</td><td style="padding:6px 0;font-weight:600;text-align:right;">${quotationNumber} (Rev ${quotationRevision})</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Installment:</td><td style="padding:6px 0;font-weight:600;text-align:right;">${installmentTitle}</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Scheduled Amount:</td><td style="padding:6px 0;font-weight:600;text-align:right;">₹${scheduledAmount.toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding:6px 0;color:#6b7280;">Verified Amount Paid:</td><td style="padding:6px 0;font-weight:600;text-align:right;color:#059669;">₹${verifiedPaidAmount.toLocaleString('en-IN')}</td></tr>
+                <tr style="border-top:1px solid #feebc8;border-bottom:1px solid #feebc8;"><td style="padding:10px 0;color:#111827;font-weight:700;">Outstanding Balance:</td><td style="padding:10px 0;font-weight:700;font-size:16px;text-align:right;color:#d97706;">₹${outstandingAmount.toLocaleString('en-IN')}</td></tr>
+                ${
+                  formattedDueDate
+                    ? `<tr><td style="padding:6px 0;color:#6b7280;">Due Date:</td><td style="padding:6px 0;font-weight:600;text-align:right;">${formattedDueDate}</td></tr>`
+                    : ''
+                }
+                <tr><td style="padding:6px 0;color:#dc2626;font-weight:700;">Link Expires At:</td><td style="padding:6px 0;font-weight:700;text-align:right;color:#dc2626;">${formattedExpiryDate}</td></tr>
+              </table>
+            </div>
+            <div style="text-align:center;margin:32px 0;">
+              <a href="${paymentLinkUrl}" style="display:inline-block;background:#dc2626;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:15px;box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                Pay Before Expiry (₹${outstandingAmount.toLocaleString('en-IN')})
+              </a>
+            </div>
+            <p style="color:#6b7280;font-size:12px;text-align:center;margin-top:24px;">
+              Once expired, this payment link cannot be used. If the link expires before you can complete payment, you will need to contact the EventOps team to request a renewal.
+            </p>
+          </div>
+        `,
+      });
+    } catch (error) {
+      console.error('[EmailService] Failed to send payment link expiry warning:', error);
       throw error;
     }
   }

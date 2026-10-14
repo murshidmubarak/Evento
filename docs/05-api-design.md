@@ -2001,4 +2001,126 @@ Errors:
 - 401: Unauthenticated request.
 - 403: Forbidden (authenticated client does not own the target payment link).
 - 404: Target payment link not found in MongoDB.
+
+
+## Trigger Payment Reminders & Expiry Warnings (Admin Manual Trigger)
+
+POST /api/payments/reminders/trigger
+
+Access:
+Private (Admin only)
+
+Purpose:
+Allows authorized Admin users to trigger an immediate scheduled check for eligible installment due-date reminders and payment-link expiry warnings. Supports an optional `referenceDate` to simulate or test future reminder windows, and an optional `eventId` to scope the run.
+
+Request Body:
+```json
+{
+  "referenceDate": "2026-10-15T00:00:00.000Z", // optional ISO date string
+  "eventId": "6ace4b969d61b6394332da6c"        // optional event ID filter
+}
+```
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Reminder processing executed successfully",
+  "data": {
+    "dueRemindersProcessed": 1,
+    "expiryWarningsProcessed": 0,
+    "dueReminderResults": [
+      {
+        "status": "sent",
+        "installmentIndex": 1,
+        "recipientEmail": "client@example.com",
+        "outstandingAmount": 72000
+      }
+    ],
+    "expiryWarningResults": []
+  }
+}
+```
+
+Errors:
+- 401: Unauthenticated request.
+- 403: Forbidden (caller does not have Admin role).
+- 500: Server or database error.
+
+
+## Get Event Payment Reminders Audit
+
+GET /api/payments/event/:eventId/reminders
+
+Access:
+Private (Client owning the event, Admin, or assigned Event Manager)
+
+Purpose:
+Returns the complete persistent reminder log history for an event, including due-date reminders and link-expiry warnings.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "6ace4b969d61b6394332da6f",
+      "installmentIndex": 1,
+      "installmentTitle": "Final Settlement",
+      "reminderType": "due_date",
+      "reminderWindow": "2_days_before",
+      "scheduledAmount": 272000,
+      "amountPaid": 200000,
+      "outstandingAmount": 72000,
+      "dueDate": "2026-10-15T00:00:00.000Z",
+      "recipientEmail": "client@example.com",
+      "recipientName": "Client Name",
+      "status": "sent",
+      "sentAt": "2026-10-13T10:00:00.000Z",
+      "createdAt": "2026-10-13T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+Errors:
+- 401: Unauthenticated request.
+- 403: Forbidden (Client does not own the event / Manager not assigned).
+- 404: Event not found.
+
+
+## Payment Schedule Summary — Reminder Audit Extensions
+
+GET /api/payments/schedule/:eventId
+
+The existing schedule summary response has been extended to expose diagnostic reminder status on each installment:
+
+```json
+{
+  "success": true,
+  "data": {
+    "installments": [
+      {
+        "installmentIndex": 1,
+        "title": "Final Settlement",
+        "scheduledAmount": 272000,
+        "verifiedPaidAmount": 200000,
+        "outstandingAmount": 72000,
+        "status": "Partially Paid",
+        "latestDueDateReminder": {
+          "status": "sent",
+          "sentAt": "2026-10-13T10:00:00.000Z",
+          "recipientEmail": "client@example.com",
+          "outstandingAmount": 72000
+        },
+        "latestExpiryWarning": {
+          "status": "pending"
+        },
+        "reminderLogs": []
+      }
+    ]
+  }
+}
+```
+
 

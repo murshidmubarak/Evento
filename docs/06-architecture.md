@@ -773,6 +773,37 @@ Recruitment reminders
 
 Do not create unnecessary background jobs.
 
+### 27.1 Payment Reminder Scheduler Architecture
+
+The Payment Milestone 3 reminder system runs exclusively on the backend:
+
+```text
+Server Startup (server.ts)
+   │
+   ▼
+ReminderSchedulerService.start() [every REMINDER_CHECK_INTERVAL_MS, default 1 hour]
+   │ (Single execution concurrency lock: isRunning flag)
+   ▼
+PaymentReminderService.runAllReminders()
+   ├── findEligibleDueDateReminders() (2 days before installment due date)
+   │     ├── Authoritative balance check: outstandingAmount > 0
+   │     ├── Atomic dedupKey reservation in MongoDB (PaymentReminderLog)
+   │     ├── Just-in-time settlement check
+   │     └── EmailService.sendPaymentDueDateReminder()
+   │
+   └── findEligibleExpiryWarnings() (within 24h before active link expiry)
+         ├── Authoritative link validity check (active, unexpired, un-superseded)
+         ├── Atomic dedupKey reservation in MongoDB (PaymentReminderLog)
+         ├── Just-in-time settlement check
+         └── EmailService.sendPaymentLinkExpiryWarning()
+```
+
+Architectural Guarantees:
+- **No browser reliance**: Operates independently of client open tabs or timers.
+- **Persistent Deduplication**: Unique MongoDB indexes prevent duplicate sends across restarts or distributed workers.
+- **Failure Isolation**: SMTP or network delivery errors are logged diagnostically in `PaymentReminderLog` without affecting financial transactions, paid balances, or event states.
+
+
 28. External Services
 
 Possible external integrations:

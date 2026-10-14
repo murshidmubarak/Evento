@@ -57,6 +57,25 @@ export interface PaymentLinkRecord {
   renewedBy?: string;
 }
 
+export interface ReminderAuditRecord {
+  id: string;
+  reminderType: 'due_date' | 'link_expiry';
+  reminderWindow: string;
+  status: 'pending' | 'sent' | 'failed' | 'skipped';
+  sentAt?: string;
+  failureReason?: string;
+  createdAt: string;
+}
+
+export interface LatestReminderStatus {
+  id: string;
+  status: 'pending' | 'sent' | 'failed' | 'skipped';
+  sentAt?: string;
+  recipientEmail: string;
+  failureReason?: string;
+  paymentLinkId?: string;
+}
+
 export interface InstallmentPaymentSummary {
   installmentId?: string;
   installmentIndex: number;
@@ -84,6 +103,9 @@ export interface InstallmentPaymentSummary {
   } | null;
   linkHistory: PaymentLinkRecord[];
   payments: VerifiedPaymentRecord[];
+  latestDueDateReminder?: LatestReminderStatus | null;
+  latestExpiryWarning?: LatestReminderStatus | null;
+  reminderLogs?: ReminderAuditRecord[];
 }
 
 export interface PaymentScheduleSummary {

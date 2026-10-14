@@ -316,3 +316,34 @@ Fields:
 - processedAt (Date)
 - createdAt
 - updatedAt
+
+
+## 16. Payment Reminder Logs
+
+Collection: payment_reminder_logs
+
+Fields:
+
+- dedupKey (String, required, unique index: `unique: true`)
+- eventId (ObjectId, ref: `events`, required, indexed)
+- quotationId (ObjectId, ref: `quotations`, required, indexed)
+- quotationRevision (Number, required)
+- installmentIndex (Number, required)
+- installmentTitle (String, required)
+- reminderType (String, enum: `['due_date', 'link_expiry']`, required)
+- reminderWindow (String, required)
+- paymentLinkId (String, optional)
+- scheduledAmount (Number, required)
+- amountPaid (Number, required)
+- outstandingAmount (Number, required)
+- dueDate (Date, optional)
+- expiryDate (Date, optional)
+- recipientEmail (String, required)
+- recipientName (String, required)
+- status (String, enum: `['pending', 'sent', 'failed', 'skipped']`, default: `'pending'`, indexed)
+- sentAt (Date, optional)
+- failureReason (String, optional)
+- retryCount (Number, default: 0)
+- skipReason (String, optional)
+- createdAt
+- updatedAt

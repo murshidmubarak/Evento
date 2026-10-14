@@ -392,3 +392,61 @@ Change local UI text in one page.
   - Frontend production build: `npm run build` cleanly succeeds in 6.07s.
 
 
+## Payment Milestone 3: Automatic Payment Reminders, Expiry Warnings & Background Scheduler
+- **Impact Classification**: Medium (Backward-compatible background scheduler, persistent reminder audit logging, email integration, and Admin visibility)
+- **Date**: 2026-10-13
+- **Modules Affected**:
+  - `backend/src/config/env.ts` (`reminderCheckIntervalMs`, `enableReminderScheduler`)
+  - `backend/src/server.ts`
+  - `backend/src/modules/email/service/email.service.ts` (`sendPaymentDueDateReminder`, `sendPaymentLinkExpiryWarning`)
+  - `backend/src/modules/payments/model/payment-reminder-log.model.ts`
+  - `backend/src/modules/payments/service/payment-reminder.service.ts`
+  - `backend/src/modules/payments/service/reminder-scheduler.service.ts`
+  - `backend/src/modules/payments/service/payment.service.ts`
+  - `backend/src/modules/payments/controller/payment.controller.ts`
+  - `backend/src/modules/payments/routes/payment.routes.ts`
+  - `backend/tests/payments.test.ts`
+  - `backend/tests/setup.ts`
+  - `frontend/src/features/payments/payment.types.ts`
+  - `frontend/src/pages/admin/AdminEventDetails.tsx`
+- **Database Schema Changes**:
+  - Added `PaymentReminderLog` model (`payment_reminder_logs` collection):
+    - `dedupKey` (String, unique index): persistent atomic deduplication key.
+    - `eventId` (ObjectId, ref: `events`, indexed)
+    - `quotationId` (ObjectId, ref: `quotations`, indexed)
+    - `quotationRevision` (Number)
+    - `installmentIndex` (Number)
+    - `installmentTitle` (String)
+    - `reminderType` (String, enum: `['due_date', 'link_expiry']`)
+    - `reminderWindow` (String)
+    - `paymentLinkId` (String, optional)
+    - `scheduledAmount`, `amountPaid`, `outstandingAmount` (Number)
+    - `dueDate`, `expiryDate` (Date, optional)
+    - `recipientEmail`, `recipientName` (String)
+    - `status` (String, enum: `['pending', 'sent', 'failed', 'skipped']`, indexed)
+    - `sentAt` (Date, optional)
+    - `failureReason` (String, optional)
+    - `retryCount` (Number, default 0)
+    - `skipReason` (String, optional)
+- **API Contracts Added/Updated**:
+  - `POST /api/payments/reminders/trigger`: Admin-only manual execution endpoint with optional `referenceDate` and `eventId` scoping.
+  - `GET /api/payments/event/:eventId/reminders`: Event reminder audit log history for Client, Admin, and Event Manager.
+  - `GET /api/payments/schedule/:eventId`: Extended with `latestDueDateReminder`, `latestExpiryWarning`, and `reminderLogs` per installment.
+- **Environment Configuration**:
+  - Added `REMINDER_CHECK_INTERVAL_MS` (default `3600000`, 1 hour) and `ENABLE_REMINDER_SCHEDULER` (default `true`) to centralized `env.ts` and `.env.example`.
+- **Financial & Business Rule Guarantees**:
+  - Authoritative balance calculation: Reminder emails always use actual runtime outstanding balance (e.g. ₹72,000 remaining on a ₹2,72,000 installment, never the scheduled amount).
+  - Just-in-time settlement check: Revalidates installment status immediately before dispatch; fully settled installments are recorded as `skipped` and receive no emails.
+  - Replacement link handling: Expired links are archived with `linkStatus: 'replaced'`; replacement links are evaluated using their new expiry date and payable balance.
+  - Catch-up policy: Overdue installments outside the active reminder window are skipped to prevent flooding clients with stale emails.
+  - Persistent deduplication: Atomic MongoDB reservation with unique index on `dedupKey` guarantees single send across restarts and concurrent instances.
+  - Failure isolation: SMTP connection failures, timeouts, and provider errors are logged diagnostically in `PaymentReminderLog` without altering transaction records, balances, or event status.
+- **Verification & Test Status**:
+  - Payment test suite: 93/93 tests pass (`backend/tests/payments.test.ts`).
+  - Repository test suite: 314/314 tests pass across all 34 test suites.
+  - Frontend test suite: 20/20 tests pass (`vitest run`).
+  - Frontend production build: `npm run build` cleanly succeeds in 7.66s.
+  - Backend production build: `npm run build` (`tsc`) cleanly succeeds with 0 errors.
+
+
+

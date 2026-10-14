@@ -74,4 +74,10 @@ export const env = {
   emailVerificationOtpTtlMinutes: parseInt(process.env.EMAIL_VERIFICATION_OTP_TTL_MINUTES as string, 10),
   emailVerificationOtpMaxAttempts: parseInt(process.env.EMAIL_VERIFICATION_OTP_MAX_ATTEMPTS as string, 10),
   emailVerificationOtpResendCooldownSeconds: parseInt(process.env.EMAIL_VERIFICATION_OTP_RESEND_COOLDOWN_SECONDS as string, 10),
+  get reminderCheckIntervalMs(): number {
+    return parseInt(process.env.REMINDER_CHECK_INTERVAL_MS || '3600000', 10);
+  },
+  get enableReminderScheduler(): boolean {
+    return process.env.ENABLE_REMINDER_SCHEDULER !== 'false';
+  },
 } as const;

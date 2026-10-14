@@ -27,6 +27,13 @@ const startServer = async (): Promise<void> => {
     } catch (seedErr) {
       console.warn('⚠️ Could not verify default services on startup:', seedErr);
     }
+
+    try {
+      const { reminderSchedulerService } = await import('./modules/payments/service/reminder-scheduler.service.js');
+      reminderSchedulerService.start();
+    } catch (schedErr) {
+      console.warn('⚠️ Could not start reminder scheduler:', schedErr);
+    }
   }
 
   // 2. Start listening

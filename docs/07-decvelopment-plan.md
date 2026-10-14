@@ -335,7 +335,17 @@ Implement:
 - [DONE - Payment Link Sync Fix] Authenticated backend payment link reconciliation endpoint (`POST /api/payments/reconcile-link`)
 - [DONE - Payment Link Sync Fix] Shared authoritative financial processing (`applyAuthoritativePaymentSuccess`) ensuring identical balance updates, installment allocations, and event confirmation
 - [DONE - Payment Link Sync Fix] Automated test suite covering signature verification, event handling, idempotency, mapping, financial behavior, callback reconciliation, and regression (80/80 payments tests passing, 301/301 full backend tests passing)
-- [PENDING - Milestone 3] Automated email payment reminders & cron scheduler
+- [DONE - Milestone 3] Automated installment due-date reminder emails (2 days before scheduled due date)
+- [DONE - Milestone 3] Automated Razorpay Payment Link expiry warning emails (1 day / 24h before active link expiry)
+- [DONE - Milestone 3] Authoritative balance calculation for partial payments (e.g. reminders state ₹72,000 outstanding, not ₹2,72,000 scheduled)
+- [DONE - Milestone 3] Fully paid installment prevention and just-in-time settlement recheck before dispatch
+- [DONE - Milestone 3] Handling of Admin renewed payment links (superseded link skipped, replacement link used with new expiry date)
+- [DONE - Milestone 3] Overdue installment catch-up policy (skipping stale backlog of expired reminder windows)
+- [DONE - Milestone 3] Persistent atomic deduplication via `PaymentReminderLog` unique `dedupKey` in MongoDB
+- [DONE - Milestone 3] Backend background scheduler (`ReminderSchedulerService`) with configurable interval, concurrency lock, and manual Admin trigger API
+- [DONE - Milestone 3] Email failure resilience: diagnostic failure logging without altering payment, installment, quotation, or event states
+- [DONE - Milestone 3] Admin reminder status visibility on installment cards and schedule summary audit
+- [DONE - Milestone 3] Comprehensive automated test suite (Tests 81–93) with 100% pass rate (93/93 payments tests, 314/314 full backend tests, 20/20 frontend tests passing)
 
 Never trust frontend payment success alone.
 

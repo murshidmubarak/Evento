@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
 import { PaymentService } from '../service/payment.service.js';
+import { reminderSchedulerService } from '../service/reminder-scheduler.service.js';
+import { paymentReminderService } from '../service/payment-reminder.service.js';
 import { catchAsync } from '../../../utils/catchAsync.js';
 import { ApiResponse } from '../../../utils/ApiResponse.js';
+import { ApiError } from '../../../utils/ApiError.js';
 
 const paymentService = new PaymentService();
 
@@ -126,4 +129,22 @@ export const reconcilePaymentLink = catchAsync(async (req: Request, res: Respons
   const result = await paymentService.reconcilePaymentLink(user, req.body);
   new ApiResponse(200, 'Payment link reconciled successfully', result).send(res);
 });
+
+export const triggerReminders = catchAsync(async (req: Request, res: Response) => {
+  if (req.user!.role !== 'admin') {
+    throw ApiError.forbidden('Only administrators can manually trigger payment reminders.');
+  }
+  const { referenceDate, eventId } = req.body || {};
+  const refDateObj = referenceDate ? new Date(referenceDate) : new Date();
+  const result = await reminderSchedulerService.triggerManualRun(refDateObj, eventId);
+  new ApiResponse(200, 'Payment reminders triggered successfully', result).send(res);
+});
+
+export const getEventReminders = catchAsync(async (req: Request, res: Response) => {
+  const { eventId } = req.params;
+  const installmentIndex = req.query.installmentIndex !== undefined ? parseInt(req.query.installmentIndex as string, 10) : undefined;
+  const logs = await paymentReminderService.getReminderLogsForEvent(eventId, installmentIndex);
+  new ApiResponse(200, 'Reminder logs retrieved successfully', logs).send(res);
+});
+
 

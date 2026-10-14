@@ -8,6 +8,8 @@ import {
   renewPaymentLink,
   getAdminPayments,
   reconcilePaymentLink,
+  triggerReminders,
+  getEventReminders,
 } from '../controller/payment.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
@@ -120,6 +122,30 @@ router.post(
   authorize('client'),
   validateReconcilePaymentLink,
   reconcilePaymentLink
+);
+
+/**
+ * @route   POST /api/payments/reminders/trigger
+ * @desc    Manually trigger due-date and expiry-warning reminder checks
+ * @access  Private (Admin)
+ */
+router.post(
+  '/reminders/trigger',
+  authenticate,
+  authorize('admin'),
+  triggerReminders
+);
+
+/**
+ * @route   GET /api/payments/event/:eventId/reminders
+ * @desc    Get reminder logs for an event
+ * @access  Private (Client, Admin, Event Manager)
+ */
+router.get(
+  '/event/:eventId/reminders',
+  authenticate,
+  authorize('client', 'admin', 'event_manager'),
+  getEventReminders
 );
 
 export default router;
