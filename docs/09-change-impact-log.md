@@ -477,11 +477,29 @@ Change local UI text in one page.
   - Retry & backoff: 3 attempts with 5s exponential backoff; failures recorded diagnostically as `status: 'failed'`.
 - **Verification & Test Status**:
   - Dedicated queue test suite: 10/10 tests pass (`backend/tests/reminderQueue.test.ts`).
-  - Payments test suite: 93/93 tests pass (`backend/tests/payments.test.ts`).
-  - Total backend test suite: 324/324 tests pass across all 35 suites (`npm test`).
-  - Type checking: `npm run type-check` cleanly succeeds with 0 errors.
-  - Backend production build: `npm run build` cleanly succeeds with 0 errors.
-  - Frontend production build: `npm run build` cleanly succeeds.
+## CI Pipeline: GitHub Actions Continuous Integration (`.github/workflows/ci.yml`)
+- **Impact Classification**: Low (Non-intrusive automated quality pipeline; adds CI workflow and test fixture resiliency without altering application business logic, models, or APIs)
+- **Date**: 2026-10-15
+- **Modules Affected**:
+  - `.github/workflows/ci.yml` (New GitHub Actions workflow for automated CI)
+  - `README.MD` (Added CI overview, pipeline stages, inspection guidelines, and merge policy)
+  - `backend/tests/payments.test.ts` (Resilient relative dates for test fixture expiry)
+  - `docs/08-bug-log.md` (Documented BUG-012 for test fixture clock-boundary expiration)
+- **Workflow Pipeline Architecture**:
+  - `backend-ci`: Isolated job running on `ubuntu-latest` with `node-version: 24` and dedicated `mongo:8.0` and `redis:7-alpine` service containers (with container healthchecks). Runs `npm ci`, `npm run type-check`, `npm test` (isolated test database `eventops_test`), and `npm run build`.
+  - `frontend-ci`: Isolated job running on `ubuntu-latest` with `node-version: 24`. Runs `npm ci`, `npm run lint` (oxlint reporting 21 pre-existing warnings, 0 errors), `npm test` (vitest 20 tests pass), and `npm run build` (vite production bundle).
+- **Security & Least Privilege**:
+  - Workflow permissions restricted to `contents: read`.
+  - Zero deployment or external production service coupling.
+  - Zero exposure of real secrets; only safe, isolated dummy placeholders used for test execution.
+- **Verification & Local Test Results**:
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Production Build (`npm run build`): compiled `dist/` cleanly, exit code 0.
+  - Backend Test Suite (`npm test`): 324/324 passing across 35 suites, exit code 0.
+  - Frontend Lint (`npm run lint`): 21 warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 20/20 passing across 2 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): built production bundle in 11.01s, exit code 0.
+
 
 
 

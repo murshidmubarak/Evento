@@ -587,6 +587,56 @@ When a Client paid an advance or installment balance using an external Razorpay 
 
 External payment links must always synchronize via both server-to-server signed webhooks and frontend return callback reconciliation. Neither channel may trust client browser parameters; both must verify actual gateway status and converge idempotently on the same shared backend financial processing method.
 
+---
+
+## BUG-012 — Payment Test Fixture Hardcoded Expiry Date Expired at Real-Time Clock Boundary
+
+### Date
+
+2026-10-15
+
+### Affected Modules
+
+- `backend/tests/payments.test.ts`
+
+### Severity
+
+Low (Test Infrastructure only)
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+Running `npm test` produced 17 test failures in `payments.test.ts` with error message:
+```text
+This payment link expired on 15 Oct 2026. Please contact the Admin for further assistance.
+```
+Tests 39 through 65 failed to create or verify payment orders because the backend link expiration guard correctly detected that the booking advance payment link had expired.
+
+### Root Cause
+
+In `backend/tests/payments.test.ts` lines 548 & 557, the test fixture for `Partial Advance Payments` had hardcoded static calendar dates:
+```ts
+dueDate: new Date('2026-10-11'),
+expiryDate: new Date('2026-10-15'),
+```
+When authored, `2026-10-15` was a future date. However, as the real-time clock reached October 15, 2026, JavaScript's `new Date('2026-10-15')` evaluated to midnight UTC (`2026-10-15T00:00:00.000Z`), which was in the past relative to runtime execution time (`2026-10-15T13:50:00Z`). Consequently, the application's genuine business rule (`linkExpiresAt < new Date()`) was correctly triggered, blocking order creation in the test fixture.
+
+### Solution
+
+Updated the test fixture in `backend/tests/payments.test.ts` to use resilient relative future timestamps:
+```ts
+expiryDate: new Date(Date.now() + 86400000 * 7),
+```
+Original test contract assertion dates (e.g. `dueDate: 16 October 2026`) were preserved. All 93 payments tests and all 324 backend test suite tests now pass 100%.
+
+### Rule
+
+Never hardcode fixed calendar dates for future expiry dates in test fixtures. Always use dynamic relative offsets (`Date.now() + offsetMs`) so tests remain evergreen and resilient to time progression.
+
+
 
 
 
