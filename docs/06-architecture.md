@@ -1266,4 +1266,50 @@ AI does not directly control critical financial operations.
 Worker creation does not automatically mean Worker selection.
 
 
+44. Event Manager Operations Module Architecture (Milestone 1)
+
+### Component & Data Flow
+
+```text
+Admin Browser (AdminEventManagers.tsx)
+    │
+    ├── (1) POST /api/users/event-managers (Payload: { name, email, password, phone })
+    │       ▼
+    │   User Routes (authenticate + authorize('admin'))
+    │       ▼
+    │   UserManagementController.createEventManager()
+    │       ▼
+    │   UserService.createEventManager()
+    │       ├── Forces role = 'event_manager'
+    │       ├── Generates Business ID (counter range 1000–1999)
+    │       ├── Hashes password (bcrypt, 10 salt rounds)
+    │       └── Sets isActive = true, emailVerified = true
+    │       ▼
+    │   UserRepository.create() ──► MongoDB (User Model)
+    │       ▼
+    │   Returns safe User object (passwords/hashes stripped)
+    │
+    └── (2) GET /api/users?role=event_manager
+            ▼
+        UserRepository.findUsers({ role: 'event_manager' }) ──► Displays active managers
+
+Manager Browser (/login -> /manager)
+    │
+    ├── (1) POST /api/auth/login ──► Returns JWT with role = 'event_manager'
+    │       ▼
+    │   Frontend Redux authSlice & Login.tsx redirects to '/manager'
+    │
+    └── (2) GET /manager
+            ▼
+        ProtectedRoute (allowedRole="event_manager")
+            ├── Unauthenticated visitors ──► Redirected to /login
+            ├── Admin / Client / Worker ──► Access Denied / 403 / Redirected
+            └── Event Manager ──► Renders ManagerLayout + ManagerDashboard
+                    ├── Manager profile, Business ID (EM-xxxx), Role Badge
+                    ├── Genuine empty state: "No events have been assigned to you yet..."
+                    └── Reusable refresh/retry mechanism (No fabricated data)
+```
+
+
+
 

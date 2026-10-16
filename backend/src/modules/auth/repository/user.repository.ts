@@ -92,6 +92,23 @@ export class UserRepository {
   }
 
   /**
+   * Find users with optional filters (role, workerType, isActive), sorted by creation date descending.
+   */
+  async findUsers(filters: { role?: string; workerType?: string; isActive?: boolean } = {}): Promise<IUser[]> {
+    const query: any = {};
+    if (filters.role) {
+      query.role = filters.role;
+    }
+    if (filters.workerType) {
+      query.workerType = filters.workerType;
+    }
+    if (filters.isActive !== undefined) {
+      query.isActive = filters.isActive;
+    }
+    return User.find(query).sort({ createdAt: -1 });
+  }
+
+  /**
    * Find a user by email, including OTP verification fields.
    */
   async findByEmailWithOtpFields(email: string): Promise<IUser | null> {

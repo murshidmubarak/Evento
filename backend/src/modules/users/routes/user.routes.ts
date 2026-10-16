@@ -46,4 +46,16 @@ router.patch(
   userManagementController.updateUserStatus
 );
 
+/**
+ * @route   GET /api/users
+ * @desc    Admin retrieves users with optional filtering
+ * @access  Private (Admin only)
+ */
+router.get(
+  '/',
+  authenticate,
+  authorize('admin'),
+  userManagementController.getUsers
+);
+
 export default router;

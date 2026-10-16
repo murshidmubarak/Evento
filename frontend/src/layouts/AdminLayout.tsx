@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { logout } from '../features/auth/authSlice';
-import { LogOut, LayoutDashboard, CalendarX2, FileText, Menu, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, CalendarX2, FileText, Menu, X, Users } from 'lucide-react';
 
 export const AdminLayout: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -28,6 +28,7 @@ export const AdminLayout: React.FC = () => {
     { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { to: '/admin/events', label: 'Requested Events', icon: CalendarX2 },
     { to: '/admin/quotations', label: 'Quotations', icon: FileText },
+    { to: '/admin/managers', label: 'Event Managers', icon: Users },
   ];
 
   return (
@@ -45,7 +46,7 @@ export const AdminLayout: React.FC = () => {
           </button>
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
+            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -81,7 +82,7 @@ export const AdminLayout: React.FC = () => {
         <div className="px-6 py-5 border-b border-gray-100 hidden md:flex items-center justify-between">
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
+            <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
           </div>
         </div>
 
@@ -89,7 +90,7 @@ export const AdminLayout: React.FC = () => {
         <div className="px-5 py-4 border-b border-gray-100 flex md:hidden items-center justify-between">
           <div className="flex items-center">
             <span className="text-base font-black text-gray-900 tracking-tight">EventOps</span>
-            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">{user?.role === 'event_manager' ? 'Manager' : 'Admin'}</span>
+            <span className="ml-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-wider">Admin</span>
           </div>
           <button
             onClick={() => setMobileMenuOpen(false)}

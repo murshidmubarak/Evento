@@ -14,6 +14,7 @@ import { AdminCreateQuotation } from '../pages/admin/AdminCreateQuotation';
 import { AdminQuotations } from '../pages/admin/AdminQuotations';
 import { AdminQuotationSuccess } from '../pages/admin/AdminQuotationSuccess';
 import { AdminViewQuotation } from '../pages/admin/AdminViewQuotation';
+import { AdminEventManagers } from '../pages/admin/AdminEventManagers';
 
 import { ClientLayout } from '../layouts/ClientLayout';
 import { ClientDashboard } from '../pages/client/ClientDashboard';
@@ -41,8 +42,8 @@ export const AppRoutes = () => {
       
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>
-        {/* Admin & Event Manager Routes */}
-        <Route element={<RoleRoute allowedRoles={['admin', 'event_manager']} />}>
+        {/* Admin Routes */}
+        <Route element={<RoleRoute allowedRole="admin" />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="events" element={<AdminRequestedEvents />} />
@@ -51,6 +52,7 @@ export const AppRoutes = () => {
             <Route path="quotations" element={<AdminQuotations />} />
             <Route path="quotations/:id" element={<AdminViewQuotation />} />
             <Route path="quotations/success/:id" element={<AdminQuotationSuccess />} />
+            <Route path="managers" element={<AdminEventManagers />} />
           </Route>
         </Route>
 

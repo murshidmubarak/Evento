@@ -127,6 +127,56 @@ describe('Auth Routing', () => {
     expect(screen.getByText('Client Content')).toBeDefined();
   });
 
+  it('blocks event_manager from accessing admin-only RoleRoute and redirects to /manager', () => {
+    renderWithProviders(
+      <Routes>
+        <Route element={<RoleRoute allowedRole="admin" />}>
+          <Route path="/admin" element={<div>Admin Content</div>} />
+        </Route>
+        <Route path="/manager" element={<div>Manager Dashboard</div>} />
+      </Routes>,
+      {
+        initialEntries: ['/admin'],
+        preloadedState: {
+          auth: {
+            user: { id: 'em1', name: 'Manager', email: 'em@test.com', role: 'event_manager', isActive: true, createdAt: '', updatedAt: '' },
+            token: 'valid',
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          }
+        }
+      }
+    );
+
+    expect(screen.getByText('Manager Dashboard')).toBeDefined();
+    expect(screen.queryByText('Admin Content')).toBeNull();
+  });
+
+  it('allows event_manager in RoleRoute allowedRole="event_manager"', () => {
+    renderWithProviders(
+      <Routes>
+        <Route element={<RoleRoute allowedRole="event_manager" />}>
+          <Route path="/manager" element={<div>Manager Content</div>} />
+        </Route>
+      </Routes>,
+      {
+        initialEntries: ['/manager'],
+        preloadedState: {
+          auth: {
+            user: { id: 'em1', name: 'Manager', email: 'em@test.com', role: 'event_manager', isActive: true, createdAt: '', updatedAt: '' },
+            token: 'valid',
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          }
+        }
+      }
+    );
+
+    expect(screen.getByText('Manager Content')).toBeDefined();
+  });
+
   describe('RootRedirect behavior', () => {
     it('redirects unauthenticated user to /login when visiting root /', () => {
       renderWithProviders(
@@ -195,6 +245,29 @@ describe('Auth Routing', () => {
       );
 
       expect(screen.getByText('Admin Dashboard')).toBeDefined();
+    });
+
+    it('redirects authenticated event_manager to /manager when visiting root /', () => {
+      renderWithProviders(
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/manager" element={<div>Manager Dashboard</div>} />
+        </Routes>,
+        {
+          initialEntries: ['/'],
+          preloadedState: {
+            auth: {
+              user: { id: 'em1', name: 'Manager User', email: 'em@test.com', role: 'event_manager', isActive: true, createdAt: '', updatedAt: '' },
+              token: 'valid',
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            },
+          },
+        }
+      );
+
+      expect(screen.getByText('Manager Dashboard')).toBeDefined();
     });
 
     it('redirects user with expired token to /login and clears session', () => {

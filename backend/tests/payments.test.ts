@@ -553,7 +553,7 @@ describe('Payments API', () => {
             title: 'Final settlement',
             amount: 272000,
             dueDateDescription: 'Prior to event day',
-            dueDate: new Date('2026-10-16'),
+            dueDate: new Date('2026-10-16T23:59:59.999Z'),
             expiryDate: new Date(Date.now() + 86400000 * 20),
             status: 'Pending',
             purpose: ['settlement'],

@@ -599,4 +599,97 @@ describe('User Management Endpoints', () => {
       }
     });
   });
+
+  describe('List Users (GET /api/users)', () => {
+    const generateToken = (userId: string, role: string) => {
+      return jwt.sign({ userId, role }, env.jwtSecret, { expiresIn: '1h' });
+    };
+
+    it('1. Unauthenticated request -> 401 Unauthorized', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/users`);
+        assert.equal(res.status, 401);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('2. Non-admin (Client, Event Manager, Worker) -> 403 Forbidden', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const clientToken = generateToken(new mongoose.Types.ObjectId().toString(), 'client');
+        const emToken = generateToken(new mongoose.Types.ObjectId().toString(), 'event_manager');
+        const workerToken = generateToken(new mongoose.Types.ObjectId().toString(), 'worker');
+
+        const resClient = await fetch(`http://127.0.0.1:${port}/api/users`, {
+          headers: { Authorization: `Bearer ${clientToken}` },
+        });
+        assert.equal(resClient.status, 403);
+
+        const resEm = await fetch(`http://127.0.0.1:${port}/api/users`, {
+          headers: { Authorization: `Bearer ${emToken}` },
+        });
+        assert.equal(resEm.status, 403);
+
+        const resWorker = await fetch(`http://127.0.0.1:${port}/api/users`, {
+          headers: { Authorization: `Bearer ${workerToken}` },
+        });
+        assert.equal(resWorker.status, 403);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('3. Admin can list users and filter by role=event_manager', async () => {
+      const server = app.listen(0);
+      const port = (server.address() as any).port;
+      try {
+        const adminId = new mongoose.Types.ObjectId().toString();
+        const adminToken = generateToken(adminId, 'admin');
+
+        // Create an event manager and a client
+        const em = await User.create({
+          name: 'Manager For List',
+          email: 'em_list@example.com',
+          password: 'hashedpassword',
+          role: 'event_manager',
+          businessId: '1099',
+          isActive: true,
+        });
+
+        const cl = await User.create({
+          name: 'Client For List',
+          email: 'cl_list@example.com',
+          password: 'hashedpassword',
+          role: 'client',
+          isActive: true,
+        });
+
+        // Filter role=event_manager
+        const res = await fetch(`http://127.0.0.1:${port}/api/users?role=event_manager`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as any;
+        assert.equal(data.success, true);
+        assert.ok(Array.isArray(data.data.users));
+
+        const managerFound = data.data.users.find((u: any) => u.email === 'em_list@example.com');
+        assert.ok(managerFound, 'Event manager must be returned');
+        assert.equal(managerFound.role, 'event_manager');
+        assert.equal(managerFound.password, undefined, 'Password must not be returned');
+
+        const clientFound = data.data.users.find((u: any) => u.email === 'cl_list@example.com');
+        assert.equal(clientFound, undefined, 'Client must not be in event_manager filtered response');
+
+        await User.findByIdAndDelete(em._id);
+        await User.findByIdAndDelete(cl._id);
+      } finally {
+        server.close();
+      }
+    });
+  });
 });

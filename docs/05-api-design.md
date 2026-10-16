@@ -2149,6 +2149,8 @@ Response (200 OK):
 }
 ```
 
+```
+
 Errors:
 - 401: Unauthenticated request.
 - 403: Forbidden (Client does not own the event / Manager not assigned).
@@ -2188,5 +2190,131 @@ The existing schedule summary response has been extended to expose diagnostic re
   }
 }
 ```
+
+
+# User Management & Event Manager Operations APIs
+
+## 1. Create Event Manager
+
+POST /api/users/event-managers
+
+Access:
+Protected (Admin Only — `authenticate`, `authorize('admin')`)
+
+Purpose:
+Authorized Admin provisions a new Event Manager account. The role `event_manager` is strictly enforced by the backend handler, initial password is verified (min 6 characters) and hashed using bcrypt (10 salt rounds), and business ID is atomically assigned from the counter collection in the range 1000–1999.
+
+Request Body:
+```json
+{
+  "name": "Arun Kumar",
+  "email": "arun@eventops.com",
+  "password": "SecurePassword123",
+  "phone": "+91 99999 88888"
+}
+```
+
+Response (201 Created):
+```json
+{
+  "success": true,
+  "data": {
+    "id": "670f5e128123456789abcdef",
+    "name": "Arun Kumar",
+    "email": "arun@eventops.com",
+    "role": "event_manager",
+    "businessId": "1002",
+    "phone": "+91 99999 88888",
+    "isActive": true,
+    "emailVerified": true,
+    "createdAt": "2026-10-16T00:00:00.000Z",
+    "updatedAt": "2026-10-16T00:00:00.000Z"
+  }
+}
+```
+
+Errors:
+- 400 Bad Request: Missing or invalid required fields (name, email format, password < 6 chars).
+- 401 Unauthorized: Missing or invalid JWT Bearer token.
+- 403 Forbidden: Authenticated user is not an Admin.
+- 409 Conflict: A user with this email address already exists.
+
+
+## 2. List Users (with Role Filter)
+
+GET /api/users?role=event_manager
+
+Access:
+Protected (Admin Only — `authenticate`, `authorize('admin')`)
+
+Query Parameters:
+- `role` (optional): Filter by role (`admin`, `client`, `event_manager`, `worker`).
+- `workerType` (optional): Filter workers by specialization.
+- `isActive` (optional): Filter by active status (`true` / `false`).
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "670f5e128123456789abcdef",
+      "name": "Arun Kumar",
+      "email": "arun@eventops.com",
+      "role": "event_manager",
+      "businessId": "1002",
+      "phone": "+91 99999 88888",
+      "isActive": true,
+      "createdAt": "2026-10-16T00:00:00.000Z",
+      "updatedAt": "2026-10-16T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Errors:
+- 401 Unauthorized: Missing or invalid token.
+- 403 Forbidden: User role is not Admin.
+
+
+## 3. Event Manager Assigned Events
+
+GET /api/manager/events
+
+Access:
+Protected (Event Manager Only — `authenticate`, `authorize('event_manager')`)
+
+Purpose:
+Returns events specifically assigned to the authenticated Event Manager (`assignedManagerId == req.user.id`).
+
+Response (200 OK — Empty State when no events assigned):
+```json
+{
+  "success": true,
+  "data": []
+}
+```
+
+
+## 4. Event Manager Dashboard Statistics
+
+GET /api/manager/dashboard
+
+Access:
+Protected (Event Manager Only — `authenticate`, `authorize('event_manager')`)
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "totalAssigned": 0,
+    "inProgress": 0,
+    "completed": 0,
+    "upcoming": 0
+  }
+}
+```
+
 
 

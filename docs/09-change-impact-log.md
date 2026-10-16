@@ -505,6 +505,50 @@ Change local UI text in one page.
   - `frontend-ci`: ✅ Green — successful (Node.js 24 LTS, `npm ci`, oxlint, vitest, and production build)
   - CI Verdict: **PASS — REMOTE CI VERIFIED**
 
+---
+
+## Milestone 1: Admin Creates Event Managers + Manager Login + Manager Dashboard Access
+
+- **Impact Classification**: Medium (Extends User management service and repository with `getUsers`, wires up `GET /api/users`, implements Admin Event Managers interface and Manager Dashboard with strict RBAC route protections; preserves existing user schemas, password hashing, and login authentication flows)
+- **Date**: 2026-10-16
+- **Modules Affected**:
+  - `backend/src/modules/auth/repository/user.repository.ts` (Added `findUsers` query supporting `role`, `workerType`, and `isActive` filters)
+  - `backend/src/modules/auth/service/user.service.ts` (Added `getUsers` service method; updated `createEventManager` to set `emailVerified: true` alongside `isActive: true`)
+  - `backend/src/modules/users/controller/user-management.controller.ts` (Added `getUsers` controller handler)
+  - `backend/src/modules/users/routes/user.routes.ts` (Registered `GET /api/users` protected by `authenticate` and `authorize('admin')`)
+  - `backend/tests/userManagement.test.ts` (Added automated tests for `GET /api/users` covering 401, 403, and Admin filtering by `role=event_manager`)
+  - `backend/tests/payments.test.ts` (Fixed clock boundary regression on line 556 with end-of-day UTC timestamp)
+  - `frontend/src/features/users/usersApi.ts` (Added typed API client methods `createEventManager` and `getEventManagers`)
+  - `frontend/src/features/manager/managerApi.ts` (Added typed API client methods `getManagerEvents` and `getDashboardStats`)
+  - `frontend/src/layouts/AdminLayout.tsx` (Added "Event Managers" navigation item, cleaned up role badge to strictly 'Admin')
+  - `frontend/src/layouts/ManagerLayout.tsx` (Implemented responsive mobile drawer, emerald theme, role badge, profile display, and functional logout)
+  - `frontend/src/pages/admin/AdminEventManagers.tsx` (Created Event Managers management page with list table, search, modal creation, and safe credentials feedback)
+  - `frontend/src/pages/manager/ManagerDashboard.tsx` (Created Manager Dashboard with profile welcome banner, Event Manager badge, genuine empty state when 0 events, retry/refresh button, and loading/error states)
+  - `frontend/src/routes/AppRoutes.tsx` (Restored `allowedRole="admin"` on `/admin` guard, registered `/admin/managers`, configured `/manager` route protection)
+  - `frontend/src/tests/auth.test.tsx` (Added tests for `event_manager` login redirection and route guards)
+  - `frontend/src/tests/managerDashboard.test.tsx` (Added dedicated test suite for Manager Dashboard rendering, empty state, and refresh action)
+  - `frontend/src/tests/adminEventManagers.test.tsx` (Added dedicated test suite for Admin Event Managers list, modal validation, and creation flow)
+  - `docs/04-status-and-business-rules.md`, `docs/05-api-design.md`, `docs/06-architecture.md`, `docs/07-decvelopment-plan.md`, `docs/08-bug-log.md`
+- **Database Schema Changes**:
+  - None. Reused existing Mongoose `User` model, `Counter` collection for business IDs (1000–1999 range), and existing user schema fields.
+- **API Contracts Added/Updated**:
+  - `POST /api/users/event-managers`: Reused existing endpoint. Enforces `role: 'event_manager'`, hashes password with bcrypt (10 rounds), assigns business ID, provisions active account.
+  - `GET /api/users`: Newly exposed Admin endpoint supporting `role`, `workerType`, and `isActive` query filters.
+- **Security & RBAC Guarantees**:
+  - `event_manager` role cannot be self-assigned or injected via public signup (`/api/auth/register` creates only `client`).
+  - Passwords hashed with bcrypt; plaintext passwords never stored, logged, or returned in API responses.
+  - `/manager` protected exclusively for `event_manager`. Unauthenticated visitors redirected to `/login`; Admin, Client, and Worker roles denied access.
+  - Event Managers strictly blocked from `/admin` screens (BUG-013 regression resolved).
+  - Backend RBAC (`authorize('event_manager')` and `authorize('admin')`) enforces authorization independently of frontend navigation.
+- **Verification & Test Status**:
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Production Build (`npm run build`): compiled `dist/` cleanly, exit code 0.
+  - Backend Test Suite (`npm test`): 327/327 passing across 36 suites, exit code 0.
+  - Frontend Lint (`npm run lint`): 24 pre-existing warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 32/32 passing across 4 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): built production bundle in 6.78s, exit code 0.
+
+
 
 
 

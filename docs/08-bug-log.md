@@ -630,11 +630,54 @@ Updated the test fixture in `backend/tests/payments.test.ts` to use resilient re
 ```ts
 expiryDate: new Date(Date.now() + 86400000 * 7),
 ```
-Original test contract assertion dates (e.g. `dueDate: 16 October 2026`) were preserved. All 93 payments tests and all 324 backend test suite tests now pass 100%.
+For installment `dueDate` on test 55 in `payments.test.ts`, line 556 had `dueDate: new Date('2026-10-16')`. When the clock progressed to October 16, 2026 UTC, midnight evaluated to the past relative to execution time, causing derived status to evaluate to `'Overdue'` instead of `'Partially Paid'`. Fixed by specifying end-of-day UTC `dueDate: new Date('2026-10-16T23:59:59.999Z')` so the fixture remains active on October 16 while satisfying subsequent assertion checks for due date on October 16.
+
+All 93 payments tests and all 327 backend test suite tests now pass 100%.
 
 ### Rule
 
-Never hardcode fixed calendar dates for future expiry dates in test fixtures. Always use dynamic relative offsets (`Date.now() + offsetMs`) so tests remain evergreen and resilient to time progression.
+Never hardcode fixed calendar dates for future expiry dates in test fixtures. Always use dynamic relative offsets (`Date.now() + offsetMs`) or explicit end-of-day UTC timestamps so tests remain evergreen and resilient to time progression.
+
+---
+
+## BUG-013 — Admin Route Guard Inadvertently Permitted Event Manager Access
+
+### Date
+
+2026-10-16
+
+### Affected Modules
+
+- `frontend/src/routes/AppRoutes.tsx`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+The `/admin` route guard permitted authenticated users with the `event_manager` role to access the Admin layout and Admin portal screens (`/admin`, `/admin/managers`, `/admin/events`, etc.), violating the security boundary: "A Manager must not access Admin-only screens or perform Admin-only operations."
+
+### Root Cause
+
+In commit `fdce42e7`, the route guard on the `/admin` path in `AppRoutes.tsx` was configured with `allowedRoles={['admin', 'event_manager']}` instead of strictly restricting to `allowedRole="admin"`.
+
+### Solution
+
+Restored `allowedRole="admin"` on the `/admin` route guard in `frontend/src/routes/AppRoutes.tsx`. Added automated regression tests in `frontend/src/tests/auth.test.tsx` verifying that:
+1. An authenticated `event_manager` attempting to access `/admin` is denied access.
+2. An authenticated `admin` attempting to access `/manager` is denied access.
+3. Authenticated `client` and `worker` roles cannot access `/manager`.
+4. Only `event_manager` can access `/manager`.
+
+### Rule
+
+Admin routes must never allow non-admin roles. Protected route hierarchies must maintain strict role isolation.
+
 
 
 

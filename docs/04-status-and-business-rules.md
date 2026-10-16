@@ -36,6 +36,9 @@ The user cannot access protected application features.
 - Users cannot activate or deactivate other users.
 - Inactive Workers must not be considered for new Worker selection.
 - Inactive Event Managers must not be assigned new Events.
+- Event Manager accounts are created exclusively by authorized Admins (`POST /api/users/event-managers`). Public registration cannot assign the `event_manager` role.
+- Newly created Event Manager accounts receive `role: 'event_manager'`, `isActive: true`, and `emailVerified: true`, allowing direct authentication.
+- Business IDs for Event Managers are generated in the category range `1000–1999` (prefixed as `EM-xxxx` in user-facing UI).
 
 
 # 3. Event Status
@@ -1258,4 +1261,35 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
 - **Atomic Reservation**: The scan worker attempts to create `PaymentReminderLog` with `status: 'pending'` before enqueuing. Duplicate key error (`E11000`) detects previous attempts and prevents queue flooding.
 - **Deterministic Job IDs**: BullMQ email jobs derive their ID deterministically: `email_<sha256(dedupKey)[0..32]>`.
 - **Retry Policy**: 3 attempts with exponential backoff (5s initial delay). Transient SMTP or Redis failures do not mark reminders as sent.
-- **Admin Visibility**: `GET /api/payments/event/:eventId/reminders` and `GET /api/payments/schedule/:eventId` reflect the real-time status of pending, sent, skipped, or failed reminders.
+- **Admin Visibility**: `GET /api/payments/event/:eventId/reminders` and `GET /api/payments/schedule/:eventId` reflect the real-time status of pending, sent, skipped, or failed reminders.
+
+## Event Manager Operations Module — Milestone 1: Account Creation, Login & Dashboard Access
+
+### 1. Account Creation & Role Assignment
+- **Authority**: Only authenticated users with `role: 'admin'` are authorized to create Event Manager accounts via `POST /api/users/event-managers`.
+- **Backend Role Enforcement**: The `event_manager` role is strictly enforced by the backend handler. Untrusted client input or public registration forms are rejected and cannot inject the `event_manager` role.
+- **Credential Storage**: Initial passwords must be at least 6 characters and are hashed using bcrypt (10 salt rounds) before persistence. Raw passwords are never stored, logged, or returned in API responses.
+- **Account State**: Created accounts are provisioned with `isActive: true` and `emailVerified: true`, enabling immediate login without unverified state blocks.
+- **Business ID**: Generated atomically using the counter collection with range `1000–1999` reserved for event managers.
+
+### 2. Authentication & Role-Based Redirection
+- **Shared Login Gateway**: Event Managers authenticate via the unified `/login` flow using `POST /api/auth/login`.
+- **Role-Based Routing**:
+  - `admin` -> `/admin`
+  - `client` -> `/client`
+  - `event_manager` -> `/manager`
+  - `worker` -> `/worker`
+- **Session Verification**: The JWT token issued contains `{ id, email, role }` and must be validated by the `authenticate` middleware on all protected API routes.
+
+### 3. Route Protection & Authorization Boundaries
+- **Manager Route Guard**: The `/manager` layout and nested routes are accessible strictly to authenticated users with `role: 'event_manager'`.
+- **Admin Isolation**: Event Managers are strictly forbidden from accessing Admin-only routes (`/admin`, `/admin/managers`, `/admin/events`, etc.). Attempted direct URL navigation redirects to `/manager` or renders 403 Forbidden.
+- **Unauthorized Roles Denied**: Unauthenticated visitors are redirected to `/login`. Clients and Workers are blocked from `/manager` routes.
+- **Backend RBAC Verification**: Frontend route guards are supplemented by backend `authorize('event_manager')` or `authorize('admin')` middleware; client-side tokens are never trusted as sufficient authorization alone.
+
+### 4. Manager Dashboard & Initial State
+- **Welcome & Identification**: The Manager Dashboard at `/manager` displays the authenticated manager's name, email, business ID, and visible "Event Manager" badge.
+- **Empty State Policy**: When an Event Manager has zero assigned events, the dashboard presents a clear, non-fabricated empty state:
+  > *"No events have been assigned to you yet. Your assigned events will appear here when the Admin assigns them."*
+- **No Premature Feature Fabrication**: Fake events, fabricated counts, or unassigned event data are strictly prohibited. Event assignment, worker selection, and attendance controls are deferred to subsequent milestones.
+- **Recoverable Errors & Loading States**: The dashboard provides explicit loading indicators and a retry/refresh control for resilience against network glitches.

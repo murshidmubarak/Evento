@@ -392,6 +392,7 @@ export class UserService {
       role: 'event_manager', // Backend is source of truth — force role to 'event_manager'
       businessId: await this.businessIdService.generateBusinessId('event_manager'),
       isActive: true,
+      emailVerified: true,
     };
 
     // 4. Save via repository
@@ -399,6 +400,14 @@ export class UserService {
 
     // 5. Return safe user data
     return this.toSafeUser(createdUser);
+  }
+
+  /**
+   * Admin retrieves users list matching optional filters.
+   */
+  async getUsers(filters: { role?: string; workerType?: string; isActive?: boolean } = {}): Promise<SafeUser[]> {
+    const users = await this.userRepository.findUsers(filters);
+    return users.map((user) => this.toSafeUser(user));
   }
 
   /**

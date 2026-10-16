@@ -45,4 +45,29 @@ export class UserManagementController {
       user: safeUser,
     }).send(res);
   });
+
+  /**
+   * GET /api/users
+   * Admin lists users with optional filtering.
+   */
+  getUsers = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { role, workerType, isActive } = req.query;
+    const filters: { role?: string; workerType?: string; isActive?: boolean } = {};
+
+    if (role && typeof role === 'string') {
+      filters.role = role;
+    }
+    if (workerType && typeof workerType === 'string') {
+      filters.workerType = workerType;
+    }
+    if (isActive !== undefined) {
+      filters.isActive = isActive === 'true';
+    }
+
+    const users = await this.userService.getUsers(filters);
+
+    new ApiResponse(200, 'Users retrieved successfully', {
+      users,
+    }).send(res);
+  });
 }
