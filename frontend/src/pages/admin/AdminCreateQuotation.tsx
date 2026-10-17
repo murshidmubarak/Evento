@@ -585,8 +585,9 @@ export const AdminCreateQuotation = () => {
       const request: CreateQuotationRequest = {
         eventId: id!,
         items: sanitizedItems,
-        discount,
-        advanceAmount,
+        advanceAmount: advanceAmount > 0
+          ? advanceAmount
+          : (paymentPlan[0]?.amount ? Number(paymentPlan[0].amount) : 0),
         tax: taxType === 'none'
           ? { taxType: 'none', taxRate: 0 }
           : {

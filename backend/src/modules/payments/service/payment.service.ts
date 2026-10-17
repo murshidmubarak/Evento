@@ -36,6 +36,26 @@ export class PaymentService {
   }
 
   /**
+   * Returns the authoritative required advance amount for a quotation.
+   * If quotation.advanceAmount is defined and > 0, returns advanceAmount.
+   * Otherwise falls back to paymentPlan[0].amount, or finalAmount.
+   */
+  getEffectiveRequiredAdvance(acceptedQuotation: any): number {
+    if (!acceptedQuotation) return 0;
+    if (acceptedQuotation.advanceAmount && acceptedQuotation.advanceAmount > 0) {
+      return round2(acceptedQuotation.advanceAmount);
+    }
+    if (
+      acceptedQuotation.paymentPlan &&
+      acceptedQuotation.paymentPlan.length > 0 &&
+      acceptedQuotation.paymentPlan[0]?.amount > 0
+    ) {
+      return round2(acceptedQuotation.paymentPlan[0].amount);
+    }
+    return round2(acceptedQuotation.finalAmount || 0);
+  }
+
+  /**
    * Validates that the sum of scheduled installments in the quotation's paymentPlan
    * exactly reconciles with the quotation's finalAmount.
    */
@@ -162,11 +182,13 @@ export class PaymentService {
       throw ApiError.badRequest('No accepted quotation found for this event.');
     }
 
-    if (!acceptedQuotation.advanceAmount || acceptedQuotation.advanceAmount <= 0) {
+    const requiredAdvance = this.getEffectiveRequiredAdvance(acceptedQuotation);
+
+    if (requiredAdvance <= 0) {
       throw ApiError.badRequest('Invalid advance amount in quotation.');
     }
 
-    if (acceptedQuotation.advanceAmount > acceptedQuotation.finalAmount) {
+    if (requiredAdvance > acceptedQuotation.finalAmount) {
       throw ApiError.badRequest('Advance amount cannot exceed final amount.');
     }
 
@@ -184,7 +206,6 @@ export class PaymentService {
     // Calculate verified advance paid and total quotation balances authoritatively
     const allVerified = await this.paymentRepository.findAllVerifiedPayments(eventId, acceptedQuotation.id);
     const advancePaidAmount = this.getVerifiedPaidForInstallment(allVerified, 0);
-    const requiredAdvance = round2(acceptedQuotation.advanceAmount);
     const outstandingAdvance = Math.max(0, round2(requiredAdvance - advancePaidAmount));
 
     const totalVerifiedPaid = round2(allVerified.reduce((acc: number, p: any) => acc + p.amount, 0));
@@ -384,7 +405,7 @@ export class PaymentService {
     // Subsequent installment prerequisite: full advance must be verified and settled first
     const allVerified = await this.paymentRepository.findAllVerifiedPayments(eventId, acceptedQuotation.id);
     const advancePaidAmount = this.getVerifiedPaidForInstallment(allVerified, 0);
-    const requiredAdvance = round2(acceptedQuotation.advanceAmount);
+    const requiredAdvance = this.getEffectiveRequiredAdvance(acceptedQuotation);
     const outstandingAdvance = Math.max(0, round2(requiredAdvance - advancePaidAmount));
 
     if (outstandingAdvance > 0) {
@@ -608,7 +629,7 @@ export class PaymentService {
       const isQuotationFullyPaid = totalOutstanding <= 0;
 
       const advancePaid = this.getVerifiedPaidForInstallment(allVerifiedPayments, 0);
-      const reqAdv = acceptedQuotation ? round2(acceptedQuotation.advanceAmount) : payment.amount;
+      const reqAdv = acceptedQuotation ? this.getEffectiveRequiredAdvance(acceptedQuotation) : payment.amount;
       const outAdv = Math.max(0, round2(reqAdv - advancePaid));
       const isAdvanceFullyPaid = outAdv <= 0;
 
@@ -739,18 +760,18 @@ export class PaymentService {
     const verifiedPaymentsAll = allPayments.filter((p) => p.status === 'paid');
 
     // Advance calculations
+    const rawPlan = acceptedQuotation.paymentPlan || [];
     const advancePaidAmount = this.getVerifiedPaidForInstallment(verifiedPaymentsAll, 0);
-    const requiredAdvance = round2(acceptedQuotation.advanceAmount);
+    const requiredAdvance = this.getEffectiveRequiredAdvance(acceptedQuotation);
     const outstandingAdvance = Math.max(0, round2(requiredAdvance - advancePaidAmount));
     const isAdvanceFullyPaid = outstandingAdvance <= 0;
 
-    const rawPlan = acceptedQuotation.paymentPlan || [];
     const now = Date.now();
 
     const installments = await Promise.all(
       rawPlan.map(async (inst, idx) => {
         const isAdvance = idx === 0 || inst.title.toLowerCase().includes('advance');
-        const scheduledAmount = isAdvance ? round2(acceptedQuotation.advanceAmount || inst.amount) : round2(inst.amount);
+        const scheduledAmount = isAdvance ? requiredAdvance : round2(inst.amount);
         const verifiedPaidAmount = this.getVerifiedPaidForInstallment(verifiedPaymentsAll, idx);
         const instPayments = verifiedPaymentsAll.filter((p) => this.getPaymentAllocationForInstallment(p, idx) > 0);
 
@@ -795,12 +816,12 @@ export class PaymentService {
         let displayStatus = inst.status || 'Pending';
         if (isFullyPaid) {
           displayStatus = 'Paid';
-        } else if (isOverdue) {
-          displayStatus = 'Overdue';
         } else if (isExpired) {
           displayStatus = 'Expired';
         } else if (verifiedPaidAmount > 0) {
           displayStatus = 'Partially Paid';
+        } else if (isOverdue) {
+          displayStatus = 'Overdue';
         } else {
           displayStatus = 'Pending';
         }
@@ -999,7 +1020,7 @@ export class PaymentService {
       const startIdx = options?.installmentIndex !== undefined && options.installmentIndex >= 0 ? options.installmentIndex : 0;
       if (startIdx === 0) {
         const advPaid = this.getVerifiedPaidForInstallment(allVerified, 0);
-        const reqAdv = round2(acceptedQuotation.advanceAmount);
+        const reqAdv = this.getEffectiveRequiredAdvance(acceptedQuotation);
         targetAmount = Math.max(0, round2(reqAdv - advPaid));
       } else {
         const scheduled = round2(acceptedQuotation.paymentPlan?.[startIdx]?.amount || 0);
@@ -1038,7 +1059,7 @@ export class PaymentService {
 
     const advanceBal = resultingBalances.find((r) => r.installmentIndex === 0);
     const advancePaidAfter = advanceBal ? advanceBal.resultingPaid : 0;
-    const willConfirmEvent = event.status === 'awaiting_payment' && advancePaidAfter >= round2(acceptedQuotation.advanceAmount);
+    const willConfirmEvent = event.status === 'awaiting_payment' && advancePaidAfter >= this.getEffectiveRequiredAdvance(acceptedQuotation);
 
     return {
       eventId: event.id,
@@ -1109,7 +1130,7 @@ export class PaymentService {
     if (installmentIndex > 0) {
       const verifiedAdv = await this.paymentRepository.findVerifiedAdvancePayments(eventId, acceptedQuotation.id);
       const advPaid = round2(verifiedAdv.reduce((acc, p) => acc + p.amount, 0));
-      const reqAdv = round2(acceptedQuotation.advanceAmount);
+      const reqAdv = this.getEffectiveRequiredAdvance(acceptedQuotation);
       if (advPaid < reqAdv) {
         throw ApiError.badRequest('Cannot renew subsequent installment before the required advance is fully paid.');
       }
@@ -1360,7 +1381,7 @@ export class PaymentService {
     // Check Event Confirmation Rule:
     // Event transitions to 'confirmed' if and only if the full required advance has been received and verified
     const advancePaid = this.getVerifiedPaidForInstallment(allVerifiedPayments, 0);
-    const reqAdv = round2(acceptedQuotation.advanceAmount);
+    const reqAdv = this.getEffectiveRequiredAdvance(acceptedQuotation);
     const isAdvanceFullyPaid = advancePaid >= reqAdv;
 
     if (isAdvanceFullyPaid && event.status === 'awaiting_payment') {

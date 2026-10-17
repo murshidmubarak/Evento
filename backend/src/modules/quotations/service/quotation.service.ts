@@ -249,7 +249,9 @@ export class QuotationService {
     };
 
     const finalAmount = round2(taxableAmount + taxAmount);
-    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null ? round2(input.advanceAmount) : 0;
+    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null && Number(input.advanceAmount) > 0
+      ? round2(input.advanceAmount)
+      : (input.paymentPlan?.[0]?.amount ? round2(input.paymentPlan[0].amount) : 0);
 
     if (advanceAmount < 0) {
       throw ApiError.badRequest('Advance amount cannot be negative.');
@@ -531,7 +533,9 @@ export class QuotationService {
     };
 
     const finalAmount = round2(taxableAmount + taxAmount);
-    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null ? round2(input.advanceAmount) : 0;
+    const advanceAmount = input.advanceAmount !== undefined && input.advanceAmount !== null && Number(input.advanceAmount) > 0
+      ? round2(input.advanceAmount)
+      : (input.paymentPlan?.[0]?.amount ? round2(input.paymentPlan[0].amount) : 0);
 
     if (advanceAmount < 0) {
       throw ApiError.badRequest('Advance amount cannot be negative.');
