@@ -81,10 +81,21 @@ export class UserRepository {
   }
 
   /**
-   * Find active event managers, optionally excluding specific IDs (e.g. busy managers).
+   * Find a user document by MongoDB _id, explicitly selecting invitationTokenHash.
+   */
+  async findByIdWithInvitation(id: string): Promise<IUser | null> {
+    return User.findById(id).select('+invitationTokenHash');
+  }
+
+  /**
+   * Find active event managers, excluding pending invitations and busy managers.
    */
   async findActiveEventManagers(excludeIds: string[] = []): Promise<IUser[]> {
-    const query: any = { role: 'event_manager', isActive: true };
+    const query: any = {
+      role: 'event_manager',
+      isActive: true,
+      invitationTokenHash: { $exists: false },
+    };
     if (excludeIds.length > 0) {
       query._id = { $nin: excludeIds };
     }

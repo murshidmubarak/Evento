@@ -388,11 +388,19 @@ Only Admin can assign or change the Event Manager.
 - [DONE] Manager login & dashboard: unified `/login` redirects Event Manager to `/manager`; route guard restricts `/manager` exclusively to `event_manager`; genuine empty state rendered when 0 events assigned
 - [DONE] Comprehensive automated test coverage: backend (343/343 passing across 38 suites), frontend (38/38 passing across 5 suites), 0 build/type errors
 
+### Milestone 2: Event Manager Assignment and Assigned Events Dashboard [COMPLETED]
+- [DONE] Admin eligibility check: `GET /api/admin/events/:id/available-managers` checks confirmed/in-progress event status, excludes pending-invitation accounts and inactive accounts, and checks time overlaps (`startTime` < `endTime`).
+- [DONE] Admin assignment persistence: `PATCH /api/admin/events/:id/manager` validates event exists & confirmed/in-progress, candidate exists & active & role `event_manager` & no pending invitation token, executes atomic conditional update, and conducts post-write collision rollback for concurrency protection.
+- [DONE] Admin UI integration: `AdminEventDetails.tsx` displays assignment card, "Assign Event Manager" / "Reassign Event Manager" modal with real-time eligible manager retrieval, radio selection, and instant state update.
+- [DONE] Authenticated Manager Dashboard: `ManagerDashboard.tsx` retrieves metrics from `GET /api/manager/dashboard` and events from `GET /api/manager/events`, displays metric cards (`Total Assigned`, `Upcoming`, `In Progress`, `Completed`), preserves exact empty state when 0 events assigned, and renders event cards with links to details.
+- [DONE] Dedicated Manager Event List: `ManagerEventList.tsx` at `/manager/events` with status filtering tabs (`All`, `Confirmed`, `In Progress`, `Completed`), search filter, and cards leading to event details.
+- [DONE] Manager Event Details: `ManagerEventDetails.tsx` at `/manager/events/:id` displays operational event information (schedule, host contact info, venue map via ReadOnlyMap, service preferences, notes) with strict 403 Forbidden protection against unauthorized access.
+- [DONE] Manager Layout & Route Integration: Updated `ManagerLayout.tsx` nav links (`Dashboard`, `Assigned Events`) and `AppRoutes.tsx` with role guards.
+- [DONE] Work Requirements Management strictly out of scope for Milestone 2.
+- [DONE] Full Automated Test Coverage: Backend 343/343 passing across 37 suites, Frontend 46/46 passing across 8 suites, 0 lint errors, 0 type errors.
+
 Implement (Future Milestones):
 
-Manager Dashboard (Populated with assigned events)
-My Events
-Event Details
 Recruitment
 Workers
 Wages & Payments

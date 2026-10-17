@@ -36,3 +36,39 @@ export const uploadServiceReferenceImages = async (eventId: string, serviceId: s
   });
   return response.data;
 };
+
+export interface ManagerSameDayAssignment {
+  eventId: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  location?: string;
+}
+
+export interface AvailableManager {
+  _id: string;
+  name: string;
+  email: string;
+  businessId?: string;
+  isActive: boolean;
+  status?: string;
+  isOverlapping?: boolean;
+  hasWorkOnDay?: boolean;
+  sameDayAssignments?: ManagerSameDayAssignment[];
+}
+
+export const getAvailableManagers = async (eventId: string): Promise<AvailableManager[]> => {
+  const response = await apiClient.get<{ success: boolean; data: { managers: AvailableManager[] } }>(
+    `/admin/events/${eventId}/available-managers`
+  );
+  return response.data.data.managers;
+};
+
+export const assignEventManager = async (eventId: string, eventManagerId: string): Promise<ClientEvent> => {
+  const response = await apiClient.patch<{ success: boolean; data: { event: ClientEvent } }>(
+    `/admin/events/${eventId}/manager`,
+    { eventManagerId }
+  );
+  return response.data.data.event;
+};
+

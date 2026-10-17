@@ -1326,9 +1326,82 @@ Manager Browser (/accept-invitation?token=... -> /login -> /manager)
             ├── Unauthenticated visitors ──► Redirected to /login
             ├── Admin / Client / Worker ──► Access Denied / 403 / Redirected
             └── Event Manager ──► Renders ManagerLayout + ManagerDashboard
-                    ├── Manager profile, Business ID (EM-xxxx), Role Badge
-                    ├── Genuine empty state: "No events have been assigned to you yet..."
-                    └── Reusable refresh/retry mechanism (No fabricated data)
+45. Event Manager Operations Module Architecture (Milestone 2: Assignment & Assigned Events Dashboard)
+
+### Component & Data Flow
+
+```text
+Admin Browser (AdminEventDetails.tsx)
+    │
+    ├── (1) GET /api/admin/events/:id/available-managers
+    │       ▼
+    │   Admin Event Routes (authenticate + authorize('admin') + validateGetAvailableManagers)
+    │       ▼
+    │   AdminEventController.getAvailableManagers()
+    │       ▼
+    │   AdminEventService.getAvailableManagers()
+    │       ├── Validates event exists and status in ['confirmed', 'in_progress']
+    │       ├── UserRepository.findActiveEventManagers() (excludes invitationTokenHash)
+    │       ├── EventRepository.findActiveAssignedEventsForDateRange(startDate, endDate)
+    │       └── Filters out managers with overlapping event time windows:
+    │           (event.startTime < assigned.endTime) && (event.endTime > assigned.startTime)
+    │       ▼
+    │   Returns array of available, active managers: [{ _id, name, email, phone, businessId }]
+    │
+    └── (2) PATCH /api/admin/events/:id/manager (Payload: { eventManagerId })
+            ▼
+        Admin Event Routes (authenticate + authorize('admin') + validateAssignManager)
+            ▼
+        AdminEventController.assignManager()
+            ▼
+        AdminEventService.assignManager()
+            ├── Validates event status in ['confirmed', 'in_progress']
+            ├── UserRepository.findByIdWithInvitation(managerId)
+            │   └── Verifies role === 'event_manager', isActive === true, !invitationTokenHash
+            ├── Checks overlap conflict on candidate manager
+            ├── Atomic conditional update:
+            │   Event.findOneAndUpdate(
+            │     { _id: eventId, status: { $in: ['confirmed', 'in_progress'] } },
+            │     { eventManagerId },
+            │     { new: true }
+            │   )
+            ├── Post-write collision check (detects simultaneous concurrent race condition)
+            │   └── If race collision detected: rolls back assignment and throws 409 Conflict
+            └── Returns updated event with populated eventManagerId
+
+Manager Browser (/manager, /manager/events, /manager/events/:id)
+    │
+    ├── (1) GET /api/manager/dashboard
+    │       ▼
+    │   Manager Event Routes (authenticate + authorize('event_manager'))
+    │       ▼
+    │   ManagerEventService.getManagerDashboardStats(req.user.id)
+    │       ▼
+    │   EventRepository.getManagerDashboardStats()
+    │       └── Counts totalAssigned, upcoming (confirmed), ongoing (in_progress), completed
+    │       ▼
+    │   Returns { stats: { totalAssigned, upcoming, ongoing, completed } }
+    │
+    ├── (2) GET /api/manager/events
+    │       ▼
+    │   ManagerEventService.getManagerEvents(req.user.id, filters)
+    │       ▼
+    │   EventRepository.findByManagerId()
+    │       └── Returns assigned events populated with safe client contact info (name, email, phone)
+    │
+    └── (3) GET /api/manager/events/:id
+            ▼
+        ManagerEventService.getManagerEventById(req.user.id, eventId)
+            ├── EventRepository.findByIdWithDetails(eventId)
+            ├── Strict Authorization Check:
+            │   event.eventManagerId.toString() === req.user.id
+            │   (Mismatched manager ID produces 403 Forbidden: "You do not have permission...")
+            └── Safe Data Projection:
+                ├── Schedule (date, startTime, endTime, guestCount)
+                ├── Host Contact Information (name, email, phone)
+                ├── Venue Location & ReadOnlyMap coordinates
+                ├── Selected Services & Client Preferences (catering, notes)
+                └── Excludes sensitive quotation pricing, profit margins, and payment gateway tokens
 ```
 
 

@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { AdminEventController } from '../controller/admin-event.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
+import {
+  validateGetAvailableManagers,
+  validateAssignManager,
+} from '../validation/admin-event.validation.js';
 
 const router = Router();
 const adminEventController = new AdminEventController();
@@ -15,6 +19,7 @@ router.get(
   '/:id/available-managers',
   authenticate,
   authorize('admin'),
+  validateGetAvailableManagers,
   adminEventController.getAvailableManagers
 );
 
@@ -27,6 +32,7 @@ router.patch(
   '/:id/manager',
   authenticate,
   authorize('admin'),
+  validateAssignManager,
   adminEventController.assignManager
 );
 

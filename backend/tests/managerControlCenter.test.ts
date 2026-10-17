@@ -180,4 +180,63 @@ describe('Event Control Center API', () => {
     assert.equal(res.status, 400); // Because it is not a valid ObjectId (cast error handled usually as 400 or 500)
     // For this specific project, if cast error middleware is mapped to 400, it passes.
   });
+
+  it('9. GET /api/manager/events -> Returns only events assigned to the authenticated manager', async () => {
+    // Manager A fetches assigned events -> should only see Event A
+    const resA = await fetch(`http://127.0.0.1:${port}/api/manager/events`, {
+      headers: { 'Authorization': `Bearer ${managerAToken}` },
+    });
+    assert.equal(resA.status, 200);
+    const dataA = await resA.json() as any;
+    assert.equal(dataA.success, true);
+    assert.equal(dataA.data.events.length, 1);
+    assert.equal(dataA.data.events[0]._id, eventAId);
+    assert.equal(dataA.data.events[0].clientId.name, 'Test Client');
+
+    // Manager B fetches assigned events -> should only see Event B
+    const resB = await fetch(`http://127.0.0.1:${port}/api/manager/events`, {
+      headers: { 'Authorization': `Bearer ${managerBToken}` },
+    });
+    assert.equal(resB.status, 200);
+    const dataB = await resB.json() as any;
+    assert.equal(dataB.data.events.length, 1);
+    assert.equal(dataB.data.events[0]._id, eventBId);
+  });
+
+  it('10. GET /api/manager/dashboard -> Returns accurate stats for authenticated manager', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/manager/dashboard`, {
+      headers: { 'Authorization': `Bearer ${managerAToken}` },
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json() as any;
+    assert.equal(data.success, true);
+    assert.equal(data.data.stats.totalAssigned, 1);
+    assert.equal(data.data.stats.upcoming, 1); // confirmed
+    assert.equal(data.data.stats.ongoing, 0);
+    assert.equal(data.data.stats.completed, 0);
+  });
+
+  it('11. Security: Unauthorized roles cannot access manager dashboard or events list', async () => {
+    // Unauth
+    let res = await fetch(`http://127.0.0.1:${port}/api/manager/events`);
+    assert.equal(res.status, 401);
+
+    // Client
+    res = await fetch(`http://127.0.0.1:${port}/api/manager/events`, {
+      headers: { 'Authorization': `Bearer ${clientToken}` },
+    });
+    assert.equal(res.status, 403);
+
+    // Worker
+    res = await fetch(`http://127.0.0.1:${port}/api/manager/dashboard`, {
+      headers: { 'Authorization': `Bearer ${workerToken}` },
+    });
+    assert.equal(res.status, 403);
+
+    // Admin
+    res = await fetch(`http://127.0.0.1:${port}/api/manager/dashboard`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    assert.equal(res.status, 403);
+  });
 });

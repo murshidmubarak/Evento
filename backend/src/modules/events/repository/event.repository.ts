@@ -43,7 +43,7 @@ export class EventRepository {
       eventManagerId: { $exists: true, $ne: null },
       status: { $nin: ['completed', 'cancelled'] },
       date: { $gte: startDate, $lte: endDate }
-    }).select('eventManagerId startTime endTime').exec() as unknown as Promise<IEvent[]>;
+    }).select('title location eventManagerId startTime endTime date').exec() as unknown as Promise<IEvent[]>;
   }
 
   async findByManagerId(managerId: string, filters: any = {}): Promise<IEvent[]> {
@@ -65,7 +65,8 @@ export class EventRepository {
 
     return Event.find(query)
       .sort({ date: 1, startTime: 1 })
-      .populate('selectedServices.serviceId') as unknown as Promise<IEvent[]>;
+      .populate('selectedServices.serviceId')
+      .populate('clientId', 'name email phone') as unknown as Promise<IEvent[]>;
   }
 
   async getManagerDashboardStats(managerId: string): Promise<any> {

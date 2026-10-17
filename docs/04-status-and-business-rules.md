@@ -1297,4 +1297,45 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
 - **Empty State Policy**: When an Event Manager has zero assigned events, the dashboard presents a clear, non-fabricated empty state:
   > *"No events have been assigned to you yet. Your assigned events will appear here when the Admin assigns them."*
 - **No Premature Feature Fabrication**: Fake events, fabricated counts, or unassigned event data are strictly prohibited. Event assignment, worker selection, and attendance controls are deferred to subsequent milestones.
-- **Recoverable Errors & Loading States**: The dashboard provides explicit loading indicators and a retry/refresh control for resilience against network glitches.
+- **Recoverable Errors & Loading States**: The dashboard provides explicit loading indicators and a retry/refresh control for resilience against network glitches.
+
+---
+
+## Event Manager Operations Module — Milestone 2: Event Manager Assignment & Assigned Events Dashboard
+
+### 1. Assignment Eligibility & Validation Rules
+- **Authority**: Only authenticated users with `role: 'admin'` are authorized to retrieve eligible managers and assign an Event Manager (`GET /api/admin/events/:id/available-managers`, `PATCH /api/admin/events/:id/manager`).
+- **Event Status Eligibility**: Assignment is permitted strictly when event `status` is in `['confirmed', 'in_progress']`. Requests for events in `requested`, `quoted`, `awaiting_payment`, `completed`, or `cancelled` statuses are rejected with 400 Bad Request.
+- **Manager Account Eligibility**:
+  - Account must exist and possess `role: 'event_manager'`.
+  - Account must have `isActive: true`.
+  - Pending-invitation accounts (where `invitationTokenHash` exists) are strictly ineligible and excluded from available manager lists and assignment validation.
+  - Inactive or disabled accounts cannot receive assignments.
+- **Availability & Overlapping-Event Rules**:
+  - An Event Manager cannot be assigned to two overlapping events on the same date.
+  - Overlap is defined as `(startA < endB) && (endA > startB)` for active assigned events on that date.
+  - Completed and cancelled events do not create conflict blocks.
+- **Reassignment Rules**:
+  - Authorized Admins can reassign an event to another eligible manager.
+  - Reassignment to the same already-assigned manager is idempotent.
+  - The new manager must satisfy all eligibility and overlap checks.
+
+### 2. Assignment Persistence & Concurrency Control
+- **Atomic Persistence**:
+  - Assignment uses atomic conditional database operations: `Event.findOneAndUpdate({ _id, status: { $in: ['confirmed', 'in_progress'] } }, { eventManagerId }, { new: true })`.
+  - If event status changed concurrently out of confirmed/in-progress, update returns null and fails safely.
+- **Post-Write Collision Verification**:
+  - Immediately following atomic update, service checks for simultaneous concurrent assignments to the same manager during the overlapping window.
+  - If a race condition collision is detected, atomic rollback restores prior manager assignment and rejects request with 409 Conflict.
+
+### 3. Manager Portal Authorization & Data Isolation
+- **Authentication Context Ownership**: Manager identity is extracted strictly from verified JWT credentials (`req.user.id`).
+- **Strict Data Isolation**:
+  - `/api/manager/dashboard` calculates counts (`totalAssigned`, `upcoming`, `ongoing`, `completed`) strictly for `eventManagerId: req.user.id`.
+  - `/api/manager/events` queries and returns events where `eventManagerId: req.user.id`.
+  - `/api/manager/events/:id` validates that the retrieved event's `eventManagerId` matches `req.user.id`. If a manager tries to view another manager's event by manipulating URL parameters, backend returns 403 Forbidden.
+- **Safe Operational Data Projection**:
+  - Client contact information (`name`, `email`, `phone`), schedule, guest count, location address/coordinates, selected services, and operational notes are returned for event execution.
+  - Sensitive financial figures (profit margins, quotation totals, payment transactions, Stripe/Razorpay tokens) and worker payroll are not exposed to the manager.
+- **Work Requirements Management Scope**:
+  - Work Requirements creation, worker recruitment, attendance, and wages are strictly deferred to subsequent milestones and remain prohibited in Milestone 2.

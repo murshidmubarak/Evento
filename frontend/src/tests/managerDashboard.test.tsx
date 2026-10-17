@@ -46,6 +46,12 @@ describe('ManagerDashboard Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(managerApi.getDashboardStats).mockResolvedValue({
+      totalAssigned: 0,
+      upcoming: 0,
+      ongoing: 0,
+      completed: 0,
+    });
   });
 
   it('renders heading, permitted profile information, and Event Manager role badge', async () => {

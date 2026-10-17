@@ -16,6 +16,7 @@ describe('Admin Event Assignment API', () => {
   let manager1Id: string;
   let manager2Id: string;
   let manager3Id: string;
+  let managerPendingId: string;
 
   let event1Id: string;
   let event2Id: string;
@@ -70,6 +71,17 @@ describe('Admin Event Assignment API', () => {
       isActive: true,
     });
     manager3Id = m3._id.toString();
+
+    const mPending = await User.create({
+      name: 'Manager Pending',
+      email: 'mpending@example.com',
+      role: 'event_manager',
+      isActive: false,
+      emailVerified: false,
+      invitationTokenHash: 'mock_token_hash_pending',
+      invitationTokenExpiresAt: new Date(Date.now() + 86400000),
+    });
+    managerPendingId = mPending._id.toString();
   });
 
   after(async () => {
@@ -142,7 +154,7 @@ describe('Admin Event Assignment API', () => {
     assert.equal(data.data.event.eventManagerId, manager1Id);
   });
 
-  it('3. GET /available-managers excludes managers with overlapping events', async () => {
+  it('3. GET /available-managers flags managers with overlapping events as isOverlapping=true', async () => {
     // Assign M1 to Event 1 (10:00 - 14:00)
     await Event.findByIdAndUpdate(event1Id, { eventManagerId: manager1Id });
 
@@ -153,11 +165,18 @@ describe('Admin Event Assignment API', () => {
     const data = await res.json() as any;
     const managers = data.data.managers;
 
-    assert.equal(managers.length, 1); // Only M3
-    assert.equal(managers[0]._id, manager3Id);
+    assert.equal(managers.length, 2); // Both M1 and M3 are returned
+    const m1 = managers.find((m: any) => m._id === manager1Id);
+    assert.ok(m1);
+    assert.equal(m1.isOverlapping, true);
+    assert.equal(m1.hasWorkOnDay, true);
+
+    const m3 = managers.find((m: any) => m._id === manager3Id);
+    assert.ok(m3);
+    assert.equal(m3.isOverlapping, false);
   });
 
-  it('4. GET /available-managers does not exclude if events do not overlap time', async () => {
+  it('4. GET /available-managers indicates same-day work without overlapping flag', async () => {
     // Assign M1 to Event 1 (10:00 - 14:00)
     await Event.findByIdAndUpdate(event1Id, { eventManagerId: manager1Id });
 
@@ -169,6 +188,10 @@ describe('Admin Event Assignment API', () => {
     const managers = data.data.managers;
 
     assert.equal(managers.length, 2); // M1 and M3
+    const m1 = managers.find((m: any) => m._id === manager1Id);
+    assert.ok(m1);
+    assert.equal(m1.isOverlapping, false);
+    assert.equal(m1.hasWorkOnDay, true);
   });
 
   it('5. PATCH /manager prevents assignment if manager is busy', async () => {
@@ -237,5 +260,112 @@ describe('Admin Event Assignment API', () => {
       body: JSON.stringify({ eventManagerId: manager1Id }),
     });
     assert.equal(res.status, 403);
+  });
+
+  it('10. Pending invitation managers are excluded from available-managers and cannot be assigned', async () => {
+    // 1. GET /available-managers does not return pending manager
+    const getRes = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/available-managers`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    assert.equal(getRes.status, 200);
+    const getData = await getRes.json() as any;
+    assert.equal(
+      getData.data.managers.find((m: any) => m._id === managerPendingId),
+      undefined,
+      'Pending invitation manager must not appear in available managers list'
+    );
+
+    // 2. PATCH /manager with pending manager is rejected with 400
+    const patchRes = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: managerPendingId }),
+    });
+    assert.equal(patchRes.status, 400);
+    const patchData = await patchRes.json() as any;
+    assert.match(patchData.message, /inactive or has a pending invitation/i);
+  });
+
+  it('11. PATCH /manager allows reassigning confirmed event from one manager to another eligible manager', async () => {
+    // Initial assignment to M1
+    let res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: manager1Id }),
+    });
+    assert.equal(res.status, 200);
+    let data = await res.json() as any;
+    assert.equal(data.data.event.eventManagerId, manager1Id);
+
+    // Reassign to M3 (who is free and active)
+    res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: manager3Id }),
+    });
+    assert.equal(res.status, 200);
+    data = await res.json() as any;
+    assert.equal(data.data.event.eventManagerId, manager3Id);
+
+    // Database check
+    const ev = await Event.findById(event1Id);
+    assert.equal(ev?.eventManagerId?.toString(), manager3Id);
+    assert.equal(ev?.status, 'confirmed');
+  });
+
+  it('12. Validation: Rejects missing or invalid eventManagerId format and invalid eventId format', async () => {
+    // Missing eventManagerId
+    let res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+
+    // Malformed eventManagerId
+    res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: 'not-an-objectid' }),
+    });
+    assert.equal(res.status, 400);
+
+    // Malformed eventId in params
+    res = await fetch(`http://127.0.0.1:${port}/api/admin/events/invalid-event-id/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: manager1Id }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('13. Cannot assign non-existent manager ID -> 404', async () => {
+    const nonexistentId = new mongoose.Types.ObjectId().toString();
+    const res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: nonexistentId }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('14. Idempotent assignment: Re-submitting the same manager succeeds without error', async () => {
+    // Assign M1
+    let res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: manager1Id }),
+    });
+    assert.equal(res.status, 200);
+
+    // Re-assign M1 again
+    res = await fetch(`http://127.0.0.1:${port}/api/admin/events/${event1Id}/manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+      body: JSON.stringify({ eventManagerId: manager1Id }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json() as any;
+    assert.equal(data.data.event.eventManagerId, manager1Id);
   });
 });

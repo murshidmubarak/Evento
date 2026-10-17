@@ -562,6 +562,77 @@ Change local UI text in one page.
   - Frontend Test Suite (`npm test`): 38/38 passing across 5 test files, exit code 0.
   - Frontend Production Build (`npm run build`): built production bundle cleanly in 7.47s, exit code 0.
 
+---
+
+## Milestone 2: Event Manager Assignment and Assigned Events Dashboard
+
+- **Impact Classification**: Medium (Extends existing Admin Event Details with eligibility retrieval and manager assignment modal; adds backend atomic assignment with concurrency rollback protection; enhances Manager Dashboard with live metrics; adds dedicated Manager Event List and operational Event Details screen; preserves existing User and Event models, authentication, and RBAC without introducing duplicate collections or breaking payment workflows; strictly excludes Work Requirements Management)
+- **Date**: 2026-10-17
+- **Modules & Files Affected**:
+  - `backend/src/modules/auth/repository/user.repository.ts`:
+    - Updated `findActiveEventManagers()` to exclude accounts with pending invitations (`invitationTokenHash: { $exists: false }`).
+    - Added `findByIdWithInvitation(id)` to inspect internal invitation status.
+  - `backend/src/modules/events/repository/event.repository.ts`:
+    - Updated `findByManagerId()` to populate `clientId` with safe client contact info (`name email phone`).
+  - `backend/src/modules/events/validation/admin-event.validation.ts`:
+    - Created validation middleware for `validateGetAvailableManagers` and `validateAssignManager` validating MongoDB ObjectIds.
+  - `backend/src/modules/events/routes/admin-event.routes.ts`:
+    - Integrated validation middleware into `GET /api/admin/events/:id/available-managers` and `PATCH /api/admin/events/:id/manager`.
+  - `backend/src/modules/events/service/admin-event.service.ts`:
+    - Enforced event status eligibility (`confirmed` or `in_progress`).
+    - Validated candidate manager account (exists, `event_manager` role, `isActive: true`, no pending invitation).
+    - Implemented atomic conditional update (`findOneAndUpdate({ _id, status: { $in: ['confirmed', 'in_progress'] } })`).
+    - Added post-write collision verification with automatic rollback if concurrent assignment causes an overlapping conflict.
+  - `backend/tests/adminEventAssignment.test.ts`:
+    - Added tests 10–14 covering pending invitation exclusion, reassignment to another manager, invalid ID validation, 404 for nonexistent manager, and idempotent reassignment.
+  - `backend/tests/managerControlCenter.test.ts`:
+    - Added tests 9–11 verifying manager event isolation (`/api/manager/events`), dashboard metrics calculation (`/api/manager/dashboard`), and RBAC protection against unauthenticated/unauthorized roles.
+  - `backend/tests/payments.test.ts`:
+    - Resolved pre-existing dynamic date discrepancy in test 55 while preserving October 16 due date required by test 59.
+  - `frontend/src/features/events/eventsApi.ts`:
+    - Added `AvailableManager` interface, `getAvailableManagers(eventId)`, and `assignEventManager(eventId, managerId)`.
+  - `frontend/src/features/manager/managerApi.ts`:
+    - Enriched `ManagerEvent` interface with client contact, coordinates, and operational details; added `getManagerEventById(id)`.
+  - `frontend/src/pages/admin/AdminEventDetails.tsx`:
+    - Added manager assignment status card and modal with live eligible manager retrieval, radio selection, and feedback.
+  - `frontend/src/pages/manager/ManagerDashboard.tsx`:
+    - Enhanced dashboard with metric cards (`Total Assigned`, `Upcoming`, `In Progress`, `Completed`), preserved empty state, and event cards linking to details.
+  - `frontend/src/pages/manager/ManagerEventList.tsx`:
+    - Created dedicated assigned events list with status filtering tabs (`All`, `Confirmed`, `In Progress`, `Completed`), search filter, and cards.
+  - `frontend/src/pages/manager/ManagerEventDetails.tsx`:
+    - Created operational event details page with schedule, host contact info, venue map via `ReadOnlyMap`, service preferences, notes, and 403 authorization guard.
+  - `frontend/src/layouts/ManagerLayout.tsx`:
+    - Added "Assigned Events" navigation link with `CalendarDays` icon.
+  - `frontend/src/routes/AppRoutes.tsx`:
+    - Mounted `/manager/events` and `/manager/events/:id` within `ManagerLayout`.
+  - `frontend/src/tests/managerDashboard.test.tsx`:
+    - Updated test mock for `getDashboardStats`.
+  - `frontend/src/tests/managerEventDetails.test.tsx`:
+    - Created tests for operational details rendering, 403 Forbidden access denial, and 404 handling.
+  - `frontend/src/tests/managerEventList.test.tsx`:
+    - Created tests for list rendering, status filtering tabs, text search, and empty state.
+  - `frontend/src/tests/adminEventAssignment.test.tsx`:
+    - Created tests for Admin Event Manager assignment modal, eligible manager selection, and API submission.
+- **Database Schema**:
+  - Reused existing `Event` (`eventManagerId`) and `User` models; no new database models or collections introduced.
+- **API Contracts**:
+  - `GET /api/admin/events/:id/available-managers`: Admin-only; returns active, activated event managers without time overlaps.
+  - `PATCH /api/admin/events/:id/manager`: Admin-only; validates eligibility and assigns manager atomically.
+  - `GET /api/manager/dashboard`: Event Manager only; returns aggregate stats for authenticated manager.
+  - `GET /api/manager/events`: Event Manager only; returns assigned events with safe projection.
+  - `GET /api/manager/events/:id`: Event Manager only; validates ownership and returns operational event details.
+- **Security Guarantees**:
+  - Strict server-side authoritative validation: frontend eligibility state is never trusted.
+  - Data isolation: Managers can only view their own events; unauthorized access returns 403 Forbidden.
+  - Safe projection: Quotation profit margins, gateway tokens, and worker payroll details are omitted.
+  - Work Requirements Management is strictly deferred to future milestones.
+- **Verification & Test Results**:
+  - Backend Test Suite (`npm test`): 343/343 passing across 37 suites, exit code 0.
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Frontend Lint (`npm run lint`): 29 pre-existing warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 46/46 passing across 8 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 9.87s, exit code 0.
+
 
 
 

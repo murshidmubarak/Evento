@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getEventById } from '../../features/events/eventsApi';
+import {
+  getEventById,
+  getAvailableManagers,
+  assignEventManager,
+  type AvailableManager,
+} from '../../features/events/eventsApi';
 import { getQuotations } from '../../features/quotations/quotationApi';
 import type { ClientEvent } from '../../features/events/event.types';
 import type { Quotation } from '../../features/quotations/quotation.types';
@@ -29,6 +34,10 @@ import {
   History,
   X,
   Bell,
+  UserPlus,
+  UserCheck,
+  Search,
+  Ban,
 } from 'lucide-react';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
 import { getAdvanceSummary, renewPaymentLink } from '../../features/payments/paymentsApi';
@@ -52,6 +61,17 @@ export const AdminEventDetails = () => {
   const [renewalErrorMsg, setRenewalErrorMsg] = useState('');
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [expandedHistoryIdx, setExpandedHistoryIdx] = useState<number | null>(null);
+
+  // Manager Assignment Modal State
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [availableManagers, setAvailableManagers] = useState<AvailableManager[]>([]);
+  const [isLoadingManagers, setIsLoadingManagers] = useState(false);
+  const [managersError, setManagersError] = useState('');
+  const [selectedManagerId, setSelectedManagerId] = useState('');
+  const [managerSearchQuery, setManagerSearchQuery] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignSuccessMsg, setAssignSuccessMsg] = useState('');
+  const [assignErrorMsg, setAssignErrorMsg] = useState('');
 
   useEffect(() => {
     const fetchEventData = async () => {
@@ -163,6 +183,50 @@ export const AdminEventDetails = () => {
     navigator.clipboard.writeText(url);
     setCopiedLinkId(linkId);
     setTimeout(() => setCopiedLinkId(null), 2000);
+  };
+
+  const handleOpenAssignModal = async () => {
+    if (!id) return;
+    setIsAssignModalOpen(true);
+    setIsLoadingManagers(true);
+    setManagersError('');
+    setAssignSuccessMsg('');
+    setAssignErrorMsg('');
+    setManagerSearchQuery('');
+    setSelectedManagerId((event?.eventManagerId as any)?._id || (event?.eventManagerId as string) || '');
+    try {
+      const managers = await getAvailableManagers(id);
+      setAvailableManagers(managers);
+    } catch (err: any) {
+      setManagersError(err.response?.data?.message || 'Failed to fetch available managers.');
+    } finally {
+      setIsLoadingManagers(false);
+    }
+  };
+
+  const handleConfirmAssignment = async () => {
+    if (!id || !selectedManagerId) return;
+    const targetManager = availableManagers.find((m) => m._id === selectedManagerId);
+    if (targetManager?.isOverlapping) {
+      setAssignErrorMsg('Cannot assign this manager: there is a time conflict with another event.');
+      return;
+    }
+    try {
+      setIsAssigning(true);
+      setAssignErrorMsg('');
+      setAssignSuccessMsg('');
+      const updatedEvent = await assignEventManager(id, selectedManagerId);
+      setEvent(updatedEvent);
+      setAssignSuccessMsg('Event Manager assigned successfully!');
+      setTimeout(() => {
+        setIsAssignModalOpen(false);
+        setAssignSuccessMsg('');
+      }, 1200);
+    } catch (err: any) {
+      setAssignErrorMsg(err.response?.data?.message || 'Failed to assign manager.');
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   return (
@@ -839,23 +903,66 @@ export const AdminEventDetails = () => {
 
           {/* Manager Info */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-sm font-bold text-gray-900">Event Manager</h3>
+            <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-emerald-600" />
+                Event Manager
+              </h3>
+              {manager && (
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider rounded border border-emerald-200">
+                  Assigned
+                </span>
+              )}
             </div>
-            <div className="p-5">
+            <div className="p-5 space-y-4">
               {manager ? (
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0 border border-emerald-100">
-                    <Building2 className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">{manager.name}</p>
-                    <p className="text-xs text-gray-500">{manager.email}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0 border border-emerald-100 font-bold text-emerald-700">
+                      {manager.name?.charAt(0)?.toUpperCase() || 'M'}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900">{manager.name}</p>
+                      <p className="text-xs text-gray-500">{manager.email}</p>
+                      {manager.businessId && (
+                        <span className="inline-block mt-1 font-mono text-[10px] font-bold px-1.5 py-0.2 bg-gray-100 text-gray-700 rounded border border-gray-200">
+                          EM-{manager.businessId}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
                   <p className="text-sm font-medium text-gray-500">Not Assigned Yet</p>
+                  {event.status === 'requested' || event.status === 'quoted' || event.status === 'awaiting_payment' ? (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Manager assignment is enabled once the event is confirmed.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+
+              {/* Assignment / Reassignment Action Button */}
+              {(event.status === 'confirmed' || event.status === 'in_progress') && (
+                <div className="pt-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={handleOpenAssignModal}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                  >
+                    {manager ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Reassign Event Manager
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Assign Event Manager
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
@@ -863,6 +970,325 @@ export const AdminEventDetails = () => {
 
         </div>
       </div>
+
+      {/* Manager Assignment Modal */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-gray-200 space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-gray-900">
+                  {manager ? 'Reassign Event Manager' : 'Assign Event Manager'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {event.title} • {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {event.startTime} – {event.endTime}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignModalOpen(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            {isLoadingManagers ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <Loader2 className="w-8 h-8 text-emerald-600 animate-spin mb-3" />
+                <p className="text-sm font-semibold text-gray-700">Checking Available Event Managers...</p>
+                <p className="text-xs text-gray-400 mt-1">Filtering out busy managers with overlapping events.</p>
+              </div>
+            ) : managersError ? (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-red-700 text-xs font-semibold">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{managersError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenAssignModal}
+                  className="text-xs font-bold text-red-700 underline hover:text-red-900"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : availableManagers.length === 0 ? (
+              <div className="py-8 px-4 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-2">
+                <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
+                <h4 className="text-sm font-bold text-amber-900">No Eligible Managers Available</h4>
+                <p className="text-xs text-amber-700 max-w-sm mx-auto">
+                  All active event managers currently have overlapping confirmed events during this event's time slot ({event.startTime} – {event.endTime}) or are pending account setup.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-gray-700">
+                    Select an Event Manager ({availableManagers.filter((m) => !m.isOverlapping).length} eligible)
+                  </label>
+                  {managerSearchQuery && (
+                    <span className="text-[11px] text-gray-500 font-medium">
+                      Showing {availableManagers.filter((m) => {
+                        const q = managerSearchQuery.toLowerCase().trim();
+                        return (
+                          m.name?.toLowerCase().includes(q) ||
+                          m.email?.toLowerCase().includes(q) ||
+                          m.businessId?.toLowerCase().includes(q) ||
+                          `em-${m.businessId}`.toLowerCase().includes(q) ||
+                          m._id?.toLowerCase().includes(q)
+                        );
+                      }).length} of {availableManagers.length}
+                    </span>
+                  )}
+                </div>
+
+                {/* Search Bar & Action Button */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search manager by ID (e.g. EM-1001) or name..."
+                      value={managerSearchQuery}
+                      onChange={(e) => setManagerSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                    {managerSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setManagerSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
+                        title="Clear search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {}}
+                    className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Search className="w-3.5 h-3.5 text-gray-600" />
+                    <span>Search</span>
+                  </button>
+                </div>
+
+                {/* List of Managers */}
+                {(() => {
+                  const filtered = availableManagers.filter((m) => {
+                    if (!managerSearchQuery.trim()) return true;
+                    const q = managerSearchQuery.toLowerCase().trim();
+                    return (
+                      m.name?.toLowerCase().includes(q) ||
+                      m.email?.toLowerCase().includes(q) ||
+                      m.businessId?.toLowerCase().includes(q) ||
+                      `em-${m.businessId}`.toLowerCase().includes(q) ||
+                      m._id?.toLowerCase().includes(q)
+                    );
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-xs text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                        <p className="font-semibold text-gray-700">No managers found matching "{managerSearchQuery}"</p>
+                        <button
+                          type="button"
+                          onClick={() => setManagerSearchQuery('')}
+                          className="mt-2 text-xs font-bold text-emerald-600 hover:underline cursor-pointer"
+                        >
+                          Clear Search
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                      {filtered.map((m) => {
+                        const isSelected = selectedManagerId === m._id;
+                        const isBusy = Boolean(m.isOverlapping);
+
+                        return (
+                          <div
+                            key={m._id}
+                            onClick={() => {
+                              if (!isBusy) {
+                                setSelectedManagerId(m._id);
+                              }
+                            }}
+                            className={`p-3.5 rounded-xl border transition-all ${
+                              isBusy
+                                ? 'bg-rose-50/25 border-rose-200/70 opacity-80 cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20 cursor-pointer'
+                                : 'bg-gray-50 hover:bg-gray-100/80 border-gray-200 cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-bold text-xs ${
+                                    isBusy
+                                      ? 'bg-rose-100 text-rose-700'
+                                      : isSelected
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-gray-200 text-gray-700'
+                                  }`}
+                                >
+                                  {m.name?.charAt(0)?.toUpperCase() || 'M'}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-gray-900 truncate">{m.name}</span>
+                                    {m.businessId && (
+                                      <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 bg-white text-gray-600 rounded border border-gray-200">
+                                        EM-{m.businessId}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-gray-500 truncate">{m.email}</p>
+                                </div>
+                              </div>
+
+                              {/* Manager Selection Button */}
+                              <div className="shrink-0">
+                                {isBusy ? (
+                                  <button
+                                    type="button"
+                                    disabled
+                                    aria-disabled="true"
+                                    title="Selection disabled: Manager has an overlapping event at this time"
+                                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-200/90 text-gray-500 border border-gray-300 cursor-not-allowed opacity-80 shadow-none flex items-center gap-1.5"
+                                  >
+                                    <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                    <span>Disabled</span>
+                                  </button>
+                                ) : isSelected ? (
+                                  <button
+                                    type="button"
+                                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow-xs flex items-center gap-1.5"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Selected</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedManagerId(m._id);
+                                    }}
+                                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 hover:text-emerald-800 border border-emerald-300 hover:border-emerald-400 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    Select
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Same-day schedule warning / status */}
+                            {isBusy ? (
+                              <div className="mt-2.5 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 text-rose-600 mt-0.5 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-bold text-[11px] text-rose-900">
+                                    Conflict: This manager has work at the same time ({event.startTime} – {event.endTime}):
+                                  </p>
+                                  <div className="mt-1 space-y-0.5 text-[11px] text-rose-700">
+                                    {m.sameDayAssignments?.map((a, i) => (
+                                      <p key={i} className="truncate">
+                                        • {a.startTime} – {a.endTime} ({a.title})
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : m.hasWorkOnDay && m.sameDayAssignments && m.sameDayAssignments.length > 0 ? (
+                              <div className="mt-2.5 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-bold text-[11px] text-amber-900">
+                                    This manager has work on this day:
+                                  </p>
+                                  <div className="mt-1 space-y-0.5 text-[11px] text-amber-800">
+                                    {m.sameDayAssignments.map((a, i) => (
+                                      <p key={i} className="truncate">
+                                        • {a.startTime} – {a.endTime} ({a.title})
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-2 text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Free all day (No other events scheduled)</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Success & Error Feedback */}
+            {assignSuccessMsg && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{assignSuccessMsg}</span>
+              </div>
+            )}
+
+            {assignErrorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{assignErrorMsg}</span>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsAssignModalOpen(false)}
+                disabled={isAssigning}
+                className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAssignment}
+                disabled={
+                  isAssigning ||
+                  !selectedManagerId ||
+                  Boolean(availableManagers.find((m) => m._id === selectedManagerId)?.isOverlapping) ||
+                  availableManagers.length === 0
+                }
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-xs cursor-pointer"
+              >
+                {isAssigning ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Assigning...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Confirm Assignment</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

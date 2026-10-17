@@ -850,40 +850,97 @@ Base:
 GET /api/admin/events/:id/available-managers
 
 Access:
-Admin
+Protected (Admin Only — `authenticate`, `authorize('admin')`)
+
+Validation:
+- `:id` must be a valid 24-character hexadecimal MongoDB ObjectId.
 
 Purpose:
 Get a list of active Event Managers who are available (no overlapping event assignments) for the requested event time.
+- Excludes pending-invitation managers (`invitationTokenHash` exists).
+- Excludes inactive managers (`isActive: false`).
+- Excludes managers with overlapping confirmed/in_progress events on the event date.
+- Requires event status to be `confirmed` or `in_progress`.
 
-## Assign Event Manager
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "availableManagers": [
+      {
+        "_id": "60d5ec49f1b2c8b1f8e4e1a1",
+        "name": "Suresh Kumar",
+        "email": "suresh@eventops.com",
+        "phone": "9876543210",
+        "businessId": 1002
+      }
+    ]
+  }
+}
+```
+
+Error Responses:
+- 400 Bad Request: Invalid event ID, or event status not permitted (`status` not in `['confirmed', 'in_progress']`).
+- 401 Unauthorized: Unauthenticated request.
+- 403 Forbidden: Insufficient role permissions.
+- 404 Not Found: Event record not found.
+
+---
+
+## Assign / Reassign Event Manager
 
 PATCH /api/admin/events/:id/manager
 
 Access:
-Admin
+Protected (Admin Only — `authenticate`, `authorize('admin')`)
 
-Request:
+Validation:
+- `:id` must be a valid MongoDB ObjectId.
+- `eventManagerId` in request body must be a valid MongoDB ObjectId.
 
+Request Body:
+```json
 {
-  eventManagerId
+  "eventManagerId": "60d5ec49f1b2c8b1f8e4e1a1"
 }
+```
 
 Rules:
+- Requesting user must be authorized Admin.
+- Event must exist and have status `confirmed` or `in_progress`.
+- Target account must exist, have role `event_manager`, `isActive: true`, and have completed password setup (no pending invitation).
+- Target manager must not have overlapping assignments during `startTime` – `endTime` on the event date.
+- Reassignment to another eligible manager is supported; reassignment to same manager is idempotent.
+- Atomic conditional update with post-write collision rollback protects against concurrent race conditions.
 
-- Event must be confirmed.
-- Selected user must have role = event_manager.
-- Admin controls Event Manager assignment.
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Event manager assigned successfully",
+  "data": {
+    "event": {
+      "_id": "60d5ec49f1b2c8b1f8e4e100",
+      "title": "Corporate Gala 2026",
+      "status": "confirmed",
+      "eventManagerId": {
+        "_id": "60d5ec49f1b2c8b1f8e4e1a1",
+        "name": "Suresh Kumar",
+        "email": "suresh@eventops.com",
+        "phone": "9876543210"
+      }
+    }
+  }
+}
+```
 
-
-## Change Event Manager
-
-PATCH /api/admin/events/:id/manager
-
-Access:
-Admin
-
-Purpose:
-Change the assigned Event Manager.
+Error Responses:
+- 400 Bad Request: Invalid ID format, missing `eventManagerId`, event status not permitted, target user is not `event_manager`, target manager is inactive or pending invitation setup.
+- 401 Unauthorized: Missing/invalid authentication token.
+- 403 Forbidden: Non-admin role.
+- 404 Not Found: Event or Manager account not found.
+- 409 Conflict: Target manager is already assigned to an overlapping event during this time window.
 
 
 # 10. Recruitment APIs
@@ -2365,17 +2422,61 @@ GET /api/manager/events
 Access:
 Protected (Event Manager Only — `authenticate`, `authorize('event_manager')`)
 
-Purpose:
-Returns events specifically assigned to the authenticated Event Manager (`assignedManagerId == req.user.id`).
+Query Parameters (Optional):
+- `status`: Filter by event status (`confirmed`, `in_progress`, `completed`)
+- `date`: Filter by single date (`YYYY-MM-DD`)
+- `startDate`, `endDate`: Filter by date range
 
-Response (200 OK — Empty State when no events assigned):
+Purpose:
+Returns events specifically assigned to the authenticated Event Manager (`eventManagerId == req.user.id`).
+Preserves client contact information (`name`, `email`, `phone`) without exposing sensitive quotation pricing or payment credentials.
+
+Response (200 OK):
 ```json
 {
   "success": true,
-  "data": []
+  "data": {
+    "events": [
+      {
+        "_id": "60d5ec49f1b2c8b1f8e4e100",
+        "title": "Grand Annual Gala 2026",
+        "eventType": "Corporate",
+        "date": "2026-11-20T00:00:00.000Z",
+        "startTime": "18:00",
+        "endTime": "23:00",
+        "guestCount": 250,
+        "status": "confirmed",
+        "location": {
+          "address": "Grand Palace Hall, Mumbai",
+          "coordinates": { "lat": 19.076, "lng": 72.8777 }
+        },
+        "clientId": {
+          "_id": "60d5ec49f1b2c8b1f8e4e099",
+          "name": "Acme Corp",
+          "email": "contact@acme.com",
+          "phone": "9876543210"
+        }
+      }
+    ]
+  }
 }
 ```
 
+Response (200 OK — Empty State):
+```json
+{
+  "success": true,
+  "data": {
+    "events": []
+  }
+}
+```
+
+Error Responses:
+- 401 Unauthorized: Authentication required.
+- 403 Forbidden: Insufficient permissions (non-manager role).
+
+---
 
 ## 4. Event Manager Dashboard Statistics
 
@@ -2384,18 +2485,92 @@ GET /api/manager/dashboard
 Access:
 Protected (Event Manager Only — `authenticate`, `authorize('event_manager')`)
 
+Purpose:
+Aggregates operational metrics for events assigned to the authenticated manager (`eventManagerId == req.user.id`).
+
 Response (200 OK):
 ```json
 {
   "success": true,
   "data": {
-    "totalAssigned": 0,
-    "inProgress": 0,
-    "completed": 0,
-    "upcoming": 0
+    "stats": {
+      "totalAssigned": 4,
+      "upcoming": 2,
+      "ongoing": 1,
+      "completed": 1
+    }
   }
 }
 ```
+
+Error Responses:
+- 401 Unauthorized: Authentication required.
+- 403 Forbidden: Insufficient permissions.
+
+---
+
+## 5. Event Manager Single Event Operational Details
+
+GET /api/manager/events/:id
+
+Access:
+Protected (Event Manager Only — `authenticate`, `authorize('event_manager')`)
+
+Validation:
+- `:id` must be a valid 24-character hexadecimal MongoDB ObjectId.
+
+Purpose:
+Fetches permitted operational details for an event assigned to the authenticated manager.
+Strict authorization: If `event.eventManagerId !== req.user.id`, the backend rejects with 403 Forbidden.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "event": {
+      "_id": "60d5ec49f1b2c8b1f8e4e100",
+      "title": "Grand Annual Gala 2026",
+      "eventType": "Corporate",
+      "date": "2026-11-20T00:00:00.000Z",
+      "startTime": "18:00",
+      "endTime": "23:00",
+      "guestCount": 250,
+      "status": "confirmed",
+      "location": {
+        "address": "Grand Palace Hall, Mumbai",
+        "coordinates": { "lat": 19.076, "lng": 72.8777 }
+      },
+      "clientId": {
+        "_id": "60d5ec49f1b2c8b1f8e4e099",
+        "name": "Acme Corp",
+        "email": "contact@acme.com",
+        "phone": "9876543210"
+      },
+      "selectedServices": [
+        {
+          "serviceId": {
+            "_id": "60d5ec49f1b2c8b1f8e4e001",
+            "name": "Catering Service",
+            "category": "Catering"
+          },
+          "preferences": {
+            "dietary": "Vegetarian and Vegan options",
+            "serviceMode": ["Buffet"]
+          }
+        }
+      ],
+      "notes": "Ensure stage microphones are checked 30 minutes prior."
+    }
+  }
+}
+```
+
+Error Responses:
+- 400 Bad Request: Invalid event ID format.
+- 401 Unauthorized: Missing or expired token.
+- 403 Forbidden: Authenticated manager is not assigned to this event ("You do not have permission to access this event").
+- 404 Not Found: Event record not found.
 
 
 

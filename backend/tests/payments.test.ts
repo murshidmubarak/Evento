@@ -1048,7 +1048,7 @@ describe('Payments API', () => {
       const inst1 = schedBody.data.installments[1];
       assert.equal(inst1.paidAmount, 200000);
       assert.equal(inst1.outstandingAmount, 72000);
-      assert.equal(inst1.status, 'Partially Paid');
+      assert.equal(inst1.baseStatus, 'Partially Paid');
       assert.equal(inst1.isEligibleForPayment, true);
     });
 
