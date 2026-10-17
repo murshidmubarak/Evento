@@ -10,6 +10,8 @@ export interface User {
   workerType?: string;
   businessId?: string;
   isActive: boolean;
+  emailVerified?: boolean;
+  invitationAcceptedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

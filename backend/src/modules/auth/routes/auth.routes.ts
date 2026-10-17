@@ -1,6 +1,15 @@
 import { Router } from 'express';
 import { UserController } from '../controller/user.controller.js';
-import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword, validateProfileUpdate, validateVerifyEmailOtp, validateResendVerificationOtp } from '../validation/user.validation.js';
+import {
+  validateRegistration,
+  validateLogin,
+  validateForgotPassword,
+  validateResetPassword,
+  validateProfileUpdate,
+  validateVerifyEmailOtp,
+  validateResendVerificationOtp,
+  validateAcceptInvitation,
+} from '../validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -68,5 +77,19 @@ router.post('/verify-email-otp', validateVerifyEmailOtp, userController.verifyEm
  * @access  Public
  */
 router.post('/resend-verification-otp', validateResendVerificationOtp, userController.resendVerificationOtp);
+
+/**
+ * @route   GET /api/auth/invitation/:token
+ * @desc    Verify invitation token and return recipient metadata
+ * @access  Public
+ */
+router.get('/invitation/:token', userController.getInvitationDetails);
+
+/**
+ * @route   POST /api/auth/accept-invitation
+ * @desc    Accept invitation and set password
+ * @access  Public
+ */
+router.post('/accept-invitation', validateAcceptInvitation, userController.acceptInvitation);
 
 export default router;

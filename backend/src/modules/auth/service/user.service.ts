@@ -17,6 +17,19 @@ export interface RegisterUserDto {
   role?: string;
 }
 
+export interface CreateEventManagerDto {
+  name: string;
+  email: string;
+  phone?: string;
+  profileImage?: string;
+  password?: string;
+}
+
+export interface AcceptInvitationDto {
+  token: string;
+  password: string;
+}
+
 export interface LoginUserDto {
   email: string;
   password: string;
@@ -177,6 +190,9 @@ export class UserService {
 
     // 3. Check account active status
     if (!user.isActive) {
+      if (user.role === 'event_manager' && !user.emailVerified) {
+        throw ApiError.unauthorized('Your account is pending activation. Please accept your invitation email to set your password.');
+      }
       throw ApiError.unauthorized('Account is inactive. Please contact support.');
     }
 
@@ -364,12 +380,14 @@ export class UserService {
    * Business Rules:
    * 1. Normalizes email (lowercase, trim).
    * 2. Checks if email is already registered; throws 409 Conflict if so.
-   * 3. Hashes password using bcrypt.
-   * 4. Forces user role to 'event_manager'.
-   * 5. Saves user via UserRepository.
-   * 6. Returns sanitized user data omitting password.
+   * 3. Allocates business ID in category range (1000–1999).
+   * 4. Generates a cryptographically secure random invitation token (hashed at rest with SHA-256).
+   * 5. Forces role to 'event_manager', isActive: false (pending invitation), emailVerified: false.
+   * 6. Dispatches invitation email via EmailService.
+   * 7. Saves user via UserRepository.
+   * 8. Returns sanitized user data omitting password and tokens.
    */
-  async createEventManager(dto: RegisterUserDto): Promise<SafeUser> {
+  async createEventManager(dto: CreateEventManagerDto): Promise<SafeUser> {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
     // 1. Check duplicate email
@@ -378,28 +396,149 @@ export class UserService {
       throw ApiError.conflict('Email is already registered');
     }
 
-    // 2. Hash password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+    // 2. Generate cryptographically secure one-time invitation token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + env.invitationTokenExpiresInHours * 3600 * 1000);
 
-    // 3. Prepare payload with forced role 'event_manager'
+    // 3. Generate a secure random password placeholder to satisfy model/hash invariants
+    const tempPassword = dto.password || crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    // 4. Prepare payload with forced role 'event_manager' and pending activation state
     const userData: Partial<IUser> = {
       name: dto.name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
       phone: dto.phone?.trim(),
       profileImage: dto.profileImage?.trim(),
-      role: 'event_manager', // Backend is source of truth — force role to 'event_manager'
+      role: 'event_manager',
       businessId: await this.businessIdService.generateBusinessId('event_manager'),
-      isActive: true,
-      emailVerified: true,
+      isActive: false, // Inactive until invitation accepted and password set
+      emailVerified: false,
+      invitationTokenHash: tokenHash,
+      invitationTokenExpiresAt: expiresAt,
     };
 
-    // 4. Save via repository
+    // 5. Save via repository
     const createdUser = await this.userRepository.create(userData);
 
-    // 5. Return safe user data
+    // 6. Send invitation email
+    const invitationUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
+    try {
+      await emailService.sendInvitationEmail({
+        to: normalizedEmail,
+        name: dto.name.trim(),
+        role: 'Event Manager',
+        invitationUrl,
+        expiresAt,
+      });
+    } catch (error) {
+      console.error('[UserService] Failed to send invitation email on manager creation:', error);
+      // Account creation still succeeds in pending state; Admin can resend
+    }
+
+    // 7. Return safe user data
     return this.toSafeUser(createdUser);
+  }
+
+  /**
+   * Admin resends an invitation email to a pending Event Manager.
+   */
+  async resendEventManagerInvitation(managerId: string): Promise<{ success: boolean; message: string }> {
+    const manager = await this.userRepository.findById(managerId);
+    if (!manager) {
+      throw ApiError.notFound('Event Manager not found');
+    }
+
+    if (manager.role !== 'event_manager') {
+      throw ApiError.forbidden('User is not an Event Manager');
+    }
+
+    if (manager.isActive && manager.emailVerified) {
+      throw ApiError.badRequest('This Event Manager account is already active.');
+    }
+
+    // Generate fresh secure token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + env.invitationTokenExpiresInHours * 3600 * 1000);
+
+    await this.userRepository.updateInvitationToken(manager._id.toString(), tokenHash, expiresAt);
+
+    const invitationUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
+    await emailService.sendInvitationEmail({
+      to: manager.email,
+      name: manager.name,
+      role: 'Event Manager',
+      invitationUrl,
+      expiresAt,
+    });
+
+    return {
+      success: true,
+      message: 'Invitation resent successfully',
+    };
+  }
+
+  /**
+   * Retrieves public invitation metadata (name, email) for valid, unexpired token.
+   */
+  async getInvitationDetails(token: string): Promise<{ name: string; email: string; role: string }> {
+    if (!token || typeof token !== 'string') {
+      throw ApiError.badRequest('Invitation token is required');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const user = await this.userRepository.findByInvitationTokenHash(tokenHash);
+
+    if (!user) {
+      throw ApiError.badRequest('This invitation link is invalid or has expired. Please contact your administrator for a new invitation link.');
+    }
+
+    if (user.role !== 'event_manager') {
+      throw ApiError.forbidden('Invalid invitation purpose');
+    }
+
+    return {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
+  }
+
+  /**
+   * Accepts invitation and sets the manager's initial password.
+   */
+  async acceptInvitation(dto: AcceptInvitationDto): Promise<SafeUser> {
+    const { token, password } = dto;
+    if (!token || typeof token !== 'string') {
+      throw ApiError.badRequest('Invitation token is required');
+    }
+
+    if (!password || password.length < 6) {
+      throw ApiError.badRequest('Password must be at least 6 characters long.');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const user = await this.userRepository.findByInvitationTokenHash(tokenHash);
+
+    if (!user) {
+      throw ApiError.badRequest('This invitation link is invalid or has expired. Please contact your administrator for a new invitation link.');
+    }
+
+    if (user.role !== 'event_manager') {
+      throw ApiError.forbidden('Invalid invitation purpose');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const updatedUser = await this.userRepository.acceptInvitation(user._id.toString(), hashedPassword);
+
+    if (!updatedUser) {
+      throw ApiError.internal('Failed to activate account');
+    }
+
+    return this.toSafeUser(updatedUser);
   }
 
   /**

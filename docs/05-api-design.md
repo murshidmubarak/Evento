@@ -2202,14 +2202,13 @@ Access:
 Protected (Admin Only — `authenticate`, `authorize('admin')`)
 
 Purpose:
-Authorized Admin provisions a new Event Manager account. The role `event_manager` is strictly enforced by the backend handler, initial password is verified (min 6 characters) and hashed using bcrypt (10 salt rounds), and business ID is atomically assigned from the counter collection in the range 1000–1999.
+Authorized Admin provisions a new Event Manager account. The role `event_manager` is strictly enforced by the backend handler, initial status is `isActive: false` and `emailVerified: false`, and business ID is atomically assigned from the counter collection in the range 1000–1999. A cryptographically secure 32-byte token is generated, hashed with SHA-256 for persistence at rest with a 24-hour expiration, and an onboarding invitation email is dispatched to the manager containing a setup link.
 
 Request Body:
 ```json
 {
   "name": "Arun Kumar",
   "email": "arun@eventops.com",
-  "password": "SecurePassword123",
   "phone": "+91 99999 88888"
 }
 ```
@@ -2225,8 +2224,8 @@ Response (201 Created):
     "role": "event_manager",
     "businessId": "1002",
     "phone": "+91 99999 88888",
-    "isActive": true,
-    "emailVerified": true,
+    "isActive": false,
+    "emailVerified": false,
     "createdAt": "2026-10-16T00:00:00.000Z",
     "updatedAt": "2026-10-16T00:00:00.000Z"
   }
@@ -2234,10 +2233,92 @@ Response (201 Created):
 ```
 
 Errors:
-- 400 Bad Request: Missing or invalid required fields (name, email format, password < 6 chars).
+- 400 Bad Request: Missing or invalid required fields (name, email format).
 - 401 Unauthorized: Missing or invalid JWT Bearer token.
 - 403 Forbidden: Authenticated user is not an Admin.
 - 409 Conflict: A user with this email address already exists.
+
+
+## 1.1 Resend Event Manager Invitation
+
+POST /api/users/event-managers/:id/resend-invitation
+
+Access:
+Protected (Admin Only — `authenticate`, `authorize('admin')`)
+
+Purpose:
+Authorized Admin resends an invitation email to a pending Event Manager whose invitation has expired or needs re-dispatching. Verifies account is not already active, generates a new secure 32-byte token, supersedes previous token hash, refreshes expiration to 24 hours, and sends a new invitation email.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Invitation email resent successfully."
+}
+```
+
+Errors:
+- 400 Bad Request: Account is already active (`isActive: true`).
+- 401 Unauthorized: Missing or invalid JWT.
+- 403 Forbidden: Requester is not an Admin.
+- 404 Not Found: Event Manager account not found.
+
+
+## 1.2 Validate Invitation Token
+
+GET /api/auth/invitation/:token
+
+Access:
+Public
+
+Purpose:
+Validates the invitation token on page load when the Event Manager opens `/accept-invitation?token=...`. Verifies token hash exists, expiration has not passed, account is not already active, and role is `event_manager`. Returns authorized recipient information for display.
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "data": {
+    "name": "Arun Kumar",
+    "email": "arun@eventops.com",
+    "role": "event_manager"
+  }
+}
+```
+
+Errors:
+- 400 Bad Request: Missing token, invalid token, or expired token.
+
+
+## 1.3 Accept Invitation & Password Setup
+
+POST /api/auth/accept-invitation
+
+Access:
+Public
+
+Purpose:
+Invited Event Manager establishes their account password. Verifies token entropy, expiration, and role eligibility. Hashes password using bcrypt (10 salt rounds), activates the account (`isActive: true`), marks email verified (`emailVerified: true`), unsets token hash at rest (preventing single-use replay), and records `invitationAcceptedAt`.
+
+Request Body:
+```json
+{
+  "token": "a73e0acafe67bcc76170a5f93a097e7a9147acaf3da54077071f02b6de538928",
+  "password": "NewManagerPassword123",
+  "confirmPassword": "NewManagerPassword123"
+}
+```
+
+Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Account activated successfully. You can now log in."
+}
+```
+
+Errors:
+- 400 Bad Request: Invalid/expired token, password under 6 characters, or password confirmation mismatch.
 
 
 ## 2. List Users (with Role Filter)

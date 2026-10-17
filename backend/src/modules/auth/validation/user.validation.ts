@@ -220,3 +220,53 @@ export const validateResendVerificationOtp = (req: Request, _res: Response, next
 
   next();
 };
+
+export const validateEventManagerCreation = (req: Request, _res: Response, next: NextFunction): void => {
+  const { name, email, phone } = req.body;
+  const errors: string[] = [];
+
+  // Validate Name
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    errors.push('Name is required and must be a non-empty string');
+  }
+
+  // Validate Email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
+    errors.push('A valid email address is required');
+  }
+
+  // Validate Phone (optional)
+  if (phone !== undefined && phone !== null && typeof phone !== 'string') {
+    errors.push('Phone must be a valid string');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+export const validateAcceptInvitation = (req: Request, _res: Response, next: NextFunction): void => {
+  const { token, password, confirmPassword } = req.body;
+  const errors: string[] = [];
+
+  if (!token || typeof token !== 'string' || token.trim().length === 0) {
+    errors.push('Invitation token is required');
+  }
+
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    errors.push('Password must be at least 6 characters long');
+  }
+
+  if (confirmPassword !== undefined && password !== confirmPassword) {
+    errors.push('Passwords do not match');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

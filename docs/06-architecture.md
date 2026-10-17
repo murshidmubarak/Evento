@@ -1282,24 +1282,45 @@ Admin Browser (AdminEventManagers.tsx)
     │   UserService.createEventManager()
     │       ├── Forces role = 'event_manager'
     │       ├── Generates Business ID (counter range 1000–1999)
-    │       ├── Hashes password (bcrypt, 10 salt rounds)
-    │       └── Sets isActive = true, emailVerified = true
+    │       ├── Generates temporary unusable password hash
+    │       ├── Sets isActive = false, emailVerified = false
+    │       ├── Generates cryptographically secure 32-byte token
+    │       ├── Hashes token with SHA-256 for persistence at rest
+    │       ├── Sets 24-hour expiration (invitationTokenExpiresAt)
+    │       └── EmailService.sendInvitationEmail() (Dispatches /accept-invitation?token=...)
     │       ▼
     │   UserRepository.create() ──► MongoDB (User Model)
     │       ▼
-    │   Returns safe User object (passwords/hashes stripped)
+    │   Returns safe User object (passwords/hashes/tokens stripped)
     │
-    └── (2) GET /api/users?role=event_manager
+    ├── (2) POST /api/users/event-managers/:id/resend-invitation
+    │       ▼
+    │   Generates fresh token, supersedes old token hash, refreshes expiration, dispatches email
+    │
+    └── (3) GET /api/users?role=event_manager
             ▼
-        UserRepository.findUsers({ role: 'event_manager' }) ──► Displays active managers
+        UserRepository.findUsers({ role: 'event_manager' }) ──► Displays managers & pending states
 
-Manager Browser (/login -> /manager)
+Manager Browser (/accept-invitation?token=... -> /login -> /manager)
     │
-    ├── (1) POST /api/auth/login ──► Returns JWT with role = 'event_manager'
+    ├── (1) GET /api/auth/invitation/:token
+    │       ▼
+    │   Validates token hash, checks 24h expiration, verifies role & non-active status
+    │   Returns recipient details (name, email, role)
+    │
+    ├── (2) POST /api/auth/accept-invitation (Payload: token, password, confirmPassword)
+    │       ▼
+    │   Validates token and password (min 6 characters)
+    │   Hashes password with bcrypt (10 salt rounds)
+    │   Activates account (isActive = true, emailVerified = true)
+    │   Invalidates token at rest ($unset invitationTokenHash, records invitationAcceptedAt)
+    │
+    ├── (3) POST /api/auth/login ──► Returns JWT with role = 'event_manager'
     │       ▼
     │   Frontend Redux authSlice & Login.tsx redirects to '/manager'
+    │   (Unactivated accounts attempting login receive 401: "Your account is pending activation")
     │
-    └── (2) GET /manager
+    └── (4) GET /manager
             ▼
         ProtectedRoute (allowedRole="event_manager")
             ├── Unauthenticated visitors ──► Redirected to /login

@@ -83,4 +83,7 @@ export const env = {
   get redisUrl(): string {
     return process.env.REDIS_URL || '';
   },
+  get invitationTokenExpiresInHours(): number {
+    return parseInt(process.env.INVITATION_TOKEN_EXPIRES_IN_HOURS || '24', 10);
+  },
 } as const;

@@ -375,14 +375,18 @@ Only Admin can assign or change the Event Manager.
 
 12. Phase 10 - Event Manager Module
 
-### Milestone 1: Admin Creates Event Managers + Manager Login + Manager Dashboard Access [COMPLETED]
-- [DONE] Backend Event Manager creation endpoint (`POST /api/users/event-managers`) with `role = 'event_manager'` forced, password hashed with bcrypt (10 salt rounds), and business IDs in range 1000–1999
-- [DONE] Backend User listing endpoint (`GET /api/users?role=event_manager`) protected by Admin RBAC
-- [DONE] Frontend Admin Event Managers management interface (`AdminEventManagers.tsx`) with search, filter, creation modal, and safe account feedback
-- [DONE] Unified `/login` redirection: Event Manager accounts redirect to `/manager` upon successful authentication
-- [DONE] Route guards: `/manager` is accessible strictly to `role = 'event_manager'`; unauthorized roles (Admin, Client, Worker) and unauthenticated visitors blocked; Event Managers cannot enter `/admin`
-- [DONE] Manager Layout (`ManagerLayout.tsx`) and initial Manager Dashboard (`ManagerDashboard.tsx`) with manager profile details, Event Manager badge, genuine empty state when 0 events assigned, retry/refresh mechanism, and loading/error states
-- [DONE] Comprehensive automated test coverage: backend (327/327 passing across 36 suites), frontend (32/32 passing across 4 suites), 0 build/type errors
+### Milestone 1: Event Manager Secure Onboarding (Admin Creation → Invitation Email → Password Setup → Account Activation → Manager Login → Protected Dashboard) [COMPLETED]
+- [DONE] Admin creates Event Manager account without setting password (`POST /api/users/event-managers`), assigning `role = 'event_manager'`, business IDs in range 1000–1999, and initial pending status (`isActive = false`, `emailVerified = false`)
+- [DONE] Secure token generation: 32-byte cryptographic token, SHA-256 hashed at rest, 24-hour expiration policy (`invitationTokenExpiresAt`), single-use invalidation upon acceptance
+- [DONE] Email delivery: Dispatches branded invitation email via `emailService.sendInvitationEmail` linking to `/accept-invitation?token=<token>`
+- [DONE] Admin invitation resend: `POST /api/users/event-managers/:id/resend-invitation` invalidates previous token, generates fresh token, refreshes expiration, and resends email
+- [DONE] Public token validation: `GET /api/auth/invitation/:token` validates unexpired, unused token and returns recipient metadata
+- [DONE] Invitation acceptance & password setup: `POST /api/auth/accept-invitation` validates token, hashes password with bcrypt (10 rounds), activates account (`isActive = true`), verifies email (`emailVerified = true`), unsets token hash at rest
+- [DONE] Login blocking: Pending, unverified, or deactivated managers blocked from login with explicit 401 messaging
+- [DONE] Frontend onboarding page: `AcceptInvitation.tsx` with token verification on mount, password validation, match check, error states, and login redirect
+- [DONE] Frontend Admin management: `AdminEventManagers.tsx` with modal without password, "Pending Invitation" status badges, and inline "Resend Invitation" action
+- [DONE] Manager login & dashboard: unified `/login` redirects Event Manager to `/manager`; route guard restricts `/manager` exclusively to `event_manager`; genuine empty state rendered when 0 events assigned
+- [DONE] Comprehensive automated test coverage: backend (343/343 passing across 38 suites), frontend (38/38 passing across 5 suites), 0 build/type errors
 
 Implement (Future Milestones):
 

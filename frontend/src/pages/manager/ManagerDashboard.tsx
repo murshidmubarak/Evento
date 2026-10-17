@@ -144,7 +144,7 @@ export const ManagerDashboard: React.FC = () => {
           <h2 className="text-xl font-bold text-gray-900">No Events Assigned</h2>
           
           <p className="text-gray-600 mt-2 text-sm sm:text-base leading-relaxed max-w-md mx-auto">
-            No events have been assigned to you yet. Your assigned events will appear here when the Admin assigns them.
+            No events have been assigned to you yet. Your assigned events will appear here once the Admin assigns them.
           </p>
 
           <div className="mt-8 flex items-center justify-center gap-3">

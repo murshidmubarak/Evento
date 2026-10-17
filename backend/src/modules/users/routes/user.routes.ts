@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { UserManagementController } from '../controller/user-management.controller.js';
-import { validateRegistration, validateWorkerCreation, validateUserStatusUpdate } from '../../auth/validation/user.validation.js';
+import { validateEventManagerCreation, validateWorkerCreation, validateUserStatusUpdate } from '../../auth/validation/user.validation.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
 
@@ -9,15 +9,27 @@ const userManagementController = new UserManagementController();
 
 /**
  * @route   POST /api/users/event-managers
- * @desc    Admin creates a new Event Manager
+ * @desc    Admin creates a new Event Manager (generates invitation)
  * @access  Private (Admin only)
  */
 router.post(
   '/event-managers',
   authenticate,
   authorize('admin'),
-  validateRegistration, // Reuse the same validation as client registration (name, email, password, phone)
+  validateEventManagerCreation,
   userManagementController.createEventManager
+);
+
+/**
+ * @route   POST /api/users/event-managers/:id/resend-invitation
+ * @desc    Admin resends invitation to an Event Manager
+ * @access  Private (Admin only)
+ */
+router.post(
+  '/event-managers/:id/resend-invitation',
+  authenticate,
+  authorize('admin'),
+  userManagementController.resendInvitation
 );
 
 /**

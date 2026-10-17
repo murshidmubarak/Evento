@@ -138,7 +138,18 @@ describe('User Management Endpoints', () => {
       const isMatch = await bcrypt.compare('SecurePassword123', createdUser.password || '');
       assert.ok(isMatch, 'Password should be correctly hashed');
 
-      // Verify login works
+      // Verify pending manager cannot log in before activation
+      const pendingLoginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'new_em@example.com', password: 'SecurePassword123' }),
+      });
+      assert.equal(pendingLoginRes.status, 401);
+
+      // Activate manager
+      await User.updateOne({ email: 'new_em@example.com' }, { isActive: true, emailVerified: true });
+
+      // Verify login works after activation
       const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

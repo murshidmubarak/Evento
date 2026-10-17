@@ -3,6 +3,7 @@ import { RootRedirect } from './RootRedirect';
 import { Login } from '../pages/Login';
 import { Signup } from '../pages/Signup';
 import { VerifyEmail } from '../pages/VerifyEmail';
+import { AcceptInvitation } from '../pages/auth/AcceptInvitation';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RoleRoute } from './RoleRoute';
 
@@ -39,6 +40,7 @@ export const AppRoutes = () => {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/accept-invitation" element={<AcceptInvitation />} />
       
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>

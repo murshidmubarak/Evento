@@ -37,7 +37,12 @@ The user cannot access protected application features.
 - Inactive Workers must not be considered for new Worker selection.
 - Inactive Event Managers must not be assigned new Events.
 - Event Manager accounts are created exclusively by authorized Admins (`POST /api/users/event-managers`). Public registration cannot assign the `event_manager` role.
-- Newly created Event Manager accounts receive `role: 'event_manager'`, `isActive: true`, and `emailVerified: true`, allowing direct authentication.
+- Newly created Event Manager accounts receive `role: 'event_manager'`, `isActive: false`, and `emailVerified: false`. Admin does not set the manager's password.
+- The backend generates a cryptographically secure random 32-byte invitation token (hashed at rest using SHA-256 with 24-hour expiration) and sends an invitation email.
+- Pending managers cannot authenticate (`401 Unauthorized` with explicit activation message).
+- Managers open the secure link (`/accept-invitation?token=<raw-token>`), validate the token, and set their password.
+- Upon valid password setup (`POST /api/auth/accept-invitation`), the password is hashed with bcrypt, the account is activated (`isActive: true`), email verified (`emailVerified: true`), token invalidated, and manager redirected to login.
+- Authorized Admins can resend invitations to pending managers via `POST /api/users/event-managers/:id/resend-invitation`, superseding old tokens with a new 24-hour expiration.
 - Business IDs for Event Managers are generated in the category range `1000–1999` (prefixed as `EM-xxxx` in user-facing UI).
 
 

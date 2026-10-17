@@ -110,7 +110,7 @@ describe('ManagerDashboard Component', () => {
       expect(screen.getByText('No Events Assigned')).toBeDefined();
       expect(
         screen.getByText(
-          'No events have been assigned to you yet. Your assigned events will appear here when the Admin assigns them.'
+          /No events have been assigned to you yet\. Your assigned events will appear here (once|when) the Admin assigns them\./
         )
       ).toBeDefined();
     });

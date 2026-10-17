@@ -507,46 +507,61 @@ Change local UI text in one page.
 
 ---
 
-## Milestone 1: Admin Creates Event Managers + Manager Login + Manager Dashboard Access
+## Milestone 1: Event Manager Secure Onboarding (Admin Creation → Invitation Email → Password Setup → Account Activation → Manager Login → Protected Dashboard)
 
-- **Impact Classification**: Medium (Extends User management service and repository with `getUsers`, wires up `GET /api/users`, implements Admin Event Managers interface and Manager Dashboard with strict RBAC route protections; preserves existing user schemas, password hashing, and login authentication flows)
+- **Impact Classification**: Medium (Extends User schema with invitation token hash, expiration, and accepted timestamp; makes password optional at schema level to allow invitation-pending account creation; adds invitation email delivery to existing email service; adds token validation, password setup, and activation APIs; updates Admin Event Managers interface to invitation flow with resend capabilities; implements public `/accept-invitation` page; preserves existing authentication, client signup, and payment systems intact)
 - **Date**: 2026-10-16
 - **Modules Affected**:
-  - `backend/src/modules/auth/repository/user.repository.ts` (Added `findUsers` query supporting `role`, `workerType`, and `isActive` filters)
-  - `backend/src/modules/auth/service/user.service.ts` (Added `getUsers` service method; updated `createEventManager` to set `emailVerified: true` alongside `isActive: true`)
-  - `backend/src/modules/users/controller/user-management.controller.ts` (Added `getUsers` controller handler)
-  - `backend/src/modules/users/routes/user.routes.ts` (Registered `GET /api/users` protected by `authenticate` and `authorize('admin')`)
-  - `backend/tests/userManagement.test.ts` (Added automated tests for `GET /api/users` covering 401, 403, and Admin filtering by `role=event_manager`)
-  - `backend/tests/payments.test.ts` (Fixed clock boundary regression on line 556 with end-of-day UTC timestamp)
-  - `frontend/src/features/users/usersApi.ts` (Added typed API client methods `createEventManager` and `getEventManagers`)
-  - `frontend/src/features/manager/managerApi.ts` (Added typed API client methods `getManagerEvents` and `getDashboardStats`)
-  - `frontend/src/layouts/AdminLayout.tsx` (Added "Event Managers" navigation item, cleaned up role badge to strictly 'Admin')
-  - `frontend/src/layouts/ManagerLayout.tsx` (Implemented responsive mobile drawer, emerald theme, role badge, profile display, and functional logout)
-  - `frontend/src/pages/admin/AdminEventManagers.tsx` (Created Event Managers management page with list table, search, modal creation, and safe credentials feedback)
-  - `frontend/src/pages/manager/ManagerDashboard.tsx` (Created Manager Dashboard with profile welcome banner, Event Manager badge, genuine empty state when 0 events, retry/refresh button, and loading/error states)
-  - `frontend/src/routes/AppRoutes.tsx` (Restored `allowedRole="admin"` on `/admin` guard, registered `/admin/managers`, configured `/manager` route protection)
-  - `frontend/src/tests/auth.test.tsx` (Added tests for `event_manager` login redirection and route guards)
-  - `frontend/src/tests/managerDashboard.test.tsx` (Added dedicated test suite for Manager Dashboard rendering, empty state, and refresh action)
-  - `frontend/src/tests/adminEventManagers.test.tsx` (Added dedicated test suite for Admin Event Managers list, modal validation, and creation flow)
-  - `docs/04-status-and-business-rules.md`, `docs/05-api-design.md`, `docs/06-architecture.md`, `docs/07-decvelopment-plan.md`, `docs/08-bug-log.md`
+  - `backend/src/config/env.ts` (Added `invitationTokenExpiresInHours` with default 24 hours)
+  - `backend/src/modules/auth/model/user.model.ts` (Added `invitationTokenHash?: string`, `invitationTokenExpiresAt?: Date`, `invitationAcceptedAt?: Date`; changed `password` to optional on schema level)
+  - `backend/src/modules/email/service/email.service.ts` (Added `sendInvitationEmail` method with branded HTML template and dev console logging)
+  - `backend/src/modules/auth/repository/user.repository.ts` (Added `findByInvitationTokenHash`, `updateInvitationToken`, and `acceptInvitation`)
+  - `backend/src/modules/auth/service/user.service.ts` (Updated `createEventManager` to generate 32-byte secure random token, hash with SHA-256, set `isActive: false`, `emailVerified: false`, send invitation email; added `resendEventManagerInvitation`, `getInvitationDetails`, `acceptInvitation`; updated `loginUser` to block unactivated accounts with 401)
+  - `backend/src/modules/auth/validation/user.validation.ts` (Added `validateEventManagerCreation` without password requirement; added `validateAcceptInvitation`)
+  - `backend/src/modules/users/controller/user-management.controller.ts` (Added `resendInvitation` handler)
+  - `backend/src/modules/users/routes/user.routes.ts` (Added `POST /api/users/event-managers/:id/resend-invitation` protected by Admin RBAC)
+  - `backend/src/modules/auth/controller/user.controller.ts` (Added `getInvitationDetails` and `acceptInvitation` public handlers)
+  - `backend/src/modules/auth/routes/auth.routes.ts` (Registered `GET /api/auth/invitation/:token` and `POST /api/auth/accept-invitation`)
+  - `backend/tests/managerOnboarding.test.ts` (Created comprehensive 8-step test suite covering token creation, expiration, pending login block, resend, password setup, acceptance replay rejection, activated login)
+  - `backend/tests/businessId.test.ts` (Updated test 9 to activate user prior to login test)
+  - `backend/tests/userManagement.test.ts` (Updated test 4 to verify pending manager cannot login before activation, and logs in after activation)
+  - `backend/tests/profile.test.ts` (Activated manager user in test setup before login)
+  - `frontend/src/types/auth.ts` (Added `emailVerified` and `invitationAcceptedAt` to User interface)
+  - `frontend/src/features/users/usersApi.ts` (Removed password from `CreateEventManagerPayload`, added `resendInvitation`)
+  - `frontend/src/features/auth/invitationApi.ts` (Created client API for invitation token validation and password setup)
+  - `frontend/src/pages/admin/AdminEventManagers.tsx` (Removed password from creation modal, added "Pending Invitation" badge, added "Resend Invitation" button with feedback)
+  - `frontend/src/pages/auth/AcceptInvitation.tsx` (Created invitation acceptance and password setup page with token verification, form validation, error states, and login redirect)
+  - `frontend/src/routes/AppRoutes.tsx` (Registered `/accept-invitation` route)
+  - `frontend/src/pages/manager/ManagerDashboard.tsx` (Updated empty state text to exact specification)
+  - `frontend/src/tests/adminEventManagers.test.tsx` (Updated tests for invitation modal without password and resend action)
+  - `frontend/src/tests/acceptInvitation.test.tsx` (Created dedicated test suite for invitation acceptance page)
+  - `frontend/src/tests/managerDashboard.test.tsx` (Updated empty state text assertion)
 - **Database Schema Changes**:
-  - None. Reused existing Mongoose `User` model, `Counter` collection for business IDs (1000–1999 range), and existing user schema fields.
+  - `User.password`: changed from `required: true` to `required: false` to allow invitation-pending accounts prior to password setup.
+  - `User.invitationTokenHash`: `String`, `select: false`.
+  - `User.invitationTokenExpiresAt`: `Date`, `select: false`.
+  - `User.invitationAcceptedAt`: `Date`.
 - **API Contracts Added/Updated**:
-  - `POST /api/users/event-managers`: Reused existing endpoint. Enforces `role: 'event_manager'`, hashes password with bcrypt (10 rounds), assigns business ID, provisions active account.
-  - `GET /api/users`: Newly exposed Admin endpoint supporting `role`, `workerType`, and `isActive` query filters.
-- **Security & RBAC Guarantees**:
-  - `event_manager` role cannot be self-assigned or injected via public signup (`/api/auth/register` creates only `client`).
-  - Passwords hashed with bcrypt; plaintext passwords never stored, logged, or returned in API responses.
-  - `/manager` protected exclusively for `event_manager`. Unauthenticated visitors redirected to `/login`; Admin, Client, and Worker roles denied access.
-  - Event Managers strictly blocked from `/admin` screens (BUG-013 regression resolved).
-  - Backend RBAC (`authorize('event_manager')` and `authorize('admin')`) enforces authorization independently of frontend navigation.
+  - `POST /api/users/event-managers`: Admin provisions manager without password; sets `isActive: false`, `emailVerified: false`; generates 32-byte cryptographic token, hashes with SHA-256 for storage, emails setup link.
+  - `POST /api/users/event-managers/:id/resend-invitation`: Admin resends invitation; generates new token, supersedes previous token, resets 24h expiration, dispatches email.
+  - `GET /api/auth/invitation/:token`: Public endpoint validating unexpired token and returning recipient details (`name`, `email`, `role`).
+  - `POST /api/auth/accept-invitation`: Public endpoint accepting `{ token, password, confirmPassword }`, validating token, hashing password with bcrypt (10 rounds), activating account (`isActive: true`, `emailVerified: true`), unsetting token hash at rest.
+- **Security Guarantees**:
+  - Token entropy: 32 cryptographically secure random bytes generated with `crypto.randomBytes(32)`.
+  - Token hashing at rest: SHA-256 hash stored in database; raw token never stored in database or logged.
+  - Single-use enforcement: Token hash unset from user document upon acceptance; replay attempts rejected with 400.
+  - Expiration enforcement: 24-hour expiration policy; expired tokens rejected during validation and acceptance.
+  - Inactive account lock: Pending invitation accounts cannot authenticate via `POST /api/auth/login`.
+  - Password security: bcrypt hashing with 10 salt rounds; plaintext passwords never stored or logged.
+  - Role protection: Public registration cannot self-assign `event_manager`; `/manager` strictly protected for `event_manager` role.
 - **Verification & Test Status**:
   - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
   - Backend Production Build (`npm run build`): compiled `dist/` cleanly, exit code 0.
-  - Backend Test Suite (`npm test`): 327/327 passing across 36 suites, exit code 0.
-  - Frontend Lint (`npm run lint`): 24 pre-existing warnings, 0 errors, exit code 0.
-  - Frontend Test Suite (`npm test`): 32/32 passing across 4 test files, exit code 0.
-  - Frontend Production Build (`npm run build`): built production bundle in 6.78s, exit code 0.
+  - Backend Test Suite (`npm test`): 343/343 passing across 38 suites, exit code 0.
+  - Frontend Lint (`npm run lint`): 25 pre-existing warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 38/38 passing across 5 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): built production bundle cleanly in 7.47s, exit code 0.
+
 
 
 

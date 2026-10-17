@@ -181,6 +181,9 @@ describe('Business ID Generation & Assignment', () => {
     const data1 = await res1.json() as any;
     const generatedBid = data1.data.user.businessId;
 
+    // Activate the manager (as required by invitation/activation lifecycle)
+    await User.updateOne({ email: 'manager_login.businessid_test@example.com' }, { isActive: true, emailVerified: true });
+
     const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

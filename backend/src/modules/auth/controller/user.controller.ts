@@ -117,4 +117,27 @@ export class UserController {
 
     new ApiResponse(200, 'If the account is eligible for verification, a new code has been sent.', {}).send(res);
   });
+
+  /**
+   * GET /api/auth/invitation/:token
+   * Verifies an invitation token and returns recipient details.
+   */
+  getInvitationDetails = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { token } = req.params;
+    const details = await this.userService.getInvitationDetails(token);
+
+    new ApiResponse(200, 'Invitation details verified', details).send(res);
+  });
+
+  /**
+   * POST /api/auth/accept-invitation
+   * Accepts an invitation and sets the account password.
+   */
+  acceptInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const user = await this.userService.acceptInvitation(req.body);
+
+    new ApiResponse(200, 'Invitation accepted and account activated successfully. You can now log in.', {
+      user,
+    }).send(res);
+  });
 }

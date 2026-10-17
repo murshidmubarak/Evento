@@ -183,4 +183,48 @@ export class UserRepository {
   async deletePendingById(id: string): Promise<void> {
     await PendingUser.findByIdAndDelete(id);
   }
+
+  /**
+   * Find a user by active, unexpired invitation token hash.
+   */
+  async findByInvitationTokenHash(tokenHash: string): Promise<IUser | null> {
+    return User.findOne({
+      invitationTokenHash: tokenHash,
+      invitationTokenExpiresAt: { $gt: new Date() },
+    }).select('+invitationTokenHash +invitationTokenExpiresAt');
+  }
+
+  /**
+   * Update or regenerate invitation token and expiration for an existing user.
+   */
+  async updateInvitationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<IUser | null> {
+    return User.findByIdAndUpdate(
+      userId,
+      {
+        invitationTokenHash: tokenHash,
+        invitationTokenExpiresAt: expiresAt,
+      },
+      { new: true }
+    );
+  }
+
+  /**
+   * Complete invitation acceptance: set password, activate account, verify email, and clear token.
+   */
+  async acceptInvitation(userId: string, passwordHash: string): Promise<IUser | null> {
+    return User.findByIdAndUpdate(
+      userId,
+      {
+        password: passwordHash,
+        isActive: true,
+        emailVerified: true,
+        invitationAcceptedAt: new Date(),
+        $unset: {
+          invitationTokenHash: 1,
+          invitationTokenExpiresAt: 1,
+        },
+      },
+      { new: true }
+    );
+  }
 }

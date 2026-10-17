@@ -70,4 +70,15 @@ export class UserManagementController {
       users,
     }).send(res);
   });
+
+  /**
+   * POST /api/users/event-managers/:id/resend-invitation
+   * Admin resends an invitation email to a pending Event Manager.
+   */
+  resendInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const managerId = req.params.id;
+    const result = await this.userService.resendEventManagerInvitation(managerId);
+
+    new ApiResponse(200, result.message, result).send(res);
+  });
 }

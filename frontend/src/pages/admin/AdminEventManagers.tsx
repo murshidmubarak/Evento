@@ -12,9 +12,9 @@ import {
   Phone, 
   Mail, 
   User as UserIcon, 
-  Lock, 
   Loader2,
-  Users
+  Users,
+  Send
 } from 'lucide-react';
 
 export const AdminEventManagers: React.FC = () => {
@@ -23,16 +23,19 @@ export const AdminEventManagers: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Resend state
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   // Modal / Form state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createdSuccessUser, setCreatedSuccessUser] = useState<User | null>(null);
 
-  // Form fields
+  // Form fields (No password - Event Manager sets password via invitation email)
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
 
   const fetchManagers = async () => {
@@ -55,7 +58,6 @@ export const AdminEventManagers: React.FC = () => {
   const handleOpenModal = () => {
     setName('');
     setEmail('');
-    setPassword('');
     setPhone('');
     setFormError(null);
     setCreatedSuccessUser(null);
@@ -85,17 +87,11 @@ export const AdminEventManagers: React.FC = () => {
       return;
     }
 
-    if (!password || password.length < 6) {
-      setFormError('Password must be at least 6 characters long.');
-      return;
-    }
-
     try {
       setIsSubmitting(true);
       const newUser = await usersApi.createEventManager({
         name: name.trim(),
         email: email.trim(),
-        password,
         phone: phone.trim() ? phone.trim() : undefined,
       });
 
@@ -107,6 +103,25 @@ export const AdminEventManagers: React.FC = () => {
       setFormError(msg);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendInvitation = async (manager: User) => {
+    try {
+      setResendingId(manager.id);
+      setActionFeedback(null);
+      const res = await usersApi.resendInvitation(manager.id);
+      setActionFeedback({
+        type: 'success',
+        message: res.message || `Invitation successfully resent to ${manager.email}`
+      });
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: err.response?.data?.message || `Failed to resend invitation to ${manager.email}`
+      });
+    } finally {
+      setResendingId(null);
     }
   };
 
@@ -135,7 +150,7 @@ export const AdminEventManagers: React.FC = () => {
             Event Managers
           </h1>
           <p className="text-gray-500 mt-1 text-sm sm:text-base">
-            Create and manage authorized Event Manager accounts for event operational oversight.
+            Create and manage authorized Event Manager accounts. Managers set their password via secure email invitations.
           </p>
         </div>
 
@@ -160,6 +175,30 @@ export const AdminEventManagers: React.FC = () => {
             className="text-xs font-semibold text-red-700 hover:text-red-900 underline"
           >
             Retry
+          </button>
+        </div>
+      )}
+
+      {/* Action Feedback Banner (e.g., Resend Success/Error) */}
+      {actionFeedback && (
+        <div className={`p-4 rounded-xl border flex items-center justify-between text-sm ${
+          actionFeedback.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center gap-2">
+            {actionFeedback.type === 'success' ? (
+              <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle size={18} className="text-red-600 shrink-0" />
+            )}
+            <span>{actionFeedback.message}</span>
+          </div>
+          <button
+            onClick={() => setActionFeedback(null)}
+            className="text-xs font-semibold opacity-75 hover:opacity-100 underline ml-4"
+          >
+            Dismiss
           </button>
         </div>
       )}
@@ -209,7 +248,7 @@ export const AdminEventManagers: React.FC = () => {
             <p className="text-sm text-gray-500 mt-1.5 mb-5">
               {searchTerm
                 ? 'No managers matched your search criteria. Try a different query.'
-                : 'No Event Managers have been created yet. Click below to create your first manager account.'}
+                : 'No Event Managers have been created yet. Click below to invite your first manager.'}
             </p>
             {!searchTerm && (
               <button
@@ -231,6 +270,7 @@ export const AdminEventManagers: React.FC = () => {
                   <th className="py-3 px-4">Phone</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Account Status</th>
+                  <th className="py-3 px-4">Actions</th>
                   <th className="py-3 px-4">Created Date</th>
                 </tr>
               </thead>
@@ -268,11 +308,41 @@ export const AdminEventManagers: React.FC = () => {
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           Active
                         </span>
+                      ) : !manager.invitationAcceptedAt ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded-full border border-amber-200/80" title="Invitation sent, awaiting password setup">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Pending Invitation
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full border border-gray-200">
                           <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
                           Inactive
                         </span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {!manager.isActive && !manager.invitationAcceptedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => handleResendInvitation(manager)}
+                          disabled={resendingId === manager.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-xs font-semibold rounded-md transition-colors disabled:opacity-50"
+                          title="Resend invitation email"
+                        >
+                          {resendingId === manager.id ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin text-amber-700" />
+                              <span>Resending...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send size={12} className="text-amber-700" />
+                              <span>Resend Invitation</span>
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">No action needed</span>
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-xs text-gray-500">
@@ -302,7 +372,7 @@ export const AdminEventManagers: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Create Event Manager</h2>
-                  <p className="text-xs text-gray-500">Add an authorized manager account to the ERP</p>
+                  <p className="text-xs text-gray-500">Generates a secure email invitation for password setup</p>
                 </div>
               </div>
               <button
@@ -324,9 +394,9 @@ export const AdminEventManagers: React.FC = () => {
                     <CheckCircle2 size={32} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">Event Manager Created Successfully!</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Event Manager Created & Invitation Sent!</h3>
                     <p className="text-sm text-gray-500 mt-1">
-                      The account has been created and is active. The Event Manager can now log in using these credentials.
+                      A secure invitation email has been dispatched. The account remains pending until the manager accepts the invitation and establishes their password.
                     </p>
                   </div>
 
@@ -353,9 +423,9 @@ export const AdminEventManagers: React.FC = () => {
                     )}
                     <div className="flex justify-between py-1">
                       <span className="text-gray-500">Status:</span>
-                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 text-xs">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Active
+                      <span className="inline-flex items-center gap-1 font-semibold text-amber-700 text-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Pending Invitation
                       </span>
                     </div>
                   </div>
@@ -416,27 +486,6 @@ export const AdminEventManagers: React.FC = () => {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                      Initial Password <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Minimum 6 characters"
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0051e5]/20 focus:border-[#0051e5]"
-                      />
-                    </div>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      The password will be securely hashed with bcrypt prior to persistence.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                       Phone Number <span className="text-gray-400 font-normal lowercase">(optional)</span>
                     </label>
                     <div className="relative">
@@ -449,6 +498,11 @@ export const AdminEventManagers: React.FC = () => {
                         className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0051e5]/20 focus:border-[#0051e5]"
                       />
                     </div>
+                  </div>
+
+                  <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 leading-relaxed">
+                    <span className="font-semibold block mb-0.5">Automated Invitation Flow:</span>
+                    An invitation email containing a cryptographically secure, one-time link (valid for 24 hours) will be automatically sent to the email address. The Event Manager will set their password upon opening the link.
                   </div>
 
                   <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
@@ -468,10 +522,10 @@ export const AdminEventManagers: React.FC = () => {
                       {isSubmitting ? (
                         <>
                           <Loader2 size={16} className="animate-spin" />
-                          Creating Account...
+                          Creating & Sending Invitation...
                         </>
                       ) : (
-                        'Create Account'
+                        'Create & Send Invitation'
                       )}
                     </button>
                   </div>

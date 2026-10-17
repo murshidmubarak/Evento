@@ -75,6 +75,13 @@ describe('Profile Management Endpoints', () => {
     const emBody = await emRes.json() as any;
     managerUserId = emBody.data.user.id;
 
+    // Activate the manager and set password for testing profile operations
+    await User.findByIdAndUpdate(managerUserId, {
+      isActive: true,
+      emailVerified: true,
+      password: hashedPassword,
+    });
+
     const emLoginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

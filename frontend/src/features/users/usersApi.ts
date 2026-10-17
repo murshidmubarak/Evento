@@ -4,7 +4,6 @@ import type { User } from '../../types/auth';
 export interface CreateEventManagerPayload {
   name: string;
   email: string;
-  password: string;
   phone?: string;
 }
 
@@ -26,7 +25,7 @@ export interface CreateUserResponse {
 
 export const usersApi = {
   /**
-   * Admin creates a new Event Manager
+   * Admin creates a new Event Manager (generates secure invitation and sends email)
    */
   async createEventManager(payload: CreateEventManagerPayload): Promise<User> {
     const response = await apiClient.post<CreateUserResponse>('/users/event-managers', payload);
@@ -41,5 +40,15 @@ export const usersApi = {
       params: { role: 'event_manager' },
     });
     return response.data.data.users;
+  },
+
+  /**
+   * Admin resends invitation email to a pending Event Manager
+   */
+  async resendInvitation(managerId: string): Promise<{ message: string }> {
+    const response = await apiClient.post<{ success: boolean; message: string }>(
+      `/users/event-managers/${managerId}/resend-invitation`
+    );
+    return { message: response.data.message };
   },
 };

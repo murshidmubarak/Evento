@@ -21,6 +21,9 @@ export interface IUser extends Document {
   emailVerificationOtpLastSentAt?: Date;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date;
+  invitationTokenHash?: string;
+  invitationTokenExpiresAt?: Date;
+  invitationAcceptedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,7 +44,7 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      required: false,
       select: false,
     },
     phone: {
@@ -119,6 +122,17 @@ const userSchema = new Schema<IUser>(
     passwordResetExpiresAt: {
       type: Date,
       select: false,
+    },
+    invitationTokenHash: {
+      type: String,
+      select: false,
+    },
+    invitationTokenExpiresAt: {
+      type: Date,
+      select: false,
+    },
+    invitationAcceptedAt: {
+      type: Date,
     },
   },
   {

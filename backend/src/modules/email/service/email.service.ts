@@ -54,11 +54,20 @@ export interface SendPaymentLinkExpiryWarningInput {
   eventId: string;
 }
 
+export interface SendInvitationEmailInput {
+  to: string;
+  name?: string;
+  role: string;
+  invitationUrl: string;
+  expiresAt: Date | string;
+}
+
 export interface IEmailService {
   sendVerificationOtp(input: SendVerificationOtpInput): Promise<void>;
   sendPaymentLinkRenewalEmail(input: SendPaymentLinkRenewalEmailInput): Promise<void>;
   sendPaymentDueDateReminder(input: SendPaymentDueDateReminderInput): Promise<void>;
   sendPaymentLinkExpiryWarning(input: SendPaymentLinkExpiryWarningInput): Promise<void>;
+  sendInvitationEmail(input: SendInvitationEmailInput): Promise<void>;
 }
 
 export class EmailService implements IEmailService {
@@ -82,10 +91,14 @@ export class EmailService implements IEmailService {
   async sendVerificationOtp(input: SendVerificationOtpInput): Promise<void> {
     const { to, name, otp } = input;
 
-    // If SMTP not configured — safe dev/test fallback: print to console
+    // In development or test mode, always log OTP to terminal for seamless local testing
+    if (env.isDevelopment || env.nodeEnv === 'test') {
+      console.log(`\n📧 [EmailService DEV] OTP for ${to} → ${otp}\n`);
+    }
+
+    // If SMTP not configured — safe dev/test fallback
     if (!this.transporter) {
       if (env.isDevelopment || env.nodeEnv === 'test') {
-        console.log(`\n📧 [EmailService DEV] OTP for ${to} → ${otp}\n`);
         return;
       }
       throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env');
@@ -376,6 +389,74 @@ export class EmailService implements IEmailService {
       });
     } catch (error) {
       console.error('[EmailService] Failed to send payment link expiry warning:', error);
+      throw error;
+    }
+  }
+
+  async sendInvitationEmail(input: SendInvitationEmailInput): Promise<void> {
+    const { to, name, role, invitationUrl, expiresAt } = input;
+
+    const formattedExpiryDate = new Date(expiresAt).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    // In development or test mode, always log invitation details to terminal
+    if (env.isDevelopment || env.nodeEnv === 'test') {
+      console.log(`\n📧 [EmailService DEV] Invitation Email for ${to}:`);
+      console.log(`   Name: ${name || 'Staff'}`);
+      console.log(`   Role: ${role}`);
+      console.log(`   Link: ${invitationUrl}`);
+      console.log(`   Expires At: ${formattedExpiryDate}\n`);
+    }
+
+    // If SMTP not configured — safe dev/test fallback
+    if (!this.transporter) {
+      if (env.isDevelopment || env.nodeEnv === 'test') {
+        return;
+      }
+      throw new Error('SMTP is not configured. Set SMTP_USER and SMTP_PASS in .env');
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.emailFrom,
+        to,
+        subject: `Invitation to join EventOps as ${role}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:540px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff;">
+            <div style="border-bottom:1px solid #f3f4f6;padding-bottom:16px;margin-bottom:24px;">
+              <span style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#0051e5;">EventOps ERP</span>
+              <h2 style="margin:8px 0 0;color:#111827;font-size:22px;">You've Been Invited!</h2>
+            </div>
+            <p style="color:#374151;font-size:15px;">Hi ${name || 'there'},</p>
+            <p style="color:#4b5563;font-size:14px;line-height:1.6;">
+              An administrator has invited you to join the EventOps ERP team as an <strong>${role}</strong>.
+            </p>
+            <p style="color:#4b5563;font-size:14px;line-height:1.6;">
+              To accept this invitation and activate your account, please set your password by clicking the button below:
+            </p>
+            <div style="text-align:center;margin:32px 0;">
+              <a href="${invitationUrl}" style="display:inline-block;background:#0051e5;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:15px;box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                Accept Invitation & Set Password
+              </a>
+            </div>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin:24px 0;font-size:12px;color:#6b7280;">
+              <p style="margin:0 0 6px 0;"><strong>Link expires:</strong> ${formattedExpiryDate} (in 24 hours)</p>
+              <p style="margin:0;">If the button doesn't work, copy and paste this link into your browser:</p>
+              <p style="margin:4px 0 0 0;word-break:break-all;color:#0051e5;">${invitationUrl}</p>
+            </div>
+            <p style="color:#9ca3af;font-size:12px;text-align:center;margin-top:24px;">
+              If you were not expecting this invitation, you can safely ignore this email.
+            </p>
+          </div>
+        `,
+      });
+    } catch (error) {
+      console.error('[EmailService] Failed to send invitation email:', error);
       throw error;
     }
   }
