@@ -24,6 +24,12 @@ export interface IUser extends Document {
   invitationTokenHash?: string;
   invitationTokenExpiresAt?: Date;
   invitationAcceptedAt?: Date;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  createdBy?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -133,6 +139,22 @@ const userSchema = new Schema<IUser>(
     },
     invitationAcceptedAt: {
       type: Date,
+    },
+    location: {
+      address: {
+        type: String,
+        trim: true,
+      },
+      lat: {
+        type: Number,
+      },
+      lng: {
+        type: Number,
+      },
+    },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
     },
   },
   {

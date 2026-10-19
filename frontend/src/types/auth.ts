@@ -12,6 +12,12 @@ export interface User {
   isActive: boolean;
   emailVerified?: boolean;
   invitationAcceptedAt?: string;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
 }

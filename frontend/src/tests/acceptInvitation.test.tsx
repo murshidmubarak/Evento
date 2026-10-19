@@ -156,4 +156,53 @@ describe('AcceptInvitation Component', () => {
       expect(screen.getByText('Proceed to Login')).toBeDefined();
     });
   });
+
+  it('renders Worker Onboarding heading and role for worker invitation and activates successfully', async () => {
+    vi.mocked(invitationApi.getInvitationDetails).mockResolvedValueOnce({
+      name: 'Ramesh Chef',
+      email: 'ramesh@eventops.com',
+      role: 'worker',
+      workerType: 'Chef',
+    });
+    vi.mocked(invitationApi.acceptInvitation).mockResolvedValueOnce({
+      success: true,
+      message: 'Worker account activated successfully.',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/accept-invitation?token=worker_token_123']}>
+        <Routes>
+          <Route path="/accept-invitation" element={<AcceptInvitation />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Worker Onboarding')).toBeDefined();
+      expect(screen.getByText('Welcome, Ramesh Chef!')).toBeDefined();
+      expect(screen.getByText('Authorized Role: Worker (Chef)')).toBeDefined();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('At least 6 characters'), {
+      target: { value: 'WorkerPass123' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Re-enter your password'), {
+      target: { value: 'WorkerPass123' },
+    });
+
+    const submitBtn = screen.getByText('Set Password & Activate Account');
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(invitationApi.acceptInvitation).toHaveBeenCalledWith({
+        token: 'worker_token_123',
+        password: 'WorkerPass123',
+        confirmPassword: 'WorkerPass123',
+      });
+      expect(screen.getByText('Account Activated Successfully!')).toBeDefined();
+      expect(
+        screen.getByText(/your Worker account is now active/i)
+      ).toBeDefined();
+    });
+  });
 });

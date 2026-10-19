@@ -399,6 +399,20 @@ Only Admin can assign or change the Event Manager.
 - [DONE] Work Requirements Management strictly out of scope for Milestone 2.
 - [DONE] Full Automated Test Coverage: Backend 343/343 passing across 37 suites, Frontend 46/46 passing across 8 suites, 0 lint errors, 0 type errors.
 
+### Milestone 3: Worker Onboarding (Event Manager Creates Workers → Invitation Email → Password Setup → Account Activation → Worker Login → Worker Dashboard) [COMPLETED]
+- [DONE] Event Manager Worker creation: `POST /api/users/workers` and `POST /api/manager/workers` permit authenticated, active Event Managers (and Admins) to create Worker accounts without setting passwords. Backend strictly forces `role = 'worker'`, records `createdBy = req.user.id`, validates the 8 canonical worker types, and generates sequential business IDs in worker type category ranges (2000–9999, prefixed as `W-xxxx`).
+- [DONE] Invitation token generation & email dispatch: 32-byte cryptographic token (SHA-256 hashed at rest, 24-hour expiration) sent via centralized `emailService.sendInvitationEmail` with deep link `/accept-invitation?token=<token>`.
+- [DONE] Login blocking for pending accounts: Workers with `isActive: false` and `emailVerified: false` blocked from authentication with explicit activation notice before password check.
+- [DONE] Token validation & password setup: Public `GET /api/auth/invitation/:token` returns recipient metadata including `workerType`. `POST /api/auth/accept-invitation` securely hashes password with bcrypt, activates account (`isActive: true`), marks email verified (`emailVerified: true`), unsets token hash at rest, and records timestamp.
+- [DONE] Resend invitation & creator isolation: `POST /api/users/workers/:id/resend-invitation` and `POST /api/manager/workers/:id/resend-invitation` allow creating Event Manager to resend invitations for pending workers they created; attempts by non-creator managers return 403 Forbidden. Admins retain unrestricted resend privileges. Already-active accounts cannot be resent (400).
+- [DONE] Frontend Manage Workers interface: `ManagerWorkers.tsx` at `/manager/workers` with search, worker type filter dropdown, status tabs, "Create Worker" modal with validation, and post-creation success modal displaying allocated business ID.
+- [DONE] Dynamic invitation acceptance page: `AcceptInvitation.tsx` dynamically displays "Worker Onboarding", "Authorized Role: Worker (<workerType>)", and directs newly activated workers to login.
+- [DONE] Protected Worker Dashboard: `WorkerDashboard.tsx` at `/worker` (served by `WorkerLayout.tsx`) displays worker profile summary (name, worker type, business ID, email, phone, location), active status, and authentic empty state: "No work has been assigned to you yet. Your assignments will appear here when work becomes available."
+- [DONE] Navigation & Routing: Mounted in `ManagerLayout.tsx` (`Manage Workers`), `AppRoutes.tsx`, and role-based redirect in `RootRedirect.tsx` (`/worker`).
+- [DONE] Shared workforce pool preservation: Creator attribution (`createdBy`) is strictly for audit/management and does not restrict workers from future selection or event assignment.
+- [DONE] Out of scope boundaries respected: Work Requirements Management and Worker Selection Engine deferred.
+- [DONE] Comprehensive automated test coverage: 14/14 new backend tests in `workerOnboarding.test.ts` (357/357 total passing across 38 suites), 15/15 new frontend tests across `managerWorkers.test.tsx`, `workerDashboard.test.tsx`, and `acceptInvitation.test.tsx` (56/56 total passing across 10 suites), 0 type errors, 0 build errors.
+
 Implement (Future Milestones):
 
 Recruitment

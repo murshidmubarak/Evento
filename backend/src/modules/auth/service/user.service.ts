@@ -25,6 +25,15 @@ export interface CreateEventManagerDto {
   password?: string;
 }
 
+export interface CreateWorkerDto {
+  name: string;
+  email: string;
+  workerType: string;
+  phone?: string;
+  profileImage?: string;
+  password?: string;
+}
+
 export interface AcceptInvitationDto {
   token: string;
   password: string;
@@ -39,6 +48,11 @@ export interface UpdateProfileDto {
   name?: string;
   phone?: string;
   profileImage?: string;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+  } | string;
 }
 
 export interface SafeUser {
@@ -52,6 +66,13 @@ export interface SafeUser {
   businessId?: string;
   isActive: boolean;
   emailVerified?: boolean;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  createdBy?: string;
+  invitationAcceptedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -182,17 +203,19 @@ export class UserService {
       throw ApiError.unauthorized('Invalid email or password');
     }
 
-    // 2. Verify password against stored bcrypt hash
+    // 2. Check pending activation status before password verification
+    if (!user.isActive && !user.emailVerified && (user.role === 'event_manager' || user.role === 'worker')) {
+      throw ApiError.unauthorized('Your account is pending activation. Please accept your invitation email to set your password.');
+    }
+
+    // 3. Verify password against stored bcrypt hash
     const isPasswordValid = await bcrypt.compare(dto.password, user.password ?? '');
     if (!isPasswordValid) {
       throw ApiError.unauthorized('Invalid email or password');
     }
 
-    // 3. Check account active status
+    // 4. Check account active status
     if (!user.isActive) {
-      if (user.role === 'event_manager' && !user.emailVerified) {
-        throw ApiError.unauthorized('Your account is pending activation. Please accept your invitation email to set your password.');
-      }
       throw ApiError.unauthorized('Account is inactive. Please contact support.');
     }
 
@@ -482,9 +505,9 @@ export class UserService {
   }
 
   /**
-   * Retrieves public invitation metadata (name, email) for valid, unexpired token.
+   * Retrieves public invitation metadata (name, email, role, workerType) for valid, unexpired token.
    */
-  async getInvitationDetails(token: string): Promise<{ name: string; email: string; role: string }> {
+  async getInvitationDetails(token: string): Promise<{ name: string; email: string; role: string; workerType?: string }> {
     if (!token || typeof token !== 'string') {
       throw ApiError.badRequest('Invitation token is required');
     }
@@ -496,7 +519,7 @@ export class UserService {
       throw ApiError.badRequest('This invitation link is invalid or has expired. Please contact your administrator for a new invitation link.');
     }
 
-    if (user.role !== 'event_manager') {
+    if (user.role !== 'event_manager' && user.role !== 'worker') {
       throw ApiError.forbidden('Invalid invitation purpose');
     }
 
@@ -504,11 +527,12 @@ export class UserService {
       name: user.name,
       email: user.email,
       role: user.role,
+      workerType: user.workerType,
     };
   }
 
   /**
-   * Accepts invitation and sets the manager's initial password.
+   * Accepts invitation and sets the initial password (for Event Manager or Worker).
    */
   async acceptInvitation(dto: AcceptInvitationDto): Promise<SafeUser> {
     const { token, password } = dto;
@@ -527,7 +551,7 @@ export class UserService {
       throw ApiError.badRequest('This invitation link is invalid or has expired. Please contact your administrator for a new invitation link.');
     }
 
-    if (user.role !== 'event_manager') {
+    if (user.role !== 'event_manager' && user.role !== 'worker') {
       throw ApiError.forbidden('Invalid invitation purpose');
     }
 
@@ -544,9 +568,31 @@ export class UserService {
   /**
    * Admin retrieves users list matching optional filters.
    */
-  async getUsers(filters: { role?: string; workerType?: string; isActive?: boolean } = {}): Promise<SafeUser[]> {
+  async getUsers(filters: { role?: string; workerType?: string; isActive?: boolean; createdBy?: string } = {}): Promise<SafeUser[]> {
     const users = await this.userRepository.findUsers(filters);
     return users.map((user) => this.toSafeUser(user));
+  }
+
+  /**
+   * Retrieves workers list.
+   * Admin: can view all workers with optional filters.
+   * Event Manager: views workers created by them.
+   */
+  async getWorkers(
+    filters: { workerType?: string; isActive?: boolean } = {},
+    requestingUser: { id: string; role: string }
+  ): Promise<SafeUser[]> {
+    const queryFilters: { role: string; workerType?: string; isActive?: boolean; createdBy?: string } = {
+      role: 'worker',
+      ...filters,
+    };
+
+    if (requestingUser.role === 'event_manager') {
+      queryFilters.createdBy = requestingUser.id;
+    }
+
+    const workers = await this.userRepository.findUsers(queryFilters);
+    return workers.map((w) => this.toSafeUser(w));
   }
 
   /**
@@ -554,22 +600,90 @@ export class UserService {
    *
    * Business Rules:
    * 1. Normalizes email.
-   * 2. Checks duplicate email.
-   * 3. Hashes password using bcrypt.
-   * 4. Forces role to 'worker'.
-   * 5. Includes the mandatory workerType field.
-   * 6. Returns sanitized user data.
+   * 2. Checks duplicate email -> 409 Conflict.
+   * 3. Validates workerType against approved enum values.
+   * 4. Enforces role = 'worker'.
+   * 5. If creator is Event Manager:
+   *    - Manager must be active.
+   *    - Account is created in pending invitation state: isActive = false, emailVerified = false.
+   *    - Generates 32-byte cryptographic token (hashed at rest with SHA-256, 24h expiry).
+   *    - createdBy = creator.id.
+   *    - Dispatches branded Worker invitation email via EmailService.
+   * 6. If creator is Admin:
+   *    - If password provided, hashes password and sets isActive = true, emailVerified = true.
+   *    - If password omitted, uses the same invitation-based flow as Event Manager.
+   * 7. Allocates businessId in category range for the workerType.
+   * 8. Returns sanitized user data omitting password and token hashes.
    */
-  async createWorker(dto: RegisterUserDto & { workerType: string }): Promise<SafeUser> {
+  async createWorker(
+    dto: CreateWorkerDto,
+    creator?: { id: string; role: string; isActive?: boolean }
+  ): Promise<SafeUser> {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
+    // 1. Verify creator active state if provided
+    if (creator) {
+      const creatorUser = await this.userRepository.findById(creator.id);
+      if (creatorUser && !creatorUser.isActive) {
+        throw ApiError.forbidden('Inactive accounts cannot create Workers');
+      }
+    }
+
+    // 2. Check duplicate email
     const existingUser = await this.userRepository.findByEmail(normalizedEmail);
     if (existingUser) {
       throw ApiError.conflict('Email is already registered');
     }
 
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+    // 3. Worker Type validation
+    const allowedWorkerTypes = [
+      'Catering Boy',
+      'Catering Supervisor',
+      'Chef',
+      'Cameraman / Photographer',
+      'Videographer',
+      'Decoration Worker',
+      'Juice Worker',
+      'Host',
+    ];
+    const workerType = dto.workerType?.trim();
+    if (!workerType || !allowedWorkerTypes.includes(workerType)) {
+      throw ApiError.badRequest('A valid workerType is required');
+    }
+
+    const isAdminDirectPassword = creator?.role === 'admin' && Boolean(dto.password);
+
+    if (isAdminDirectPassword && dto.password) {
+      // Direct Admin creation with password
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(dto.password, saltRounds);
+
+      const userData: Partial<IUser> = {
+        name: dto.name.trim(),
+        email: normalizedEmail,
+        password: hashedPassword,
+        phone: dto.phone?.trim(),
+        profileImage: dto.profileImage?.trim(),
+        role: 'worker',
+        workerType,
+        businessId: await this.businessIdService.generateBusinessId(workerType),
+        isActive: true,
+        emailVerified: true,
+        createdBy: creator ? (creator.id as any) : undefined,
+      };
+
+      const createdUser = await this.userRepository.create(userData);
+      return this.toSafeUser(createdUser);
+    }
+
+    // Invitation-based creation (Event Manager always; Admin when no password provided)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + env.invitationTokenExpiresInHours * 3600 * 1000);
+
+    // Placeholder password
+    const tempPassword = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     const userData: Partial<IUser> = {
       name: dto.name.trim(),
@@ -577,15 +691,84 @@ export class UserService {
       password: hashedPassword,
       phone: dto.phone?.trim(),
       profileImage: dto.profileImage?.trim(),
-      role: 'worker', // Backend enforces role
-      workerType: dto.workerType.trim(),
-      businessId: await this.businessIdService.generateBusinessId(dto.workerType.trim()),
-      isActive: true, // Default status
+      role: 'worker',
+      workerType,
+      businessId: await this.businessIdService.generateBusinessId(workerType),
+      isActive: false, // Inactive pending invitation
+      emailVerified: false,
+      invitationTokenHash: tokenHash,
+      invitationTokenExpiresAt: expiresAt,
+      createdBy: creator ? (creator.id as any) : undefined,
     };
 
     const createdUser = await this.userRepository.create(userData);
 
+    // Send invitation email
+    const invitationUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
+    try {
+      await emailService.sendInvitationEmail({
+        to: normalizedEmail,
+        name: dto.name.trim(),
+        role: workerType,
+        invitationUrl,
+        expiresAt,
+      });
+    } catch (error) {
+      console.error('[UserService] Failed to send worker invitation email:', error);
+    }
+
     return this.toSafeUser(createdUser);
+  }
+
+  /**
+   * Resends an invitation email to a pending Worker.
+   * Admin can resend for any worker.
+   * Event Manager can only resend for workers they created.
+   */
+  async resendWorkerInvitation(
+    workerId: string,
+    requestingUser: { id: string; role: string }
+  ): Promise<{ success: boolean; message: string }> {
+    const worker = await this.userRepository.findById(workerId);
+    if (!worker) {
+      throw ApiError.notFound('Worker not found');
+    }
+
+    if (worker.role !== 'worker') {
+      throw ApiError.forbidden('User is not a Worker');
+    }
+
+    // Check ownership if caller is an Event Manager
+    if (requestingUser.role === 'event_manager') {
+      if (!worker.createdBy || worker.createdBy.toString() !== requestingUser.id) {
+        throw ApiError.forbidden('You do not have permission to manage this Worker');
+      }
+    }
+
+    if (worker.isActive && worker.emailVerified) {
+      throw ApiError.badRequest('This Worker account is already active.');
+    }
+
+    // Generate fresh secure token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + env.invitationTokenExpiresInHours * 3600 * 1000);
+
+    await this.userRepository.updateInvitationToken(worker._id.toString(), tokenHash, expiresAt);
+
+    const invitationUrl = `${env.frontendUrl}/accept-invitation?token=${rawToken}`;
+    await emailService.sendInvitationEmail({
+      to: worker.email,
+      name: worker.name,
+      role: worker.workerType || 'Worker',
+      invitationUrl,
+      expiresAt,
+    });
+
+    return {
+      success: true,
+      message: 'Invitation resent successfully',
+    };
   }
 
   /**
@@ -659,7 +842,7 @@ export class UserService {
       throw ApiError.unauthorized('Account is inactive. Please contact support.');
     }
 
-    const updateData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage'>> = {};
+    const updateData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage' | 'location'>> = {};
 
     if (dto.name !== undefined) {
       updateData.name = dto.name.trim();
@@ -669,6 +852,17 @@ export class UserService {
     }
     if (dto.profileImage !== undefined) {
       updateData.profileImage = dto.profileImage.trim();
+    }
+    if (dto.location !== undefined) {
+      if (typeof dto.location === 'string') {
+        updateData.location = { address: dto.location.trim() };
+      } else if (typeof dto.location === 'object' && dto.location !== null) {
+        updateData.location = {
+          address: dto.location.address?.trim(),
+          lat: dto.location.lat,
+          lng: dto.location.lng,
+        };
+      }
     }
 
     const updatedUser = await this.userRepository.updateProfile(userId, updateData);
@@ -695,6 +889,9 @@ export class UserService {
       businessId: user.businessId,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
+      location: user.location,
+      createdBy: user.createdBy ? user.createdBy.toString() : undefined,
+      invitationAcceptedAt: user.invitationAcceptedAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

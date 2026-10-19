@@ -1,0 +1,107 @@
+/// <reference types="@testing-library/jest-dom" />
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
+import { MemoryRouter } from 'react-router-dom';
+import authReducer from '../features/auth/authSlice';
+import { WorkerDashboard } from '../pages/worker/WorkerDashboard';
+
+const renderWithProviders = (
+  ui: React.ReactElement,
+  {
+    preloadedState = {},
+    store = configureStore({ reducer: { auth: authReducer }, preloadedState }),
+  } = {}
+) => {
+  return render(
+    <Provider store={store}>
+      <MemoryRouter>
+        {ui}
+      </MemoryRouter>
+    </Provider>
+  );
+};
+
+describe('WorkerDashboard Component', () => {
+  const workerUser = {
+    id: 'worker_42',
+    name: 'Vikram Singh',
+    email: 'vikram@eventops.com',
+    role: 'worker' as const,
+    workerType: 'Chef',
+    businessId: '4005',
+    phone: '+91 91234 56789',
+    location: {
+      address: 'Andheri West, Mumbai',
+      lat: 19.1136,
+      lng: 72.8697,
+    },
+    isActive: true,
+    emailVerified: true,
+    createdAt: '2026-10-10T00:00:00.000Z',
+    updatedAt: '2026-10-10T00:00:00.000Z',
+  };
+
+  it('renders Worker Dashboard heading, welcome greeting, and business ID', () => {
+    renderWithProviders(<WorkerDashboard />, {
+      preloadedState: {
+        auth: { user: workerUser, token: 'mock-token', isAuthenticated: true, loading: false, error: null },
+      },
+    });
+
+    expect(screen.getByText('Worker Dashboard')).toBeDefined();
+    expect(screen.getByText('Welcome back, Vikram Singh!')).toBeDefined();
+    expect(screen.getByText(/W-4005/)).toBeDefined();
+    expect(screen.getByText('Active')).toBeDefined();
+  });
+
+  it('renders worker profile details including role, contact, and base location', () => {
+    renderWithProviders(<WorkerDashboard />, {
+      preloadedState: {
+        auth: { user: workerUser, token: 'mock-token', isAuthenticated: true, loading: false, error: null },
+      },
+    });
+
+    expect(screen.getByText('Worker Profile Information')).toBeDefined();
+    expect(screen.getAllByText('Chef').length).toBeGreaterThan(0);
+    expect(screen.getByText('vikram@eventops.com')).toBeDefined();
+    expect(screen.getByText('+91 91234 56789')).toBeDefined();
+    expect(screen.getByText('Andheri West, Mumbai')).toBeDefined();
+  });
+
+  it('displays the required no-assignment empty state message', () => {
+    renderWithProviders(<WorkerDashboard />, {
+      preloadedState: {
+        auth: { user: workerUser, token: 'mock-token', isAuthenticated: true, loading: false, error: null },
+      },
+    });
+
+    expect(screen.getByText('No Work Assigned Yet')).toBeDefined();
+    expect(
+      screen.getByText(
+        'No work has been assigned to you yet. Your assignments will appear here when work becomes available.'
+      )
+    ).toBeDefined();
+  });
+
+  it('allows clicking the refresh action without errors', () => {
+    vi.useFakeTimers();
+
+    renderWithProviders(<WorkerDashboard />, {
+      preloadedState: {
+        auth: { user: workerUser, token: 'mock-token', isAuthenticated: true, loading: false, error: null },
+      },
+    });
+
+    const refreshBtn = screen.getByRole('button', { name: /refresh/i });
+    expect(refreshBtn).toBeDefined();
+
+    fireEvent.click(refreshBtn);
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    vi.useRealTimers();
+  });
+});

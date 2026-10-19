@@ -72,7 +72,7 @@ export class UserRepository {
   /**
    * Update the user's profile.
    */
-  async updateProfile(id: string, profileData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage'>>): Promise<IUser | null> {
+  async updateProfile(id: string, profileData: Partial<Pick<IUser, 'name' | 'phone' | 'profileImage' | 'location'>>): Promise<IUser | null> {
     return User.findByIdAndUpdate(
       id,
       { $set: profileData },
@@ -105,7 +105,7 @@ export class UserRepository {
   /**
    * Find users with optional filters (role, workerType, isActive), sorted by creation date descending.
    */
-  async findUsers(filters: { role?: string; workerType?: string; isActive?: boolean } = {}): Promise<IUser[]> {
+  async findUsers(filters: { role?: string; workerType?: string; isActive?: boolean; createdBy?: string } = {}): Promise<IUser[]> {
     const query: any = {};
     if (filters.role) {
       query.role = filters.role;
@@ -115,6 +115,9 @@ export class UserRepository {
     }
     if (filters.isActive !== undefined) {
       query.isActive = filters.isActive;
+    }
+    if (filters.createdBy) {
+      query.createdBy = filters.createdBy;
     }
     return User.find(query).sort({ createdAt: -1 });
   }

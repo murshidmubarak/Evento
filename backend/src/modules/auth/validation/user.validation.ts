@@ -109,9 +109,11 @@ export const validateWorkerCreation = (req: Request, _res: Response, next: NextF
     errors.push('A valid email address is required');
   }
 
-  // Validate Password
-  if (!password || typeof password !== 'string' || password.length < 6) {
-    errors.push('Password is required and must be at least 6 characters long');
+  // Validate Password (optional: if omitted, account is created in pending invitation state)
+  if (password !== undefined && password !== null) {
+    if (typeof password !== 'string' || password.length < 6) {
+      errors.push('Password must be at least 6 characters long');
+    }
   }
 
   // Validate Phone
@@ -157,7 +159,7 @@ export const validateUserStatusUpdate = (req: Request, _res: Response, next: Nex
 };
 
 export const validateProfileUpdate = (req: Request, _res: Response, next: NextFunction): void => {
-  const { name, phone, profileImage } = req.body;
+  const { name, phone, profileImage, location } = req.body;
   const errors: string[] = [];
 
   if (name !== undefined) {
@@ -175,6 +177,12 @@ export const validateProfileUpdate = (req: Request, _res: Response, next: NextFu
   if (profileImage !== undefined && profileImage !== null) {
     if (typeof profileImage !== 'string') {
       errors.push('Profile image must be a valid string');
+    }
+  }
+
+  if (location !== undefined && location !== null) {
+    if (typeof location !== 'object' && typeof location !== 'string') {
+      errors.push('Location must be a valid object or address string');
     }
   }
 

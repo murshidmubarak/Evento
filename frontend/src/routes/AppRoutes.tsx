@@ -31,6 +31,7 @@ import { ManagerLayout } from '../layouts/ManagerLayout';
 import { ManagerDashboard } from '../pages/manager/ManagerDashboard';
 import { ManagerEventList } from '../pages/manager/ManagerEventList';
 import { ManagerEventDetails } from '../pages/manager/ManagerEventDetails';
+import { ManagerWorkers } from '../pages/manager/ManagerWorkers';
 
 import { WorkerLayout } from '../layouts/WorkerLayout';
 import { WorkerDashboard } from '../pages/worker/WorkerDashboard';
@@ -80,6 +81,7 @@ export const AppRoutes = () => {
             <Route index element={<ManagerDashboard />} />
             <Route path="events" element={<ManagerEventList />} />
             <Route path="events/:id" element={<ManagerEventDetails />} />
+            <Route path="workers" element={<ManagerWorkers />} />
           </Route>
         </Route>
 

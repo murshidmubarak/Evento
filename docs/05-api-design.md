@@ -127,34 +127,107 @@ Users can access their own profile through profile-specific APIs.
 ## Create Worker
 
 POST /api/users/workers
+POST /api/manager/workers
 
 Access:
-
 - Admin
-- Event Manager
+- Event Manager (authenticated, active)
 
 Purpose:
-Create a Worker account.
+Create a Worker account via an invitation-based flow.
 
-Worker fields may include:
-
-- name
-- email
-- phone
-- workerType
-- location
-- baseWage
-- isAvailable
+Request:
+```json
+{
+  "name": "Arjun Das",
+  "email": "arjun@eventops.com",
+  "workerType": "Chef",
+  "phone": "+91 98765 43210"
+}
+```
 
 Rules:
+- The backend assigns `role = 'worker'`, `isActive = false`, and `emailVerified = false`.
+- The creating manager's identity is derived from verified JWT context and saved in `createdBy`.
+- Worker type must be one of the 8 canonical types.
+- No location input is collected or assigned during creation; location selection is handled by the worker post-login in a subsequent milestone.
+- Backend allocates a business ID in the appropriate worker category range.
+- A 32-byte cryptographic token (SHA-256 hashed at rest, 24h expiry) is generated and dispatched via email.
+- Ordinary response returns safe user profile without raw token or password hash.
 
-- Admin can create Workers.
-- Event Manager can create Workers according to their permitted staffing scope.
-- Created user must have role = worker.
-- Event Manager cannot create Admin accounts.
-- Event Manager cannot create Event Manager accounts.
-- Worker creation must be validated on the backend.
-- Event Manager cannot use this endpoint to manually assign the Worker to an Event.
+Response:
+```json
+{
+  "success": true,
+  "message": "Worker created successfully",
+  "data": {
+    "user": {
+      "id": "...",
+      "name": "Arjun Das",
+      "email": "arjun@eventops.com",
+      "role": "worker",
+      "workerType": "Chef",
+      "businessId": "4001",
+      "phone": "+91 98765 43210",
+      "isActive": false,
+      "emailVerified": false,
+      "createdBy": "..."
+    }
+  }
+}
+```
+
+
+## Get Workers
+
+GET /api/users/workers
+GET /api/manager/workers
+
+Access:
+- Admin (retrieves all workers)
+- Event Manager (scoped to workers created by this manager via `createdBy`)
+
+Supports query parameters:
+- `workerType`: filter by worker type
+- `page`: pagination page
+- `limit`: items per page
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Workers retrieved successfully",
+  "data": {
+    "workers": [...],
+    "total": 12,
+    "page": 1,
+    "limit": 50
+  }
+}
+```
+
+
+## Resend Worker Invitation
+
+POST /api/users/workers/:id/resend-invitation
+POST /api/manager/workers/:id/resend-invitation
+
+Access:
+- Admin (any worker)
+- Event Manager (only workers created by the requesting manager)
+
+Rules:
+- Worker must exist and still be pending activation (`isActive: false`, `emailVerified: false`).
+- If caller is Event Manager, `worker.createdBy` must equal caller's ID; returns 403 Forbidden otherwise.
+- Generates a fresh 32-byte cryptographic token, supersedes previous token, resets 24h expiration, and sends email.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Invitation resent successfully"
+}
+```
 
 
 ## Create Event Manager

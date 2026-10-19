@@ -4,6 +4,7 @@ export interface InvitationDetails {
   name: string;
   email: string;
   role: string;
+  workerType?: string;
 }
 
 export interface InvitationDetailsResponse {

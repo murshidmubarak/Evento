@@ -633,6 +633,67 @@ Change local UI text in one page.
   - Frontend Test Suite (`npm test`): 46/46 passing across 8 test files, exit code 0.
   - Frontend Production Build (`npm run build`): compiled cleanly in 9.87s, exit code 0.
 
+---
+
+## Entry 23: Worker Onboarding Milestone (Event Manager Creates Workers + Invitation + Worker Login + Worker Dashboard)
+
+- **Date**: 2026-10-19
+- **Author**: Antigravity Assistant & Engineering Team
+- **Milestone**: EventOps ERP — Worker Onboarding Milestone
+- **Classification**: Moderate / Business Rule Expansion (Approved)
+- **Scope & Objective**:
+  - Implement the business-rule change allowing active, authorized Event Managers to onboard Workers through an invitation-based flow in the Manager Portal.
+  - Preserve all existing Admin Worker management privileges and direct password creation capabilities.
+  - Full end-to-end flow: Event Manager creates Worker → Backend initializes pending account (`isActive: false`, `emailVerified: false`, `createdBy: creator.id`) → Dispatches 32-byte cryptographic invitation token (SHA-256 hashed at rest, 24h expiry) via centralized email service → Worker accepts invitation & sets password via `/accept-invitation` → Account activated & email verified → Worker logs in via `/login` → Redirected to `/worker` (Worker Dashboard).
+  - Strictly out of scope: Work Requirements Management, Worker Selection Engine, on-site attendance, wage calculations, payroll, or worker-to-event assignment.
+- **Affected Components & Files**:
+  - `backend/src/modules/auth/model/user.model.ts`: Added optional `location` (`address`, `lat`, `lng`) and `createdBy` (`ObjectId` ref: `'User'`).
+  - `backend/src/modules/auth/repository/user.repository.ts`: Supported filtering users by `createdBy` in `findUsers`.
+  - `backend/src/modules/auth/validation/user.validation.ts`: Made `password` optional in `validateWorkerCreation` to accommodate invitation-based onboarding.
+  - `backend/src/modules/auth/service/user.service.ts`:
+    - `createWorker`: If caller is `event_manager`, verifies active creator status, forces `role = 'worker'`, records `createdBy = creator.id`, assigns business ID in worker type category range (2000–9999), creates pending account with hashed token, and sends invitation email. If caller is `admin` with password, creates active worker.
+    - `loginUser`: Pre-emptively checks pending activation (`!user.isActive && !user.emailVerified`) and throws 401 with explicit instructions before password check.
+    - `getInvitationDetails` & `acceptInvitation`: Expanded role validation to accept both `'event_manager'` and `'worker'` roles and returns `workerType`.
+    - `resendWorkerInvitation`: Enforces creator isolation (`event_manager` can only resend for workers they created; Admin can resend for any worker).
+    - `getWorkers`: Returns workers filtered by `createdBy` for Event Managers, all workers for Admin.
+    - `toSafeUser`: Returns `location`, `createdBy`, and `invitationAcceptedAt`.
+  - `backend/src/modules/users/controller/user-management.controller.ts`: Passed `req.user` to `createWorker`, added `getWorkers` and `resendWorkerInvitation`.
+  - `backend/src/modules/users/routes/user.routes.ts`: Mounted `GET /api/users/workers`, `POST /api/users/workers`, and `POST /api/users/workers/:id/resend-invitation`.
+  - `backend/src/modules/events/routes/manager-event.routes.ts`: Mounted `/workers` and `/workers/:id/resend-invitation` on `/api/manager`.
+  - `backend/tests/workerOnboarding.test.ts`: Added 14 comprehensive integration and unit tests covering creation, role forcing, isolation, token validation, login blocking, acceptance, and activation.
+  - `frontend/src/types/auth.ts`: Added `location` and `createdBy` to `User` interface.
+  - `frontend/src/features/auth/invitationApi.ts`: Added `workerType` to `InvitationDetails`.
+  - `frontend/src/features/workers/workersApi.ts`: Created API service with `createWorker`, `getWorkers`, and `resendInvitation`.
+  - `frontend/src/pages/auth/AcceptInvitation.tsx`: Made role display, page titles, and success text dynamic for both Event Managers and Workers.
+  - `frontend/src/pages/manager/ManagerWorkers.tsx`: Created Manage Workers interface with directory table, filters, search, "Create Worker" modal, and resend action.
+  - `frontend/src/layouts/ManagerLayout.tsx`: Added "Manage Workers" navigation link (`Users` icon).
+  - `frontend/src/routes/AppRoutes.tsx`: Mounted `/manager/workers` route with `RoleRoute`.
+  - `frontend/src/pages/worker/WorkerDashboard.tsx`: Built full Worker Dashboard with profile summary and authentic empty state message.
+  - `frontend/src/layouts/WorkerLayout.tsx`: Updated to use `react-router-dom` `Link` and refined layout styling.
+  - `frontend/src/tests/managerWorkers.test.tsx`: 5 tests covering listing, filtering, modal creation, and resending invitation.
+  - `frontend/src/tests/workerDashboard.test.tsx`: 4 tests covering profile rendering, empty state, and refresh action.
+  - `frontend/src/tests/acceptInvitation.test.tsx`: Added test verifying Worker invitation acceptance and activation.
+- **Database Schema**:
+  - Reused existing `User` model; added `location` (`{ address?, lat?, lng? }`) and `createdBy` (`ObjectId`, ref: `'User'`).
+  - No separate worker collection or duplicate schema introduced.
+- **API Contracts**:
+  - `POST /api/users/workers` / `POST /api/manager/workers`: Event Manager & Admin; initiates invitation-based onboarding.
+  - `GET /api/users/workers` / `GET /api/manager/workers`: Event Manager (scoped to creator) & Admin (all workers).
+  - `POST /api/users/workers/:id/resend-invitation` / `POST /api/manager/workers/:id/resend-invitation`: Resends invitation with fresh 24h token.
+- **Security & Authorization**:
+  - Authoritative backend validation: identity, creator attribution, and role forcing derive exclusively from JWT context.
+  - Data isolation: Managers can only view and resend invitations for workers they created; non-creator managers receive 403 Forbidden.
+  - Worker pool preservation: `createdBy` is purely for audit/management and does not partition workers from future event staffing.
+  - Credentials & tokens hashed at rest with bcrypt and SHA-256 respectively; raw tokens never logged or exposed in list/create endpoints.
+- **Verification & Test Results**:
+  - Backend Test Suite (`npm test`): 357/357 passing across 38 suites, exit code 0.
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Build (`npm run build`): compiled cleanly, exit code 0.
+  - Frontend Lint (`npm run lint`): 29 pre-existing warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 56/56 passing across 10 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 34.03s, exit code 0.
+
+
 
 
 

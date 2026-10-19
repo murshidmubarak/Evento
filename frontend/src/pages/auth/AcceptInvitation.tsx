@@ -101,7 +101,11 @@ export const AcceptInvitation: React.FC = () => {
           <span className="font-extrabold tracking-tight text-lg">EventOps ERP</span>
         </div>
         <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-          Event Manager Onboarding
+          {invitationDetails?.role === 'worker'
+            ? 'Worker Onboarding'
+            : invitationDetails?.role === 'event_manager'
+            ? 'Event Manager Onboarding'
+            : 'Account Onboarding'}
         </h1>
         <p className="text-xs text-gray-500 mt-1 uppercase tracking-wider font-semibold">
           Secure Account Activation
@@ -138,7 +142,7 @@ export const AcceptInvitation: React.FC = () => {
 
               <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-800 text-left">
                 <span className="font-semibold block mb-0.5">Need a new link?</span>
-                Invitation links expire after 24 hours or after being used. Please ask your ERP Administrator to resend your invitation from the Event Managers directory.
+                Invitation links expire after 24 hours or after being used. Please ask your Event Manager or ERP Administrator to resend your invitation.
               </div>
 
               <div className="pt-2">
@@ -159,7 +163,12 @@ export const AcceptInvitation: React.FC = () => {
               <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-700 mb-1">
                   <ShieldCheck size={14} />
-                  <span>Authorized Role: Event Manager</span>
+                  <span>
+                    Authorized Role:{' '}
+                    {invitationDetails.role === 'worker'
+                      ? `Worker (${invitationDetails.workerType || 'Staff'})`
+                      : 'Event Manager'}
+                  </span>
                 </div>
                 <h3 className="text-base font-bold text-gray-900">
                   Welcome, {invitationDetails.name}!
@@ -268,13 +277,15 @@ export const AcceptInvitation: React.FC = () => {
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Account Activated Successfully!</h2>
                 <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Your password has been saved, your email has been verified, and your Event Manager account is now active.
+                  Your password has been saved, your email has been verified, and your{' '}
+                  {invitationDetails?.role === 'worker' ? 'Worker' : 'Event Manager'} account is now active.
                 </p>
               </div>
 
               <div className="bg-emerald-50/80 border border-emerald-200/70 rounded-xl p-3.5 text-xs text-emerald-800 text-left">
                 <span className="font-semibold block mb-0.5">Ready for Operational Access:</span>
-                You can now log in using your email address and newly established password to access the Manager Dashboard.
+                You can now log in using your email address and newly established password to access the{' '}
+                {invitationDetails?.role === 'worker' ? 'Worker Dashboard' : 'Manager Dashboard'}.
               </div>
 
               <div className="pt-2">

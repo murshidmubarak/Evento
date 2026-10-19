@@ -23,7 +23,7 @@ export class UserManagementController {
    * Admin or Event Manager creates a Worker.
    */
   createWorker = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const safeUser = await this.userService.createWorker(req.body);
+    const safeUser = await this.userService.createWorker(req.body, req.user);
 
     new ApiResponse(201, 'Worker created successfully', {
       user: safeUser,
@@ -72,12 +72,45 @@ export class UserManagementController {
   });
 
   /**
+   * GET /api/users/workers
+   * Admin or Event Manager retrieves workers.
+   */
+  getWorkers = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const { workerType, isActive } = req.query;
+    const filters: { workerType?: string; isActive?: boolean } = {};
+
+    if (workerType && typeof workerType === 'string') {
+      filters.workerType = workerType;
+    }
+    if (isActive !== undefined) {
+      filters.isActive = isActive === 'true';
+    }
+
+    const workers = await this.userService.getWorkers(filters, req.user!);
+
+    new ApiResponse(200, 'Workers retrieved successfully', {
+      workers,
+    }).send(res);
+  });
+
+  /**
    * POST /api/users/event-managers/:id/resend-invitation
    * Admin resends an invitation email to a pending Event Manager.
    */
   resendInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const managerId = req.params.id;
     const result = await this.userService.resendEventManagerInvitation(managerId);
+
+    new ApiResponse(200, result.message, result).send(res);
+  });
+
+  /**
+   * POST /api/users/workers/:id/resend-invitation
+   * Admin or creating Event Manager resends an invitation email to a pending Worker.
+   */
+  resendWorkerInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const workerId = req.params.id;
+    const result = await this.userService.resendWorkerInvitation(workerId, req.user!);
 
     new ApiResponse(200, result.message, result).send(res);
   });

@@ -44,6 +44,18 @@ The user cannot access protected application features.
 - Upon valid password setup (`POST /api/auth/accept-invitation`), the password is hashed with bcrypt, the account is activated (`isActive: true`), email verified (`emailVerified: true`), token invalidated, and manager redirected to login.
 - Authorized Admins can resend invitations to pending managers via `POST /api/users/event-managers/:id/resend-invitation`, superseding old tokens with a new 24-hour expiration.
 - Business IDs for Event Managers are generated in the category range `1000–1999` (prefixed as `EM-xxxx` in user-facing UI).
+- Worker accounts can be created by authorized, active Event Managers (`POST /api/users/workers` or `POST /api/manager/workers`) as well as Admins.
+- The backend derives the creating manager's identity authoritative from the verified JWT context and records `createdBy: ObjectId`. The caller cannot supply an arbitrary creator ID or role; the backend forces `role: 'worker'`.
+- Newly created Worker accounts receive `role: 'worker'`, `isActive: false`, and `emailVerified: false`. The manager does not set the worker's password.
+- Worker types are strictly validated against the 8 canonical types: `Catering Boy`, `Catering Supervisor`, `Chef`, `Cameraman / Photographer`, `Videographer`, `Decoration Worker`, `Juice Worker`, and `Host`.
+- Business IDs for Workers are generated sequentially in category ranges matching their worker type (Catering Boy: 2000–2999, Catering Supervisor: 3000–3999, Chef: 4000–4999, Cameraman / Photographer: 5000–5999, Videographer: 6000–6999, Decoration Worker: 7000–7999, Juice Worker: 8000–8999, Host: 9000–9999), prefixed as `W-xxxx` in user-facing UI.
+- The backend generates a cryptographically secure random 32-byte invitation token (hashed at rest using SHA-256 with 24-hour expiration) and sends an invitation email via the centralized email service.
+- Pending workers cannot authenticate (`401 Unauthorized` with activation message: "Your account is pending activation. Please accept your invitation email to set your password.").
+- Workers open the secure link (`/accept-invitation?token=<raw-token>`), validate the token, and set their password.
+- Upon valid password setup (`POST /api/auth/accept-invitation`), the password is hashed with bcrypt, the account is activated (`isActive: true`), email verified (`emailVerified: true`), token invalidated, and worker redirected to login.
+- Creating Event Managers can view and resend invitations to pending workers they created (`POST /api/users/workers/:id/resend-invitation` or `POST /api/manager/workers/:id/resend-invitation`). Non-creator managers cannot resend invitations to workers created by other managers (`403 Forbidden`). Admins retain permissions to view and resend invitations for all workers.
+- Workers belong to the company's shared workforce pool; creating a worker account does not assign the worker to an event, manager, or staffing requirement.
+- Authenticated Workers log in via the unified `/login` page and are redirected to the protected Worker Dashboard at `/worker`.
 
 
 # 3. Event Status

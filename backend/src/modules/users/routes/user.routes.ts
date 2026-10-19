@@ -46,6 +46,30 @@ router.post(
 );
 
 /**
+ * @route   GET /api/users/workers
+ * @desc    Admin or Event Manager retrieves workers list
+ * @access  Private (Admin, Event Manager)
+ */
+router.get(
+  '/workers',
+  authenticate,
+  authorize('admin', 'event_manager'),
+  userManagementController.getWorkers
+);
+
+/**
+ * @route   POST /api/users/workers/:id/resend-invitation
+ * @desc    Admin or creating Event Manager resends invitation to a pending Worker
+ * @access  Private (Admin, Event Manager)
+ */
+router.post(
+  '/workers/:id/resend-invitation',
+  authenticate,
+  authorize('admin', 'event_manager'),
+  userManagementController.resendWorkerInvitation
+);
+
+/**
  * @route   PATCH /api/users/:id/status
  * @desc    Admin updates a user's active status
  * @access  Private (Admin only)
