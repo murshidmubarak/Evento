@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { managerApi, type ManagerEvent } from '../../features/manager/managerApi';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
+import { WorkRequirementsSection } from '../../components/manager/WorkRequirementsSection';
 import {
   ArrowLeft,
   Calendar,
@@ -17,15 +18,32 @@ import {
   Sparkles,
   ShieldAlert,
   Compass,
+  Briefcase,
+  ArrowRight,
 } from 'lucide-react';
 
 export const ManagerEventDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [event, setEvent] = useState<ManagerEvent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const activeTab = searchParams.get('tab') === 'requirements' ? 'requirements' : 'overview';
+
+  const setTab = (tab: 'overview' | 'requirements') => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'requirements') {
+        next.set('tab', 'requirements');
+      } else {
+        next.delete('tab');
+      }
+      return next;
+    });
+  };
 
   const fetchEventDetails = async () => {
     if (!id) return;
@@ -185,8 +203,8 @@ export const ManagerEventDetails: React.FC = () => {
         </Link>
       </div>
 
-      {/* Header Banner */}
-      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200/80 shadow-xs relative overflow-hidden">
+      {/* Header Banner with Operational Tabs */}
+      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200/80 shadow-xs relative overflow-hidden space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5 mb-2">
@@ -203,193 +221,255 @@ export const ManagerEventDetails: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={() => setTab('overview')}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              activeTab === 'overview'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            <Compass size={15} />
+            Event Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('requirements')}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              activeTab === 'requirements'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            <Briefcase size={15} />
+            Work Requirements
+          </button>
+        </div>
       </div>
 
-      {/* Main Grid: Logistics & Client Info */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 cols) */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Logistics Overview Card */}
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Compass size={18} className="text-emerald-600" />
-              Schedule & Logistics
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                  <Calendar size={14} className="text-emerald-600" />
-                  Event Date
+      {activeTab === 'requirements' ? (
+        /* Work Requirements Management Workspace */
+        <WorkRequirementsSection
+          eventId={event._id}
+          eventTitle={event.title}
+          eventStatus={event.status}
+        />
+      ) : (
+        /* Event Overview Main Grid */
+        <div className="space-y-6">
+          {/* Quick Staffing Banner (for confirmed events) */}
+          {event.status === 'confirmed' && (
+            <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/50 rounded-2xl border border-emerald-200/80 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                  <Briefcase size={15} className="text-emerald-600" />
+                  Staffing & Work Requirements
                 </div>
-                <div className="text-base font-bold text-gray-900">
-                  {new Date(event.date).toLocaleDateString('en-IN', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </div>
+                <p className="text-xs text-gray-600">
+                  Define required worker counts, reporting times, and job instructions for this event.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setTab('requirements')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors shrink-0"
+              >
+                Manage Work Requirements
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          )}
 
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                  <Clock size={14} className="text-emerald-600" />
-                  Operational Timing
-                </div>
-                <div className="text-base font-bold text-gray-900">
-                  {event.startTime} – {event.endTime}
-                </div>
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column (2 cols) */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Logistics Overview Card */}
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
+                <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Compass size={18} className="text-emerald-600" />
+                  Schedule & Logistics
+                </h2>
 
-              {event.guestCount !== undefined && (
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 sm:col-span-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                    <Users size={14} className="text-emerald-600" />
-                    Expected Attendance
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                      <Calendar size={14} className="text-emerald-600" />
+                      Event Date
+                    </div>
+                    <div className="text-base font-bold text-gray-900">
+                      {new Date(event.date).toLocaleDateString('en-IN', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </div>
                   </div>
-                  <div className="text-base font-bold text-gray-900">
-                    {event.guestCount} Guests
+
+                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                      <Clock size={14} className="text-emerald-600" />
+                      Operational Timing
+                    </div>
+                    <div className="text-base font-bold text-gray-900">
+                      {event.startTime} – {event.endTime}
+                    </div>
+                  </div>
+
+                  {event.guestCount !== undefined && (
+                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 sm:col-span-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                        <Users size={14} className="text-emerald-600" />
+                        Expected Attendance
+                      </div>
+                      <div className="text-base font-bold text-gray-900">
+                        {event.guestCount} Guests
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Selected Services & Requirements */}
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
+                <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Sparkles size={18} className="text-emerald-600" />
+                  Services & Operational Specifications ({event.selectedServices?.length || 0})
+                </h2>
+
+                {(!event.selectedServices || event.selectedServices.length === 0) ? (
+                  <p className="text-sm text-gray-500 italic py-4">No specific service packages linked.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {event.selectedServices.map((svc, idx) => {
+                      const serviceObj = typeof svc.serviceId === 'object' && svc.serviceId !== null ? svc.serviceId : null;
+                      const serviceName = svc.serviceName || serviceObj?.name || 'Event Service';
+                      const serviceCat = serviceObj?.category || 'General';
+
+                      return (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-xl border border-gray-200/90 bg-gray-50/60 space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="font-bold text-gray-900 text-sm">{serviceName}</div>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-200/80 text-gray-700 capitalize">
+                              {serviceCat}
+                            </span>
+                          </div>
+
+                          {svc.preferences && Object.keys(svc.preferences).length > 0 && (
+                            <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs text-gray-700 space-y-2">
+                              <div className="font-semibold text-gray-900 uppercase tracking-wider text-[10px] text-gray-500">
+                                Client Preferences & Notes
+                              </div>
+                              {Object.entries(svc.preferences).map(([k, val]) => (
+                                <div key={k} className="flex flex-col sm:flex-row sm:items-start gap-1">
+                                  <span className="font-medium text-gray-700 min-w-32 capitalize">
+                                    {k.replace(/([A-Z])/g, ' $1')}:
+                                  </span>
+                                  <span className="text-gray-600">
+                                    {Array.isArray(val)
+                                      ? val.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')
+                                      : typeof val === 'object' && val !== null
+                                      ? JSON.stringify(val)
+                                      : String(val)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Operational Notes */}
+              {event.notes && (
+                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
+                  <h2 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <FileText size={18} className="text-emerald-600" />
+                    Special Instructions & Notes
+                  </h2>
+                  <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200/70 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                    {event.notes}
                   </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Selected Services & Requirements */}
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Sparkles size={18} className="text-emerald-600" />
-              Services & Operational Specifications ({event.selectedServices?.length || 0})
-            </h2>
+            {/* Right Column (1 col): Venue & Host Details */}
+            <div className="space-y-6">
+              {/* Host / Client Contact Card */}
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
+                <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <User size={18} className="text-emerald-600" />
+                  Client Contact Information
+                </h2>
 
-            {(!event.selectedServices || event.selectedServices.length === 0) ? (
-              <p className="text-sm text-gray-500 italic py-4">No specific service packages linked.</p>
-            ) : (
-              <div className="space-y-4">
-                {event.selectedServices.map((svc, idx) => {
-                  const serviceObj = typeof svc.serviceId === 'object' && svc.serviceId !== null ? svc.serviceId : null;
-                  const serviceName = svc.serviceName || serviceObj?.name || 'Event Service';
-                  const serviceCat = serviceObj?.category || 'General';
-
-                  return (
-                    <div
-                      key={idx}
-                      className="p-4 rounded-xl border border-gray-200/90 bg-gray-50/60 space-y-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-gray-900 text-sm">{serviceName}</div>
-                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-200/80 text-gray-700 capitalize">
-                          {serviceCat}
-                        </span>
-                      </div>
-
-                      {svc.preferences && Object.keys(svc.preferences).length > 0 && (
-                        <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs text-gray-700 space-y-2">
-                          <div className="font-semibold text-gray-900 uppercase tracking-wider text-[10px] text-gray-500">
-                            Client Preferences & Notes
-                          </div>
-                          {Object.entries(svc.preferences).map(([k, val]) => (
-                            <div key={k} className="flex flex-col sm:flex-row sm:items-start gap-1">
-                              <span className="font-medium text-gray-700 min-w-32 capitalize">
-                                {k.replace(/([A-Z])/g, ' $1')}:
-                              </span>
-                              <span className="text-gray-600">
-                                {Array.isArray(val)
-                                  ? val.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')
-                                  : typeof val === 'object' && val !== null
-                                  ? JSON.stringify(val)
-                                  : String(val)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                {clientContact ? (
+                  <div className="space-y-3 text-sm">
+                    <div className="font-semibold text-gray-900 text-base">
+                      {clientContact.name}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
 
-          {/* Operational Notes */}
-          {event.notes && (
-            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
-              <h2 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                <FileText size={18} className="text-emerald-600" />
-                Special Instructions & Notes
-              </h2>
-              <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200/70 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                {event.notes}
+                    {clientContact.email && (
+                      <a
+                        href={`mailto:${clientContact.email}`}
+                        className="flex items-center gap-2 text-gray-600 hover:text-emerald-700 transition-colors"
+                      >
+                        <Mail size={15} className="text-gray-400 shrink-0" />
+                        <span className="truncate">{clientContact.email}</span>
+                      </a>
+                    )}
+
+                    {clientContact.phone && (
+                      <a
+                        href={`tel:${clientContact.phone}`}
+                        className="flex items-center gap-2 text-gray-600 hover:text-emerald-700 transition-colors"
+                      >
+                        <Phone size={15} className="text-gray-400 shrink-0" />
+                        <span>{clientContact.phone}</span>
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">Client contact details unavailable.</p>
+                )}
+              </div>
+
+              {/* Venue & Location Card */}
+              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
+                <h2 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <MapPin size={18} className="text-emerald-600" />
+                  Venue Location
+                </h2>
+
+                <p className="text-sm text-gray-700 font-medium mb-4">
+                  {event.location?.address || 'Location address pending'}
+                </p>
+
+                {/* ReadOnlyMap if coordinates available */}
+                {coords ? (
+                  <div className="h-56 w-full rounded-xl overflow-hidden border border-gray-200">
+                    <ReadOnlyMap lat={coords.lat} lng={coords.lng} zoom={14} />
+                  </div>
+                ) : (
+                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-center text-xs text-gray-500">
+                    Map view unavailable (precise coordinates not specified)
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Right Column (1 col): Venue & Host Details */}
-        <div className="space-y-6">
-          {/* Host / Client Contact Card */}
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <User size={18} className="text-emerald-600" />
-              Client Contact Information
-            </h2>
-
-            {clientContact ? (
-              <div className="space-y-3 text-sm">
-                <div className="font-semibold text-gray-900 text-base">
-                  {clientContact.name}
-                </div>
-
-                {clientContact.email && (
-                  <a
-                    href={`mailto:${clientContact.email}`}
-                    className="flex items-center gap-2 text-gray-600 hover:text-emerald-700 transition-colors"
-                  >
-                    <Mail size={15} className="text-gray-400 shrink-0" />
-                    <span className="truncate">{clientContact.email}</span>
-                  </a>
-                )}
-
-                {clientContact.phone && (
-                  <a
-                    href={`tel:${clientContact.phone}`}
-                    className="flex items-center gap-2 text-gray-600 hover:text-emerald-700 transition-colors"
-                  >
-                    <Phone size={15} className="text-gray-400 shrink-0" />
-                    <span>{clientContact.phone}</span>
-                  </a>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 italic">Client contact details unavailable.</p>
-            )}
-          </div>
-
-          {/* Venue & Location Card */}
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-6">
-            <h2 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-              <MapPin size={18} className="text-emerald-600" />
-              Venue Location
-            </h2>
-
-            <p className="text-sm text-gray-700 font-medium mb-4">
-              {event.location?.address || 'Location address pending'}
-            </p>
-
-            {/* ReadOnlyMap if coordinates available */}
-            {coords ? (
-              <div className="h-56 w-full rounded-xl overflow-hidden border border-gray-200">
-                <ReadOnlyMap lat={coords.lat} lng={coords.lng} zoom={14} />
-              </div>
-            ) : (
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-center text-xs text-gray-500">
-                Map view unavailable (precise coordinates not specified)
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

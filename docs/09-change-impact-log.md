@@ -693,6 +693,86 @@ Change local UI text in one page.
   - Frontend Test Suite (`npm test`): 56/56 passing across 10 test files, exit code 0.
   - Frontend Production Build (`npm run build`): compiled cleanly in 34.03s, exit code 0.
 
+---
+
+## Entry 24: Work Requirements Management Milestone (Event Manager Creates & Manages Staffing Requirements)
+
+- **Date**: 2026-10-20
+- **Author**: Antigravity Assistant & Engineering Team
+- **Milestone**: EventOps ERP — Work Requirements Management Milestone
+- **Classification**: Moderate / Business Rule Expansion (Approved)
+- **Scope & Objective**:
+  - Implement full Work Requirements access, listing, creation, draft editing, cancellation, and staffing demand summary within the Manager Portal for assigned, confirmed events.
+  - Preserve established backend architecture: Express, TypeScript ESM, Mongoose, centralized config, RBAC middleware, and repository-service pattern.
+  - Strictly reuse existing `WorkRequirement` Mongoose collection and existing module (`backend/src/modules/work-requirements/`).
+  - Enforce authoritative server-side validation: 8-item worker type enum, integer `requiredCount >= 1`, non-empty `reportingTime`, length bounds on `description`.
+  - Enforce assignment & event eligibility authorization: Event Manager must be assigned to the event (`event.eventManagerId === req.user.id`) and the event must be in `confirmed` status. Non-assigned managers receive 403 Forbidden; non-confirmed events receive 400 Bad Request. Admins retain full oversight access.
+  - Status lifecycle authority: Initial requirements are strictly created as `draft`. Modifying fields (`workerType`, `requiredCount`, `reportingTime`, `description`) is permitted ONLY while in `draft` status. Permitted status transitions are `draft -> open` (recruitment announcement) and `draft -> cancelled`, `open -> cancelled`. Prohibited status transitions via client input: `selection_in_progress`, `filled`, and `closed` cannot be set by frontend PATCH calls and are reserved for the Worker Selection Engine.
+  - Staffing demand calculation: Active workers needed sums `requiredCount` across active requirements, while `cancelled` requirements are strictly excluded from demand calculations.
+  - Provide complete UX: Responsive data table, search/filter controls, loading/saving indicators, disabled submit states, dedicated empty state with "+ Create First Requirement" action, locked explanation banner for non-confirmed events, and distinct recoverable error state with retry.
+  - Strictly out of scope: Worker Selection Engine, manual worker assignment, automated worker allocation, attendance, performance scoring, wages, payroll, changes to payment reminders or BullMQ/Redis infrastructure.
+- **Affected Components & Files**:
+  - `backend/src/modules/work-requirements/validation/work-requirement.validation.ts`:
+    - Created validation middleware: `validateCreateWorkRequirement`, `validateUpdateWorkRequirement`, `validateEventIdParam`, `validateRequirementIdParam`.
+    - Enforced valid MongoDB ObjectId formatting, 8 canonical worker types, integer `requiredCount >= 1`, non-empty `reportingTime`, description length limits, and status transition whitelist (`open`, `cancelled`).
+  - `backend/src/modules/work-requirements/service/work-requirement.service.ts`:
+    - Added ObjectId format pre-validation in `getRequirementsByEvent` and `createRequirement`.
+    - Enforced `event.status === 'confirmed'` check for requirement creation.
+    - Updated `updateRequirement`: Permitted `workerType` editing while in `draft` status, allowed cancellation from `draft` and `open`, prohibited direct client transition to `filled`/`selection_in_progress`/`closed`, and protected `eventId` from mutation.
+    - Added `cancelRequirement` method transitioning eligible requirements to `cancelled`.
+  - `backend/src/modules/work-requirements/routes/work-requirement.routes.ts`:
+    - Attached `validateEventIdParam`, `validateCreateWorkRequirement`, and `validateUpdateWorkRequirement` to `/api/manager/events/:eventId/work-requirements`.
+  - `backend/src/modules/work-requirements/routes/work-requirement-root.routes.ts`:
+    - Attached `validateRequirementIdParam` and `validateUpdateWorkRequirement` to `/api/manager/work-requirements/:id`.
+  - `backend/tests/workRequirements.test.ts`:
+    - Expanded test suite from 15 to 23 tests covering validation errors, invalid ObjectIds, non-confirmed event rejection, draft field editing, non-draft edit blocking, cancellation from draft and open, and invalid status transition rejection.
+  - `frontend/src/features/work-requirements/workRequirementsApi.ts`:
+    - Created typed API client with `getRequirementsByEvent`, `createRequirement`, `updateRequirement`, and `cancelRequirement`.
+  - `frontend/src/components/manager/WorkRequirementsSummary.tsx`:
+    - Built staffing demand summary displaying active workers needed, total requirements, draft/open count, and role breakdown pills.
+  - `frontend/src/components/manager/CreateRequirementModal.tsx`:
+    - Created creation modal with 8-option worker type dropdown, integer count validation, reporting time input, instructions, loading state, and duplicate submission prevention (`noValidate` attribute and disabled states).
+  - `frontend/src/components/manager/EditRequirementModal.tsx`:
+    - Created modal for editing draft requirements with prefilled data and validation.
+  - `frontend/src/components/manager/CancelRequirementModal.tsx`:
+    - Created confirmation modal before cancelling a requirement.
+  - `frontend/src/components/manager/WorkRequirementsSection.tsx`:
+    - Built comprehensive requirements workspace with summary, search, status filters, data table, action buttons, empty state, locked state, and distinct error state with retry.
+  - `frontend/src/pages/manager/ManagerEventDetails.tsx`:
+    - Added dual-tab switcher (`Event Overview` vs `Work Requirements`) with URL search param synchronization (`?tab=requirements`) and quick staffing overview banner.
+  - `frontend/src/pages/manager/ManagerEventList.tsx`:
+    - Added direct "Requirements" link on event cards for confirmed events.
+  - `frontend/src/tests/workRequirements.test.tsx`:
+    - Added 7 comprehensive tests covering empty state, summary calculations, creation, draft editing, cancellation, non-confirmed locked state, and error handling.
+  - `docs/04-status-and-business-rules.md`:
+    - Updated Section 10 and Section 4 with authoritative validation, assignment checks, draft editing, cancellation lifecycle, and staffing summary rules.
+  - `docs/05-api-design.md`:
+    - Documented Section 27 Work Requirements API contracts, request/response bodies, validation rules, and error codes.
+  - `docs/07-decvelopment-plan.md`:
+    - Added Milestone 4 completion details and verified Phase 11 alignment.
+- **Database Schema**:
+  - Reused existing `WorkRequirement` schema; no schema changes or duplicate collections introduced.
+- **API Contracts**:
+  - `GET /api/manager/events/:eventId/work-requirements`: Event Manager (assigned only) & Admin; returns requirement list.
+  - `POST /api/manager/events/:eventId/work-requirements`: Event Manager (assigned only) & Admin; creates requirement in `draft` status.
+  - `PATCH /api/manager/work-requirements/:id`: Event Manager (assigned only) & Admin; updates fields in `draft` or transitions status (`open`, `cancelled`).
+  - `PATCH /api/manager/events/:eventId/work-requirements/:id`: Alternate route with event verification.
+  - `POST /api/manager/work-requirements/:id/cancel`: Dedicated cancellation endpoint transitioning `draft` or `open` requirement to `cancelled`.
+- **Security & Authorization**:
+  - Authoritative backend validation: Manager identity extracted from JWT context (`req.user.id`).
+  - Event ownership check: Manager cannot view or modify requirements for events assigned to other managers (403 Forbidden).
+  - Event status guard: Requirements can only be managed for `confirmed` events (400 Bad Request).
+  - Time input constraint: `reportingTime` is strictly required upon creation, selected via browser time picker widget (`HH:mm`), and validated against valid time formats. Freeform plain text (e.g. "sometime in morning") is rejected by backend validation (400 Bad Request).
+  - Status mutation guard: Direct transition to `selection_in_progress`, `filled`, or `closed` via user input is rejected (400 Bad Request).
+- **Verification & Test Results**:
+  - Backend Test Suite (`npm test`): 367/367 passing across 38 suites, exit code 0.
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Build (`npm run build`): compiled cleanly, exit code 0.
+  - Frontend Lint (`npm run lint`): 34 pre-existing warnings, 0 errors, exit code 0.
+  - Frontend Test Suite (`npm test`): 63/63 passing across 11 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 3.85s, exit code 0.
+
+
 
 
 

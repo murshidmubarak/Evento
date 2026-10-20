@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { WorkRequirementController } from '../controller/work-requirement.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
+import {
+  validateCreateWorkRequirement,
+  validateEventIdParam,
+} from '../validation/work-requirement.validation.js';
 
 const router = Router({ mergeParams: true });
 const requirementController = new WorkRequirementController();
@@ -15,6 +19,7 @@ router.post(
   '/',
   authenticate,
   authorize('event_manager'),
+  validateCreateWorkRequirement,
   requirementController.createRequirement
 );
 
@@ -27,6 +32,7 @@ router.get(
   '/',
   authenticate,
   authorize('event_manager'),
+  validateEventIdParam,
   requirementController.getRequirementsByEvent
 );
 

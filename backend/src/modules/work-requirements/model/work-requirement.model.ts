@@ -6,7 +6,7 @@ export interface IWorkRequirement extends Document {
   eventId: Types.ObjectId;
   workerType: string;
   requiredCount: number;
-  reportingTime?: string;
+  reportingTime: string;
   description?: string;
   status: WorkRequirementStatus;
   createdAt: Date;
@@ -42,7 +42,20 @@ const workRequirementSchema = new Schema<IWorkRequirement>(
         message: '{VALUE} is not an integer value'
       }
     },
-    reportingTime: { type: String, trim: true },
+    reportingTime: {
+      type: String,
+      required: [true, 'Reporting time is required'],
+      trim: true,
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim().length === 0) return false;
+          const timeRegex = /^([0-1]?\d|2[0-3]):[0-5]\d(\s?[APap][Mm])?$/;
+          const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d{3})?Z?$/;
+          return timeRegex.test(v.trim()) || isoRegex.test(v.trim());
+        },
+        message: "Reporting time must be a valid time format (e.g. '07:30' or '07:30 AM')"
+      }
+    },
     description: { type: String, trim: true },
     status: {
       type: String,

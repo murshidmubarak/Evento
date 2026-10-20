@@ -135,7 +135,7 @@ describe('Work Requirement API', () => {
         const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20 })
+          body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20, reportingTime: '09:00' })
         });
         assert.equal(res.status, 403);
       }
@@ -160,7 +160,7 @@ describe('Work Requirement API', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventBId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20 })
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20, reportingTime: '09:00' })
       });
       assert.equal(res.status, 403);
     });
@@ -169,7 +169,7 @@ describe('Work Requirement API', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventUnassignedId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20 })
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 20, reportingTime: '09:00' })
       });
       assert.equal(res.status, 403); // because not assigned to Manager A
     });
@@ -180,14 +180,14 @@ describe('Work Requirement API', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 0 })
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 0, reportingTime: '09:00' })
       });
       assert.equal(res.status, 400);
 
       const res2 = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: -1 })
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: -1, reportingTime: '09:00' })
       });
       assert.equal(res2.status, 400);
     });
@@ -196,7 +196,7 @@ describe('Work Requirement API', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 1.5 })
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 1.5, reportingTime: '09:00' })
       });
       assert.equal(res.status, 400);
     });
@@ -205,7 +205,7 @@ describe('Work Requirement API', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workerType: 'Super Hacker', requiredCount: 10 })
+        body: JSON.stringify({ workerType: 'Super Hacker', requiredCount: 10, reportingTime: '09:00' })
       });
       assert.equal(res.status, 400);
     });
@@ -218,6 +218,78 @@ describe('Work Requirement API', () => {
       });
       assert.equal(res.status, 400);
     });
+
+    it('5. missing reportingTime -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5 })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('Reporting time is required')));
+    });
+
+    it('6. plain text reportingTime -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: 'sometime in morning' })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('valid time format')));
+    });
+
+    it('7. null reportingTime -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: null })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('Reporting time is required')));
+    });
+
+    it('8. empty string reportingTime -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: '' })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('Reporting time is required')));
+    });
+
+    it('9. whitespace-only reportingTime -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: '     ' })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('Reporting time is required')));
+    });
+
+    it('10. out-of-range time format (25:99) -> invalid', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${eventAId}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: '25:99' })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      const errorsList = data.error?.errors || data.errors || [];
+      assert.ok(errorsList.some((e: string) => e.includes('valid time format')));
+    });
   });
 
   describe('List Requirements', () => {
@@ -226,18 +298,21 @@ describe('Work Requirement API', () => {
         eventId: eventAId,
         workerType: 'Catering Boy',
         requiredCount: 5,
+        reportingTime: '08:00',
         status: 'draft'
       });
       await WorkRequirement.create({
         eventId: eventAId,
         workerType: 'Chef',
         requiredCount: 2,
+        reportingTime: '06:00',
         status: 'draft'
       });
       await WorkRequirement.create({
         eventId: eventBId,
         workerType: 'Host',
         requiredCount: 4,
+        reportingTime: '09:00',
         status: 'draft'
       });
     });
@@ -267,6 +342,7 @@ describe('Work Requirement API', () => {
         eventId: eventAId,
         workerType: 'Catering Boy',
         requiredCount: 5,
+        reportingTime: '08:00',
         status: 'draft'
       });
       reqId = req._id.toString();
@@ -312,6 +388,160 @@ describe('Work Requirement API', () => {
       });
       const data = (await res2.json()) as any;
       assert.equal(data.data.requirement.eventId.toString(), eventAId);
+    });
+
+    it('5. Manager A can update workerType, reportingTime, and description on draft requirement', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workerType: 'Chef',
+          reportingTime: '06:00 AM',
+          description: 'Special head chef for buffet'
+        })
+      });
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.data.requirement.workerType, 'Chef');
+      assert.equal(data.data.requirement.reportingTime, '06:00 AM');
+      assert.equal(data.data.requirement.description, 'Special head chef for buffet');
+    });
+
+    it('6. Manager A can cancel a draft requirement', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.data.requirement.status, 'cancelled');
+    });
+
+    it('7. Cannot edit fields on a cancelled requirement', async () => {
+      await WorkRequirement.findByIdAndUpdate(reqId, { status: 'cancelled' });
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requiredCount: 15 })
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('8. Manager A can cancel an open requirement', async () => {
+      await WorkRequirement.findByIdAndUpdate(reqId, { status: 'open' });
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.data.requirement.status, 'cancelled');
+    });
+
+    it('9. Direct transition to filled, selection_in_progress, or closed is rejected', async () => {
+      for (const prohibited of ['filled', 'selection_in_progress', 'closed']) {
+        const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: prohibited })
+        });
+        assert.equal(res.status, 400);
+      }
+    });
+
+    it('10. Invalid requirement ID format returns 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/invalid-id`, {
+        headers: { 'Authorization': `Bearer ${managerAToken}` },
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('11. Non-existent requirement ID returns 404', async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString();
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${fakeId}`, {
+        headers: { 'Authorization': `Bearer ${managerAToken}` },
+      });
+      assert.equal(res.status, 404);
+    });
+
+    it('12. Rejects managing requirements on non-confirmed event even if assigned', async () => {
+      const requestedEvent = await Event.create({
+        clientId: await User.findOne({ email: 'client_wr@example.com' }).then(u => u?._id),
+        title: 'Requested Event Assigned',
+        eventType: 'Wedding',
+        date: new Date('2026-10-15T00:00:00.000Z'),
+        startTime: '10:00',
+        endTime: '14:00',
+        location: { address: '123 Main St' },
+        guestCount: 100,
+        eventManagerId: managerAId,
+        status: 'requested',
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/events/${requestedEvent._id}/work-requirements`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerType: 'Catering Boy', requiredCount: 5, reportingTime: '08:00' })
+      });
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as any;
+      assert.match(data.message, /confirmed events/i);
+    });
+
+    it('13. Updating requiredCount without reportingTime preserves existing reportingTime', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requiredCount: 15 })
+      });
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as any;
+      assert.equal(data.data.requirement.requiredCount, 15);
+      assert.equal(data.data.requirement.reportingTime, '08:00');
+    });
+
+    it('14. Updating reportingTime with empty string or invalid format is rejected', async () => {
+      const res1 = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportingTime: '   ' })
+      });
+      assert.equal(res1.status, 400);
+
+      const res2 = await fetch(`http://127.0.0.1:${port}/api/manager/work-requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${managerAToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportingTime: 'bad time' })
+      });
+      assert.equal(res2.status, 400);
+    });
+
+    it('15. Service-layer createRequirement directly rejects missing/invalid reportingTime', async () => {
+      const { WorkRequirementService } = await import('../src/modules/work-requirements/service/work-requirement.service.js');
+      const service = new WorkRequirementService();
+
+      await assert.rejects(
+        async () => {
+          await service.createRequirement(managerAId, eventAId, {
+            workerType: 'Catering Boy',
+            requiredCount: 5,
+          });
+        },
+        /Reporting time is required/i
+      );
+
+      await assert.rejects(
+        async () => {
+          await service.createRequirement(managerAId, eventAId, {
+            workerType: 'Catering Boy',
+            requiredCount: 5,
+            reportingTime: 'invalid plain text',
+          });
+        },
+        /valid time format/i
+      );
     });
   });
 });

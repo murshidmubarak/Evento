@@ -501,7 +501,17 @@ The requirement is cancelled.
 
 10. Work Requirement Rules
 Work Requirement must belong to a valid Event.
-Work Requirement can be created only for an Event Manager's assigned Event.
+Work Requirement can be created only for an Event Manager's assigned Event (or by an Admin).
+Event must be in `confirmed` status to create or manage work requirements; non-confirmed events reject work requirement operations.
+Initial status is strictly set to `draft` upon creation.
+Permitted worker types are limited to the authoritative enum: `Catering Boy`, `Catering Supervisor`, `Chef`, `Cameraman / Photographer`, `Videographer`, `Decoration Worker`, `Juice Worker`, `Host`.
+Required quantity (`requiredCount`) must be an integer greater than or equal to 1.
+Reporting time (`reportingTime`) is mandatory upon creation and must be selected using a proper time picker (e.g. `HH:mm` format). Freeform plain text is strictly rejected.
+Multiple work requirements for the same worker type within an event are permitted (e.g., separate reporting times, locations, or shifts).
+Field mutability rule: Fields (`workerType`, `requiredCount`, `reportingTime`, `description`) can only be modified while the requirement is in `draft` status. Once a requirement moves out of `draft`, field edits are strictly prohibited.
+Cancellation rule: Requirements in `draft` or `open` status can transition to `cancelled`. Cancelled requirements cannot be modified or re-opened.
+Status transition authority: The frontend cannot directly set status to `selection_in_progress`, `filled`, or `closed`; these transitions are reserved exclusively for backend recruitment/selection processes.
+Event staffing demand summary: Total required workers sums `requiredCount` across active requirements (`draft`, `open`, `selection_in_progress`, `filled`, `closed`), while `cancelled` requirements are strictly excluded from active demand calculations.
 Event Manager creates and announces the requirement.
 Event Manager does not manually select Workers.
 Workers respond to open opportunities.
@@ -1350,4 +1360,21 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
   - Client contact information (`name`, `email`, `phone`), schedule, guest count, location address/coordinates, selected services, and operational notes are returned for event execution.
   - Sensitive financial figures (profit margins, quotation totals, payment transactions, Stripe/Razorpay tokens) and worker payroll are not exposed to the manager.
 - **Work Requirements Management Scope**:
-  - Work Requirements creation, worker recruitment, attendance, and wages are strictly deferred to subsequent milestones and remain prohibited in Milestone 2.
+  - In Milestone 2 (Manager Onboarding & Assignment), Work Requirements were deferred.
+  - In the Work Requirements Management milestone, Work Requirements creation, retrieval, editing (in draft), and cancellation are fully implemented for assigned, confirmed events.
+  - Worker recruitment execution (Worker Selection Engine, worker invitation response collection, worker matching), attendance, and wages are strictly deferred to subsequent milestones.
+
+### 4. Work Requirements Management Authorization & Lifecycle Rules
+- **Event Ownership Enforcement**: An Event Manager can only retrieve, create, edit, and cancel work requirements for events assigned to them (`event.eventManagerId === req.user.id`). Unassigned managers receive 403 Forbidden. Admins retain full oversight access.
+- **Event Status Guard**: Work requirements can only be created or modified for events with `status: 'confirmed'`. Non-confirmed events return 400 Bad Request.
+- **Authoritative Validation**:
+  - Worker types must belong to the approved 8-item enum (`Catering Boy`, `Catering Supervisor`, `Chef`, `Cameraman / Photographer`, `Videographer`, `Decoration Worker`, `Juice Worker`, `Host`).
+  - Required quantity must be an integer >= 1.
+  - Reporting time must be a non-empty datetime or time string.
+- **Lifecycle & Transition Rules**:
+  - Newly created requirements are strictly initialized in `draft` status.
+  - Fields (`workerType`, `requiredCount`, `reportingTime`, `description`) are mutable ONLY when `status === 'draft'`. Once in `open` or subsequent states, field modification is rejected with 400 Bad Request.
+  - Permitted status transitions via manager PATCH: `draft -> open` (recruitment announcement) and `draft -> cancelled`, `open -> cancelled`.
+  - Prohibited status transitions via client input: `selection_in_progress`, `filled`, and `closed` cannot be set by frontend PATCH calls; they are reserved for the Selection Engine.
+  - Requirements cannot be hard-deleted; cancellation preserves audit history.
+  - Cancelled requirements are excluded from active event staffing demand calculations.

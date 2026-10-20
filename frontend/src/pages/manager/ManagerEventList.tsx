@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ShieldCheck,
   User,
+  Briefcase,
 } from 'lucide-react';
 
 export const ManagerEventList: React.FC = () => {
@@ -287,17 +288,29 @@ export const ManagerEventList: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+                <div className="pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
                   <span className="font-mono text-[11px] text-gray-400">
                     ID: {event._id.slice(-6).toUpperCase()}
                   </span>
-                  <Link
-                    to={`/manager/events/${event._id}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs rounded-lg transition-colors"
-                  >
-                    View Details
-                    <ArrowRight size={14} />
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {event.status === 'confirmed' && (
+                      <Link
+                        to={`/manager/events/${event._id}?tab=requirements`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold text-xs rounded-lg transition-colors"
+                        title="Work Requirements"
+                      >
+                        <Briefcase size={13} />
+                        Requirements
+                      </Link>
+                    )}
+                    <Link
+                      to={`/manager/events/${event._id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs rounded-lg transition-colors"
+                    >
+                      View Details
+                      <ArrowRight size={14} />
+                    </Link>
+                  </div>
                 </div>
               </div>
             );

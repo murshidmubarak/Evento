@@ -1716,23 +1716,132 @@ Purpose: Get detailed event information for the Event Control Center (must be as
 
 ## Create Work Requirement
 POST /api/manager/events/:eventId/work-requirements
-Access: Event Manager
-Purpose: Create a work requirement for a specific event.
+Access: Event Manager (assigned to the Confirmed Event)
+Purpose: Create a work requirement for an assigned confirmed event.
+Request:
+```json
+{
+  "workerType": "Catering Boy",
+  "requiredCount": 8,
+  "reportingTime": "07:00 AM",
+  "description": "Buffet setup and guest hospitality service."
+}
+```
+Validation:
+- `eventId`: Valid 24-character hex ObjectId string; event must be in `confirmed` status and assigned to the authenticated manager.
+- `workerType`: Required; must be one of: `Catering Boy`, `Catering Supervisor`, `Chef`, `Cameraman / Photographer`, `Videographer`, `Decoration Worker`, `Juice Worker`, `Host`.
+- `requiredCount`: Required integer >= 1.
+- `reportingTime`: Required string selected via time picker (valid time format such as '07:30' or '07:30 AM', max 100 characters; freeform plain text rejected).
+- `description`: Optional string (max 2000 characters).
+Initial status: `draft`
+Response: `201 Created`
+```json
+{
+  "success": true,
+  "message": "Work requirement created successfully",
+  "data": {
+    "requirement": {
+      "_id": "6714d...",
+      "eventId": "6714c...",
+      "workerType": "Catering Boy",
+      "requiredCount": 8,
+      "reportingTime": "07:00 AM",
+      "description": "Buffet setup and guest hospitality service.",
+      "status": "draft",
+      "filled": 0,
+      "pending": 8,
+      "createdAt": "2026-10-20T...",
+      "updatedAt": "2026-10-20T..."
+    }
+  }
+}
+```
 
 ## List Work Requirements
 GET /api/manager/events/:eventId/work-requirements
-Access: Event Manager
-Purpose: Get all work requirements for an event.
+Access: Event Manager (assigned to the Confirmed Event)
+Purpose: Retrieve all staffing work requirements for an assigned confirmed event.
+Response: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "requirements": [
+      {
+        "_id": "6714d...",
+        "eventId": "6714c...",
+        "workerType": "Catering Boy",
+        "requiredCount": 8,
+        "reportingTime": "07:00 AM",
+        "description": "Buffet setup and guest hospitality service.",
+        "status": "draft",
+        "filled": 0,
+        "pending": 8,
+        "createdAt": "2026-10-20T...",
+        "updatedAt": "2026-10-20T..."
+      }
+    ]
+  }
+}
+```
 
 ## Get Single Work Requirement
 GET /api/manager/work-requirements/:id
-Access: Event Manager
-Purpose: Get a specific work requirement by ID.
+Access: Event Manager (assigned to the requirement's event)
+Purpose: Get detailed specifications for a specific work requirement by ID.
+Response: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "requirement": {
+      "_id": "6714d...",
+      "eventId": "6714c...",
+      "workerType": "Catering Boy",
+      "requiredCount": 8,
+      "reportingTime": "07:00 AM",
+      "description": "Buffet setup and guest hospitality service.",
+      "status": "draft",
+      "filled": 0,
+      "pending": 8,
+      "createdAt": "2026-10-20T...",
+      "updatedAt": "2026-10-20T..."
+    }
+  }
+}
+```
 
 ## Update Work Requirement
 PATCH /api/manager/work-requirements/:id
-Access: Event Manager
-Purpose: Update a work requirement's count, description, etc.
+Access: Event Manager (assigned to the requirement's event)
+Purpose: Update a work requirement's count, reporting time, worker type, description, or transition status to cancelled.
+Rules:
+- Content fields (`workerType`, `requiredCount`, `reportingTime`, `description`) can only be modified while the requirement is in `draft` status.
+- `status` can be transitioned to `cancelled` from `draft` or `open`.
+- Direct transitions to `filled`, `selection_in_progress`, or `closed` are rejected with `400 Bad Request`.
+- Modification of `eventId` is ignored and prohibited.
+Response: `200 OK`
+```json
+{
+  "success": true,
+  "message": "Work requirement updated successfully",
+  "data": {
+    "requirement": {
+      "_id": "6714d...",
+      "eventId": "6714c...",
+      "workerType": "Chef",
+      "requiredCount": 2,
+      "reportingTime": "06:00 AM",
+      "description": "Head chef for buffet counter.",
+      "status": "draft",
+      "filled": 0,
+      "pending": 2,
+      "createdAt": "2026-10-20T...",
+      "updatedAt": "2026-10-20T..."
+    }
+  }
+}
+```
 
 # 28. Resource Ownership Rules
 

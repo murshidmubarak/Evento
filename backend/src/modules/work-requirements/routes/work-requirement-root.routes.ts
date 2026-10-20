@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { WorkRequirementController } from '../controller/work-requirement.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorize } from '../../../middlewares/role.middleware.js';
+import {
+  validateRequirementIdParam,
+  validateUpdateWorkRequirement,
+} from '../validation/work-requirement.validation.js';
 
 const router = Router();
 const requirementController = new WorkRequirementController();
@@ -15,6 +19,7 @@ router.get(
   '/:id',
   authenticate,
   authorize('event_manager'),
+  validateRequirementIdParam,
   requirementController.getRequirementById
 );
 
@@ -27,6 +32,7 @@ router.patch(
   '/:id',
   authenticate,
   authorize('event_manager'),
+  validateUpdateWorkRequirement,
   requirementController.updateRequirement
 );
 

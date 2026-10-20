@@ -410,8 +410,20 @@ Only Admin can assign or change the Event Manager.
 - [DONE] Protected Worker Dashboard: `WorkerDashboard.tsx` at `/worker` (served by `WorkerLayout.tsx`) displays worker profile summary (name, worker type, business ID, email, phone, location), active status, and authentic empty state: "No work has been assigned to you yet. Your assignments will appear here when work becomes available."
 - [DONE] Navigation & Routing: Mounted in `ManagerLayout.tsx` (`Manage Workers`), `AppRoutes.tsx`, and role-based redirect in `RootRedirect.tsx` (`/worker`).
 - [DONE] Shared workforce pool preservation: Creator attribution (`createdBy`) is strictly for audit/management and does not restrict workers from future selection or event assignment.
-- [DONE] Out of scope boundaries respected: Work Requirements Management and Worker Selection Engine deferred.
 - [DONE] Comprehensive automated test coverage: 14/14 new backend tests in `workerOnboarding.test.ts` (357/357 total passing across 38 suites), 15/15 new frontend tests across `managerWorkers.test.tsx`, `workerDashboard.test.tsx`, and `acceptInvitation.test.tsx` (56/56 total passing across 10 suites), 0 type errors, 0 build errors.
+
+### Milestone 4: Work Requirements Management (Event Manager Creates and Manages Staffing Requirements) [COMPLETED]
+- [DONE] Event Manager Work Requirements access: Integrated directly into `ManagerEventDetails.tsx` with a dual-tab switcher (`Event Overview` vs `Work Requirements`) and URL query parameter persistence (`?tab=requirements`). Also exposed direct quick link in `ManagerEventList.tsx` for confirmed events.
+- [DONE] Authoritative backend validation: `validateCreateWorkRequirement` and `validateUpdateWorkRequirement` enforce valid `workerType` (8 enum values), integer `requiredCount` >= 1, non-empty `reportingTime`, length bounds on `description`, and `status` transitions.
+- [DONE] Event Ownership & Assignment Authorization: Event Manager can only view, create, edit, and cancel requirements for events assigned to them (`event.eventManagerId === req.user.id`). Unassigned managers receive 403 Forbidden. Admins retain full oversight.
+- [DONE] Event Status Guard: Work requirements can only be created or modified for events in `confirmed` status. Non-confirmed events return 400 Bad Request.
+- [DONE] Status Lifecycle Authority: Initial creation strictly sets `status = 'draft'`. Permitted manager updates include field editing in `draft` only, `draft -> open`, and cancellation (`draft -> cancelled`, `open -> cancelled`). Transitions to `selection_in_progress`, `filled`, and `closed` via client input are strictly prohibited and reserved for the Selection Engine.
+- [DONE] Multiple Requirements: Allows multiple requirements for the same worker type within an event (e.g. different shifts/reporting times).
+- [DONE] Frontend Staffing Demand & Summary: `WorkRequirementsSummary.tsx` accurately displays total active worker count (strictly excluding cancelled requirements), total requirement records, draft/open count, and worker-type breakdown pills.
+- [DONE] Full UI Workflows: `WorkRequirementsSection.tsx` with search, status filters, data table with action menus, `CreateRequirementModal.tsx` with duplicate submission prevention (`noValidate` attribute and disabled states), `EditRequirementModal.tsx` for draft editing, and `CancelRequirementModal.tsx` with confirmation dialog.
+- [DONE] Error & Empty States: Dedicated empty state with "+ Create First Requirement" action for eligible events, locked explanation banner for non-confirmed events, and distinct error state with retry button on API failure.
+- [DONE] Out of Scope Boundaries Respected: Worker Selection Engine, manual worker assignment, automated worker allocation, attendance, and wages deferred to future milestones.
+- [DONE] Full Automated Test Coverage: 23/23 tests in `workRequirements.test.ts` (365/365 total backend tests passing across 38 suites), 7/7 tests in `workRequirements.test.tsx` (63/63 total frontend tests passing across 11 suites), 0 lint errors, 0 type errors, clean builds.
 
 Implement (Future Milestones):
 
