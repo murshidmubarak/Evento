@@ -1663,7 +1663,7 @@ Returns:
 - Recent Messages
 
 
-# 26. Worker Dashboard APIs
+# 26. Worker Dashboard & Opportunity APIs
 
 Base:
 
@@ -1685,6 +1685,122 @@ Returns:
 - Completed Work
 - Monthly Earnings
 - Performance Score
+
+
+## Get Worker Confirmed Location
+
+GET /api/worker/location
+
+Access:
+Worker
+
+Response: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "location": {
+      "address": "Kochi, Kerala",
+      "lat": 9.9312,
+      "lng": 76.2673,
+      "confirmedAt": "2026-10-22T10:00:00.000Z"
+    }
+  }
+}
+```
+If not configured:
+```json
+{
+  "success": true,
+  "data": {
+    "location": null
+  }
+}
+```
+
+
+## Update Worker Location
+
+PATCH /api/worker/location
+
+Access:
+Worker
+
+Request Body:
+```json
+{
+  "lat": 9.9350,
+  "lng": 76.2680,
+  "address": "MG Road, Kochi"
+}
+```
+
+Validation Rules:
+- `lat` must be a valid number between -90 and 90.
+- `lng` must be a valid number between -180 and 180.
+- Zero coordinates are rejected as fallbacks for missing location.
+- Non-finite (NaN, Infinity) values are rejected with `400 Bad Request`.
+
+Effects:
+- Updates `User.location` and sets `confirmedAt: new Date()`.
+- Automatically recalculates distances and updates `locationSnapshot` on any pending `interested` work responses without modifying `respondedAt`.
+- Does NOT alter already selected worker assignments.
+
+Response: `200 OK`
+
+
+## Get Available Opportunities (Distance Filtered)
+
+GET /api/worker/opportunities
+
+Access:
+Worker
+
+Location Gate:
+If worker has not configured a valid confirmed location:
+Response: `400 Bad Request`
+```json
+{
+  "success": false,
+  "message": "Location configuration required before viewing available work opportunities.",
+  "error": {
+    "statusCode": 400,
+    "errors": ["LOCATION_REQUIRED"]
+  }
+}
+```
+
+Distance Filtering:
+Returns only open requirements matching the worker's category where `actualDistanceKm <= maxDistanceKm`.
+
+
+## Express Interest in Opportunity
+
+POST /api/worker/opportunities/:requirementId/interest
+
+Access:
+Worker
+
+Location Gate:
+If worker has not configured a valid confirmed location:
+Response: `400 Bad Request` with `LOCATION_REQUIRED`.
+
+Distance Validation:
+If worker's confirmed location is beyond `maxDistanceKm`:
+Response: `400 Bad Request` ("Your confirmed location exceeds maximum permitted distance").
+
+Snapshot:
+Saves `locationSnapshot: { address, lat, lng, confirmedAt }` on the created `WorkResponse` record.
+
+
+## Get Confirmed Shifts
+
+GET /api/worker/assignments
+
+Access:
+Worker
+
+Returns confirmed worker assignments and schedules selected by the deterministic engine.
 
 
 # 27. Common API Rules
@@ -2753,6 +2869,194 @@ Error Responses:
 - 401 Unauthorized: Missing or expired token.
 - 403 Forbidden: Authenticated manager is not assigned to this event ("You do not have permission to access this event").
 - 404 Not Found: Event record not found.
+
+---
+
+# 28. Worker Selection Engine & Opportunity APIs
+
+## 1. Express Interest in a Work Requirement
+`POST /api/worker/opportunities/:requirementId/interest`
+
+**Access**: Worker only (`role: 'worker'`)
+
+**Parameters**:
+- `:requirementId`: WorkRequirement ObjectId
+
+**Request Body**: None (identity extracted from verified JWT `req.user.id`)
+
+**Validation Rules**:
+- Worker must have active status (`isActive: true`).
+- Worker type must match requirement worker type.
+- Requirement must exist and be in `open` status.
+- Interest deadline must not have passed.
+- Worker must not already have submitted interest (compound unique index `{ requirementId, workerId }`).
+- Worker must not have another active assignment on the same calendar day.
+
+**Response (201 Created)**:
+```json
+{
+  "success": true,
+  "message": "Interest recorded successfully! Your application is in the candidate pool.",
+  "data": {
+    "responseId": "60d5ec49f1b2c8b1f8e4e901",
+    "requirementId": "60d5ec49f1b2c8b1f8e4e105",
+    "status": "interested",
+    "respondedAt": "2026-10-22T10:15:30.123Z"
+  }
+}
+```
+
+## 2. Get Available Opportunities for Worker
+`GET /api/worker/opportunities`
+
+**Access**: Worker only (`role: 'worker'`)
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "60d5ec49f1b2c8b1f8e4e105",
+      "eventId": "60d5ec49f1b2c8b1f8e4e100",
+      "eventTitle": "Grand Royal Wedding",
+      "eventType": "Wedding",
+      "eventDate": "2026-11-20T00:00:00.000Z",
+      "eventLocation": { "address": "Grand Palace Hall, Mumbai" },
+      "workerType": "Chef",
+      "requiredCount": 3,
+      "reportingTime": "08:00",
+      "maxDistanceKm": 25,
+      "interestDeadlineAt": "2026-11-18T18:00:00.000Z",
+      "distanceKm": 12.4,
+      "withinDistance": true,
+      "isAssigned": false,
+      "hasCalendarConflict": false,
+      "hasExpressedInterest": true,
+      "myResponseStatus": "interested"
+    }
+  ]
+}
+```
+
+## 3. Get Worker's Confirmed Assignments
+`GET /api/worker/assignments`
+
+**Access**: Worker only (`role: 'worker'`)
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "requirementId": "60d5ec49f1b2c8b1f8e4e105",
+      "eventId": "60d5ec49f1b2c8b1f8e4e100",
+      "eventTitle": "Grand Royal Wedding",
+      "eventType": "Wedding",
+      "eventDate": "2026-11-20T00:00:00.000Z",
+      "eventLocation": { "address": "Grand Palace Hall, Mumbai" },
+      "workerType": "Chef",
+      "reportingTime": "08:00",
+      "assignedAt": "2026-11-18T18:05:00.000Z"
+    }
+  ]
+}
+```
+
+## 4. Extend Interest Deadline for Incomplete Requirement
+`POST /api/manager/work-requirements/:id/extend-deadline`
+
+**Access**: Event Manager (assigned to the requirement's event) or Admin
+
+**Request Body**:
+```json
+{
+  "newInterestDeadlineAt": "2026-11-19T18:00:00.000Z"
+}
+```
+
+**Critical Business Rule**:
+- Extending the deadline **never removes, replaces, or resets** already assigned workers.
+- The requirement remains `open`, increments `selectionRound`, logs the previous deadline and remaining count in `extensionHistory`, and schedules a new selection job.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Interest deadline extended successfully. All 2 previously assigned workers remain assigned.",
+  "data": {
+    "_id": "60d5ec49f1b2c8b1f8e4e105",
+    "workerType": "Chef",
+    "requiredCount": 5,
+    "filled": 2,
+    "selectionRound": 2,
+    "interestDeadlineAt": "2026-11-19T18:00:00.000Z",
+    "status": "open"
+  }
+}
+```
+
+## 5. Get Selection Results & Candidate Audit
+`GET /api/manager/work-requirements/:id/selection-results`
+
+**Access**: Event Manager (assigned only) or Admin
+
+**Response (200 OK)**:
+Returns requirement metadata, list of selected assigned workers (`assignedWorkers`), candidate pool (`candidates` with distances and response statuses), and `extensionHistory`.
+
+## 6. Trigger Immediate Selection (Manual / Debug / Recovery)
+`POST /api/manager/work-requirements/:id/trigger-selection`
+
+**Access**: Event Manager (assigned only) or Admin
+
+**Response (200 OK)**:
+Executes the deterministic selection engine immediately for the current round, persisting new assignments safely without modifying existing assignments.
+
+## 7. Worker Location Management & Immutable History
+`PATCH /api/worker/location`
+
+**Access**: Worker only (`role: 'worker'`)
+
+**Request Body**:
+```json
+{
+  "address": "Marine Drive, Kochi, Kerala",
+  "lat": 9.9795,
+  "lng": 76.2765
+}
+```
+
+**Anti-Manipulation Behavior**:
+- Validates latitude (-90 to 90), longitude (-180 to 180), and finite numbers.
+- Checks if coordinates differ materially from current location. Identical resubmissions do not create redundant versions.
+- On genuine update, creates an immutable version in `WorkerLocationHistory` with server timestamp `effectiveFrom`.
+- Updates `User.location` for future opportunities.
+- **Strictly invariant**: Does NOT mutate existing `WorkResponse` records or recalculate distances for already-published requirements.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Location updated successfully",
+  "data": {
+    "location": {
+      "address": "Marine Drive, Kochi, Kerala",
+      "lat": 9.9795,
+      "lng": 76.2765,
+      "confirmedAt": "2026-10-22T14:30:00.000Z"
+    }
+  }
+}
+```
+
+## 8. Historical Cutoff & Publication Semantics
+- **Publication Timestamp (`interestPublishedAt`)**: Server-generated timestamp recorded authoritatively when a requirement transitions from `draft` to `open`.
+- **Cutoff Resolution**: When evaluating opportunities or interest expressions, distances are calculated using the latest version in `WorkerLocationHistory` where `effectiveFrom <= interestPublishedAt`.
+- **Invariance on Deadline Extension**: `POST /api/manager/work-requirements/:id/extend-deadline` extends the deadline but leaves `interestPublishedAt` unchanged.
+- **Audit Traceability**: `WorkResponse.locationSnapshot` includes `versionId`, coordinates, address, and `confirmedAt` corresponding to the historical version valid at publication time.
+
+
 
 
 

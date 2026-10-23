@@ -35,6 +35,7 @@ import { ManagerWorkers } from '../pages/manager/ManagerWorkers';
 
 import { WorkerLayout } from '../layouts/WorkerLayout';
 import { WorkerDashboard } from '../pages/worker/WorkerDashboard';
+import { WorkerLocationSetup } from '../pages/worker/WorkerLocationSetup';
 
 export const AppRoutes = () => {
   return (
@@ -89,6 +90,7 @@ export const AppRoutes = () => {
         <Route element={<RoleRoute allowedRole="worker" />}>
           <Route path="/worker" element={<WorkerLayout />}>
             <Route index element={<WorkerDashboard />} />
+            <Route path="location" element={<WorkerLocationSetup />} />
           </Route>
         </Route>
       </Route>

@@ -8,7 +8,8 @@ import {
   Menu, 
   X, 
   ShieldCheck, 
-  Briefcase 
+  Briefcase,
+  MapPin
 } from 'lucide-react';
 
 export const WorkerLayout: React.FC = () => {
@@ -37,6 +38,7 @@ export const WorkerLayout: React.FC = () => {
 
   const navLinks = [
     { to: '/worker', label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/worker/location', label: 'My Location', icon: MapPin },
   ];
 
   return (

@@ -8,6 +8,9 @@ import { WorkRequirementsSummary } from './WorkRequirementsSummary';
 import { CreateRequirementModal } from './CreateRequirementModal';
 import { EditRequirementModal } from './EditRequirementModal';
 import { CancelRequirementModal } from './CancelRequirementModal';
+import { ExtendDeadlineModal } from './ExtendDeadlineModal';
+import { SelectionResultsModal } from './SelectionResultsModal';
+import { AnnounceRequirementModal } from './AnnounceRequirementModal';
 import {
   Plus,
   RefreshCw,
@@ -16,13 +19,16 @@ import {
   Briefcase,
   Users,
   Clock,
-  FileText,
   Search,
   Filter,
   ShieldAlert,
   Edit2,
   Ban,
   CheckCircle2,
+  MapPin,
+  CalendarClock,
+  Award,
+  Radio,
 } from 'lucide-react';
 
 interface WorkRequirementsSectionProps {
@@ -62,6 +68,9 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingRequirement, setEditingRequirement] = useState<WorkRequirement | null>(null);
   const [cancellingRequirement, setCancellingRequirement] = useState<WorkRequirement | null>(null);
+  const [extendingRequirement, setExtendingRequirement] = useState<WorkRequirement | null>(null);
+  const [resultsRequirement, setResultsRequirement] = useState<WorkRequirement | null>(null);
+  const [announcingRequirement, setAnnouncingRequirement] = useState<WorkRequirement | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   const isConfirmed = eventStatus === 'confirmed';
@@ -96,7 +105,7 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
     setSuccessNotice(msg);
     setTimeout(() => {
       setSuccessNotice((current) => (current === msg ? null : current));
-    }, 4000);
+    }, 4500);
   };
 
   const handleCreated = (newReq: WorkRequirement) => {
@@ -119,6 +128,26 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
       prev.map((r) => (r._id === cancelledReq._id ? cancelledReq : r))
     );
     triggerSuccessNotice(`Requirement for ${cancelledReq.workerType} has been cancelled`);
+  };
+
+  const handleDeadlineExtended = (updatedReq: WorkRequirement) => {
+    setExtendingRequirement(null);
+    setRequirements((prev) =>
+      prev.map((r) => (r._id === updatedReq._id ? updatedReq : r))
+    );
+    triggerSuccessNotice(
+      `Extended deadline for ${updatedReq.workerType}. All existing assigned workers preserved.`
+    );
+  };
+
+  const handleAnnounced = (updatedReq: WorkRequirement) => {
+    setAnnouncingRequirement(null);
+    setRequirements((prev) =>
+      prev.map((r) => (r._id === updatedReq._id ? updatedReq : r))
+    );
+    triggerSuccessNotice(
+      `Recruitment opened for ${updatedReq.workerType}! Matching workers can now view and apply for this opportunity.`
+    );
   };
 
   const filteredRequirements = useMemo(() => {
@@ -236,7 +265,7 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
               Staffing Work Requirements ({requirements.length})
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Specify worker types, headcounts, reporting times, and duties.
+              Specify worker types, headcounts, reporting times, distance limits, and interest deadlines.
             </p>
           </div>
 
@@ -355,9 +384,10 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/70 text-gray-600 font-bold uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-4">Worker Type</th>
-                  <th className="py-3 px-4">Quantity</th>
+                  <th className="py-3 px-4">Staffing</th>
                   <th className="py-3 px-4">Reporting Time</th>
-                  <th className="py-3 px-4">Instructions / Notes</th>
+                  <th className="py-3 px-4">Max Distance</th>
+                  <th className="py-3 px-4">Interest Deadline</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -367,6 +397,11 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                   const isDraft = req.status === 'draft';
                   const isOpen = req.status === 'open';
                   const isCancelled = req.status === 'cancelled';
+                  const assignedCount = req.assignedWorkers?.length || 0;
+                  const isFilled = assignedCount >= req.requiredCount;
+                  const isExpired = req.interestDeadlineAt
+                    ? new Date(req.interestDeadlineAt).getTime() < Date.now()
+                    : false;
 
                   return (
                     <tr
@@ -377,14 +412,34 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                     >
                       <td className="py-3.5 px-4 font-bold text-gray-900 flex items-center gap-2">
                         <Briefcase size={14} className="text-emerald-600 shrink-0" />
-                        <span>{req.workerType}</span>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span>{req.workerType}</span>
+                            {req.selectionRound && req.selectionRound > 1 && (
+                              <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded text-[10px] font-semibold border border-purple-200">
+                                Round {req.selectionRound}
+                              </span>
+                            )}
+                          </div>
+                          {req.description && (
+                            <p className="text-[11px] text-gray-500 font-normal line-clamp-1 truncate max-w-xs" title={req.description}>
+                              {req.description}
+                            </p>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <span className="font-extrabold text-sm text-gray-900">
-                          {req.requiredCount}
-                        </span>
-                        <span className="text-[11px] text-gray-500 ml-1">needed</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-extrabold text-sm ${isFilled ? 'text-emerald-700' : 'text-gray-900'}`}>
+                            {assignedCount}
+                          </span>
+                          <span className="text-gray-400">/</span>
+                          <span className="font-semibold text-xs text-gray-600">
+                            {req.requiredCount}
+                          </span>
+                          <span className="text-[10px] text-gray-400 ml-0.5">filled</span>
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4 text-gray-700 font-medium">
@@ -398,14 +453,40 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                         )}
                       </td>
 
-                      <td className="py-3.5 px-4 text-gray-600 max-w-xs truncate" title={req.description}>
-                        {req.description ? (
-                          <div className="flex items-center gap-1.5 truncate">
-                            <FileText size={13} className="text-gray-400 shrink-0" />
-                            <span className="truncate">{req.description}</span>
+                      <td className="py-3.5 px-4 text-gray-700 font-medium">
+                        {req.maxDistanceKm ? (
+                          <div className="flex items-center gap-1">
+                            <MapPin size={13} className="text-gray-400 shrink-0" />
+                            <span>{req.maxDistanceKm} km</span>
                           </div>
                         ) : (
-                          <span className="text-gray-400 italic">None</span>
+                          <span className="text-gray-400 italic">—</span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {req.interestDeadlineAt ? (
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-gray-800">
+                              {new Date(req.interestDeadlineAt).toLocaleDateString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            {isExpired ? (
+                              <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5">
+                                <Clock size={10} /> Expired
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-0.5">
+                                <CalendarClock size={10} /> Window open
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic">—</span>
                         )}
                       </td>
 
@@ -413,16 +494,54 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5">
-                          {isDraft && (
+                          {/* Selection Results / Staffing details button */}
+                          {!isDraft && !isCancelled && (
                             <button
                               type="button"
-                              onClick={() => setEditingRequirement(req)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-colors"
-                              title="Edit requirement"
+                              onClick={() => setResultsRequirement(req)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:text-purple-800 hover:bg-purple-50 rounded-md transition-colors"
+                              title="View Selection Results & Candidates"
                             >
-                              <Edit2 size={13} />
-                              Edit
+                              <Award size={13} />
+                              Staffing Results
                             </button>
+                          )}
+
+                          {/* Extend Deadline button if incompletely staffed and open/expired */}
+                          {isOpen && !isFilled && (
+                            <button
+                              type="button"
+                              onClick={() => setExtendingRequirement(req)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                              title="Extend Interest Deadline"
+                            >
+                              <CalendarClock size={13} />
+                              Extend Deadline
+                            </button>
+                          )}
+
+                          {isDraft && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setAnnouncingRequirement(req)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 shadow-xs hover:shadow rounded-lg transition-all"
+                                title="Announce recruitment & open for worker interest"
+                              >
+                                <Radio size={13} className="animate-pulse" />
+                                Announce
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditingRequirement(req)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-colors"
+                                title="Edit requirement"
+                              >
+                                <Edit2 size={13} />
+                                Edit
+                              </button>
+                            </>
                           )}
 
                           {(isDraft || isOpen) && (
@@ -439,10 +558,6 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
 
                           {isCancelled && (
                             <span className="text-[11px] text-gray-400 italic">Cancelled</span>
-                          )}
-
-                          {!isDraft && !isOpen && !isCancelled && (
-                            <span className="text-[11px] text-gray-400 italic">Locked</span>
                           )}
                         </div>
                       </td>
@@ -478,6 +593,31 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
         onCancelled={handleCancelled}
         requirement={cancellingRequirement}
       />
+
+      <ExtendDeadlineModal
+        isOpen={Boolean(extendingRequirement)}
+        onClose={() => setExtendingRequirement(null)}
+        onExtended={handleDeadlineExtended}
+        requirement={extendingRequirement}
+        eventTitle={eventTitle}
+      />
+
+      <SelectionResultsModal
+        isOpen={Boolean(resultsRequirement)}
+        onClose={() => setResultsRequirement(null)}
+        requirementId={resultsRequirement?._id || ''}
+        eventTitle={eventTitle}
+        onSelectionTriggered={fetchRequirements}
+      />
+
+      <AnnounceRequirementModal
+        isOpen={Boolean(announcingRequirement)}
+        onClose={() => setAnnouncingRequirement(null)}
+        onAnnounced={handleAnnounced}
+        requirement={announcingRequirement}
+        eventTitle={eventTitle}
+      />
     </div>
   );
 };
+

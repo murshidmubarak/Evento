@@ -772,6 +772,150 @@ Change local UI text in one page.
   - Frontend Test Suite (`npm test`): 63/63 passing across 11 test files, exit code 0.
   - Frontend Production Build (`npm run build`): compiled cleanly in 3.85s, exit code 0.
 
+---
+
+## 2026-10-22 — Milestone 5: Worker Interest, Deterministic Worker Selection Engine, Distance Limits, and Safe Re-Selection
+
+- **Change Classification**: Moderate (Feature expansion within existing Work Requirements & Worker modules, additive schema fields, dedicated queue infrastructure).
+- **Motivation**:
+  - Implement worker-facing interest expression and discovery for open staffing opportunities.
+  - Implement deterministic backend selection engine using distance ranking and authoritative server timestamps.
+  - Enforce manager-configured maximum permitted distance and mandatory same-calendar-day conflict exclusion across events and requirements.
+  - Support automatic deadline processing via BullMQ with stale-job protection.
+  - Support partial staffing and safe deadline extension that strictly preserves already assigned workers and fills only remaining unfilled positions.
+  - Architect for future 55% performance / 45% distance scoring without fabricating performance data.
+- **Affected Components**:
+  - `backend/src/modules/work-requirements/model/work-requirement.model.ts`:
+    - Added additive fields: `maxDistanceKm`, `interestDeadlineAt`, `selectionRound`, `assignedWorkers` subdocument array (`IAssignedWorker`), and `extensionHistory` subdocument array (`IExtensionHistory`).
+    - Preserved existing 6 statuses: `draft`, `open`, `selection_in_progress`, `filled`, `closed`, `cancelled`.
+  - `backend/src/modules/work-requirements/model/work-response.model.ts`:
+    - Created `WorkResponse` model with compound unique index `{ requirementId: 1, workerId: 1 }` preventing duplicate interest submissions.
+  - `backend/src/modules/worker-selection/utils/distance.util.ts`:
+    - Implemented Haversine geographic distance calculation and 0–100 distance score normalization.
+  - `backend/src/modules/worker-selection/utils/calendar-day.util.ts`:
+    - Standardized ISO `YYYY-MM-DD` same-calendar-day parsing and conflict detection.
+  - `backend/src/modules/worker-selection/ranking/`:
+    - `IRankingStrategy`: Pluggable strategy interface.
+    - `DistanceOnlyRankingStrategy`: Live strategy ranking by distance, server timestamp, and stable ID tie-breakers.
+    - `CombinedPerformanceDistanceRankingStrategy`: Future-ready strategy implementing approved 55/45 formula.
+  - `backend/src/modules/worker-selection/service/worker-selection.service.ts`:
+    - Implemented core selection engine: candidate eligibility filtering, same-day exclusion, deterministic ranking, atomic `$push` persistence, and lifecycle transitions.
+  - `backend/src/modules/worker-selection/queues/worker-selection.queue.ts`:
+    - Dedicated BullMQ queue `'worker-selection'` isolated from payment queues.
+  - `backend/src/workers/workerSelectionWorker.ts`:
+    - Dedicated standalone background worker process for staffing selection.
+  - `backend/src/modules/work-requirements/service/work-requirement.service.ts`:
+    - Added distance and deadline validation upon creation/editing/opening, automatic BullMQ scheduling, deadline extension preserving assigned workers, and selection results retrieval.
+  - `backend/src/modules/work-requirements/service/worker-opportunity.service.ts`:
+    - Implemented worker opportunity browsing, interest expression with atomic conflict check, and confirmed shifts schedule.
+  - `frontend/src/features/work-requirements/workRequirementsApi.ts`:
+    - Added types and API methods for worker opportunities, express interest, worker assignments, selection results, and deadline extension.
+  - `frontend/src/components/manager/CreateRequirementModal.tsx` & `EditRequirementModal.tsx`:
+    - Added Maximum Worker Distance (km) and Interest Deadline fields.
+  - `frontend/src/components/manager/ExtendDeadlineModal.tsx`:
+    - Created modal with clear worker preservation banner, current staffing summary, and future deadline validation.
+  - `frontend/src/components/manager/SelectionResultsModal.tsx`:
+    - Created modal with Assigned Workers, Candidate Pool (with distance and limit-exceeded badges), Extension History, and manual trigger action.
+  - `frontend/src/components/manager/WorkRequirementsSection.tsx`:
+    - Integrated Staffing Results and Extend Deadline actions, added Max Distance and Interest Deadline columns.
+  - `frontend/src/pages/worker/WorkerDashboard.tsx`:
+    - Implemented Worker Opportunity browsing with real-time distance and deadline display, Express Interest action, and Confirmed Shifts table.
+  - Automated Tests:
+    - `backend/tests/workerSelection.test.ts`: 17 comprehensive backend tests covering interest submission, duplicate prevention, distance ranking, same-calendar-day exclusion, partial selection, deadline extension worker preservation, stale job rejection, and synthetic 55/45 scoring.
+    - `frontend/src/tests/workerSelectionUI.test.tsx`: 4 frontend tests for ExtendDeadlineModal, SelectionResultsModal, and WorkerDashboard.
+- **Verification Results**:
+  - Backend Selection Tests: 17/17 passed (100%).
+  - Backend Work Requirements Regression Tests: 32/32 passed (100%).
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Production Build (`npm run build`): compiled cleanly, exit code 0.
+  - Frontend Test Suite (`npm test`): 67/67 passed across 12 test files (100%).
+  - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 7.67s, exit code 0.
+
+---
+
+### [Mandatory Worker Location Selection & Distance Gate]
+**Date:** 2026-10-22  
+**Impact Level:** HIGH (Security, Access Control, and Selection Consistency)  
+**Description:**
+Enforced mandatory Worker location selection and confirmation prior to browsing available work opportunities or expressing interest. Integrated straight-line distance calculations against manager-defined maximum distance limits.
+
+**Components & Files Changed:**
+- **Backend Schema & Models**:
+  - `backend/src/modules/auth/model/user.model.ts`: Extended `IUser.location` and schema with `confirmedAt?: Date`.
+  - `backend/src/modules/work-requirements/model/work-response.model.ts`: Added `locationSnapshot` field to `IWorkResponse` and schema to record worker coordinates, address, and confirmed timestamp at time of application.
+- **Backend Services & Validation**:
+  - `backend/src/modules/auth/service/user.service.ts`: Enforced coordinate boundary validation (-90..90, -180..180, finite) and automatic `confirmedAt` timestamping on user updates.
+  - `backend/src/modules/work-requirements/validation/work-requirement.validation.ts`: Added `validateWorkerLocationPayload` middleware.
+  - `backend/src/modules/work-requirements/service/worker-opportunity.service.ts`:
+    - Enforced mandatory location gate on `getAvailableOpportunities` and `expressInterest` (returns `400 Bad Request` with `LOCATION_REQUIRED` if location is unconfigured or invalid).
+    - Hard distance eligibility filtering: `actualDistanceKm <= maxDistanceKm`.
+    - Added `getWorkerLocation` and `updateWorkerLocation`: Updates user location, re-calculates distances, and updates `locationSnapshot` on pending interested applications without modifying the original server `respondedAt` timestamp.
+    - Preserves established assignments: Selected workers are never altered or removed when declared profile locations change.
+  - `backend/src/modules/work-requirements/controller/worker-opportunity.controller.ts` & `routes/worker-opportunity.routes.ts`:
+    - Added `GET /api/worker/location` and `PATCH /api/worker/location`.
+- **Frontend State, Routing & UI**:
+  - `frontend/src/types/auth.ts`: Added `confirmedAt?: string` to `User.location`.
+  - `frontend/src/features/auth/authSlice.ts`: Added `setUserLocation` reducer to sync confirmed coordinates into Redux store instantly.
+  - `frontend/src/features/work-requirements/workRequirementsApi.ts`: Added `WorkerLocationPayload`, `WorkerLocationResponse`, `getWorkerLocation()`, and `updateWorkerLocation()`.
+  - `frontend/src/features/events/components/LocationMapSelector.tsx`: Made labels, placeholders, and empty warnings configurable to support worker declared locations alongside event venues.
+  - `frontend/src/pages/worker/WorkerLocationSetup.tsx`: Built dedicated worker location setup page at `/worker/location` implementing all 7 UX states (location not configured, permission denied, location loading, invalid location, location saved, location review/update, and privacy notices). Supports both browser geolocation ("Use Current Location") and manual search/map pin placement.
+  - `frontend/src/routes/AppRoutes.tsx`: Added `/worker/location` route under `WorkerLayout`.
+  - `frontend/src/layouts/WorkerLayout.tsx`: Added "My Location" navigation item with `MapPin` icon.
+  - `frontend/src/pages/worker/WorkerDashboard.tsx`: Integrated location gate check. Displays location status pill in welcome banner, warning alert banner, location gate empty state on opportunities tab with direct CTA to `/worker/location`, and location update action in profile summary.
+- **Automated Tests**:
+  - `backend/tests/workerLocation.test.ts`: 18 tests covering location setup validation, out-of-range/NaN rejection, role authorization, mandatory location gate access control, distance limit exclusion, interest snapshot creation, tie-breaker preservation, and assignment preservation.
+  - `frontend/src/tests/workerDashboard.test.tsx`: Updated and expanded with mandatory location gate tests.
+  - `frontend/src/tests/workerSelectionUI.test.tsx`: Updated mock worker with valid confirmed coordinates.
+- **Verification Results**:
+  - Backend Location Gate Tests (`tests/workerLocation.test.ts`): 18/18 passed (100%).
+  - Backend Selection Engine Tests (`tests/workerSelection.test.ts`): 17/17 passed (100%).
+  - Backend Work Requirements Tests (`tests/workRequirements.test.ts`): 32/32 passed (100%).
+  - Total Backend Tests Verified: 67/67 passed (100%).
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Frontend Test Suite (`npm run test`): 70/70 passed across 13 test files (100%).
+  - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 9.90s, exit code 0.
+
+### [Worker Selection Engine — Immutable Location History & Anti-Manipulation]
+**Date:** 2026-10-22
+**Level:** Medium (Shared schemas and business rules; zero regression on existing payment/reminder/auth infrastructure)
+
+**Description:**
+Implemented immutable Worker location versioning, publication cutoff (`interestPublishedAt`), anti-manipulation distance verification, and deterministic selection rules. Guarantees that a Worker's location valid at requirement publication is frozen for that opportunity, preventing workers from manipulating rankings by updating their location after learning about an opportunity.
+
+**Components & Files Changed:**
+- **Backend Schema & Models**:
+  - `backend/src/modules/work-requirements/model/worker-location-history.model.ts`: Created new immutable Mongoose collection `WorkerLocationHistory` with fields `workerId`, `address`, `lat`, `lng`, `effectiveFrom`, and `versionId`, indexed on `{ workerId: 1, effectiveFrom: -1 }`.
+  - `backend/src/modules/work-requirements/model/work-requirement.model.ts`: Added `interestPublishedAt?: Date` to `IWorkRequirement` interface and schema with index.
+  - `backend/src/modules/work-requirements/model/work-response.model.ts`: Added `versionId?: string` to `locationSnapshot`.
+- **Backend Repositories & Services**:
+  - `backend/src/modules/work-requirements/repository/worker-location-history.repository.ts`: Created repository with `createVersion`, `findEffectiveLocationAt(workerId, cutoffTimestamp)` (with safe legacy worker fallback), `findLatestByWorker`, and `getHistoryByWorker`.
+  - `backend/src/modules/work-requirements/service/work-requirement.service.ts`: Authoritatively stamps `interestPublishedAt = new Date()` when a requirement transitions from `draft` to `open`. Strictly preserves `interestPublishedAt` on deadline extensions.
+  - `backend/src/modules/work-requirements/service/worker-opportunity.service.ts`:
+    - In `getAvailableOpportunities`: Resolves historical location valid at publication cutoff (`req.interestPublishedAt`). Excludes unresponded opportunities if worker had no valid location at cutoff.
+    - In `expressInterest`: Resolves historical location valid at publication cutoff. Rejects with `400 Bad Request` if no valid location was on file at cutoff. Snapshots historical `versionId` and coordinates in `WorkResponse`.
+    - In `updateWorkerLocation`: Creates immutable version in `WorkerLocationHistory` on material change (skips redundant versions if identical). Updates `User.location`. Removed the previous pending response mutation loop to prevent manipulation of existing opportunities.
+  - `backend/src/modules/worker-selection/service/worker-selection.service.ts`: Resolves candidates' historical location as of `lockedRequirement.interestPublishedAt`. Excludes candidates without valid historical coordinates at cutoff.
+  - `backend/src/modules/auth/service/user.service.ts`: Creates immutable location version in `WorkerLocationHistory` when a worker profile updates location coordinates.
+- **Frontend Types**:
+  - `frontend/src/features/work-requirements/workRequirementsApi.ts`: Added `interestPublishedAt?: string` to `WorkRequirement` and `WorkerOpportunity`.
+- **Automated Tests**:
+  - `backend/tests/workerSelectionAntiManipulation.test.ts`: Created comprehensive 7-test suite covering the mandatory 13-step lifecycle, distant worker manipulation prevention, missing historical location exclusion, anti-redundancy versioning, historical selection execution, and deterministic tie-breaking.
+  - `backend/tests/workerLocation.test.ts`: Updated response snapshot test to verify anti-manipulation preservation of historical response snapshot.
+- **Verification Results**:
+  - Anti-Manipulation Test Suite (`tests/workerSelectionAntiManipulation.test.ts`): 7/7 passed (100%).
+  - Selection Engine Test Suite (`tests/workerSelection.test.ts`): 17/17 passed (100%).
+  - Location Gate Test Suite (`tests/workerLocation.test.ts`): 18/18 passed (100%).
+  - Work Requirements Test Suite (`tests/workRequirements.test.ts`): 32/32 passed (100%).
+  - Total Backend Domain Tests: 74/74 passed (100%).
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Build (`npm run build`): compiled cleanly, exit code 0.
+  - Frontend Test Suite (`npm test`): 71/71 passed across 13 test files (100%).
+  - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 3.50s, exit code 0.
+
+
 
 
 

@@ -5,7 +5,7 @@ import {
   workRequirementsApi,
   type WorkRequirement,
 } from '../../features/work-requirements/workRequirementsApi';
-import { X, Loader2, AlertCircle, Briefcase, Users, Clock, FileText } from 'lucide-react';
+import { X, Loader2, AlertCircle, Briefcase, Users, Clock, FileText, MapPin, CalendarClock } from 'lucide-react';
 
 interface EditRequirementModalProps {
   isOpen: boolean;
@@ -33,6 +33,23 @@ const formatToHHMM = (val?: string): string => {
   return trimmed;
 };
 
+const formatToDatetimeLocal = (iso?: string): string => {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    // Format YYYY-MM-DDTHH:mm
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${mins}`;
+  } catch {
+    return '';
+  }
+};
+
 export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
   isOpen,
   onClose,
@@ -43,17 +60,25 @@ export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
   const [workerType, setWorkerType] = useState<WorkerType>(WORKER_TYPES[0]);
   const [requiredCount, setRequiredCount] = useState<string>('1');
   const [reportingTime, setReportingTime] = useState<string>('');
+  const [maxDistanceKm, setMaxDistanceKm] = useState<string>('15');
+  const [interestDeadlineAt, setInterestDeadlineAt] = useState<string>('');
   const [description, setDescription] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ count?: string; reportingTime?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{
+    count?: string;
+    reportingTime?: string;
+    maxDistanceKm?: string;
+  }>({});
 
   useEffect(() => {
     if (requirement) {
       setWorkerType(requirement.workerType || WORKER_TYPES[0]);
       setRequiredCount(String(requirement.requiredCount || 1));
       setReportingTime(formatToHHMM(requirement.reportingTime));
+      setMaxDistanceKm(requirement.maxDistanceKm !== undefined ? String(requirement.maxDistanceKm) : '15');
+      setInterestDeadlineAt(formatToDatetimeLocal(requirement.interestDeadlineAt));
       setDescription(requirement.description || '');
       setErrorMessage(null);
       setFieldErrors({});
@@ -63,7 +88,7 @@ export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
   if (!isOpen || !requirement) return null;
 
   const validate = () => {
-    const errors: { count?: string; reportingTime?: string } = {};
+    const errors: { count?: string; reportingTime?: string; maxDistanceKm?: string } = {};
     const countNum = Number(requiredCount);
 
     if (!requiredCount || isNaN(countNum) || !Number.isInteger(countNum) || countNum < 1) {
@@ -72,6 +97,13 @@ export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
 
     if (!reportingTime || reportingTime.trim().length === 0) {
       errors.reportingTime = 'Reporting time is required';
+    }
+
+    if (maxDistanceKm) {
+      const dist = Number(maxDistanceKm);
+      if (isNaN(dist) || dist <= 0) {
+        errors.maxDistanceKm = 'Maximum distance must be a positive number';
+      }
     }
 
     setFieldErrors(errors);
@@ -90,6 +122,8 @@ export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
         workerType,
         requiredCount: parseInt(requiredCount, 10),
         reportingTime: reportingTime.trim(),
+        maxDistanceKm: maxDistanceKm ? parseFloat(maxDistanceKm) : undefined,
+        interestDeadlineAt: interestDeadlineAt ? new Date(interestDeadlineAt).toISOString() : undefined,
         description: description.trim() || undefined,
       });
 
@@ -168,75 +202,121 @@ export const EditRequirementModal: React.FC<EditRequirementModalProps> = ({
             </select>
           </div>
 
-          {/* Required Count */}
-          <div>
-            <label
-              htmlFor="editRequiredCount"
-              className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
-            >
-              <Users size={13} className="text-emerald-600" />
-              Required Quantity <span className="text-rose-500">*</span>
-            </label>
-            <input
-              id="editRequiredCount"
-              type="number"
-              min="1"
-              step="1"
-              value={requiredCount}
-              onChange={(e) => {
-                setRequiredCount(e.target.value);
-                if (fieldErrors.count) {
-                  setFieldErrors((prev) => {
-                    const { count: _, ...rest } = prev;
-                    return rest;
-                  });
-                }
-              }}
-              disabled={isLoading}
-              className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors ${
-                fieldErrors.count
-                  ? 'border-rose-300 focus:border-rose-500'
-                  : 'border-gray-200 focus:border-emerald-600'
-              }`}
-              placeholder="e.g. 5"
-            />
-            {fieldErrors.count && (
-              <p className="mt-1 text-xs text-rose-600 font-medium">{fieldErrors.count}</p>
-            )}
+          {/* Required Count & Reporting Time */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label
+                htmlFor="editRequiredCount"
+                className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+              >
+                <Users size={13} className="text-emerald-600" />
+                Required Quantity <span className="text-rose-500">*</span>
+              </label>
+              <input
+                id="editRequiredCount"
+                type="number"
+                min="1"
+                step="1"
+                value={requiredCount}
+                onChange={(e) => {
+                  setRequiredCount(e.target.value);
+                  if (fieldErrors.count) {
+                    setFieldErrors((prev) => {
+                      const { count: _, ...rest } = prev;
+                      return rest;
+                    });
+                  }
+                }}
+                disabled={isLoading}
+                className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors ${
+                  fieldErrors.count
+                    ? 'border-rose-300 focus:border-rose-500'
+                    : 'border-gray-200 focus:border-emerald-600'
+                }`}
+                placeholder="e.g. 5"
+              />
+              {fieldErrors.count && (
+                <p className="mt-1 text-xs text-rose-600 font-medium">{fieldErrors.count}</p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="editReportingTime"
+                className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+              >
+                <Clock size={13} className="text-emerald-600" />
+                Reporting Time <span className="text-rose-500">*</span>
+              </label>
+              <input
+                id="editReportingTime"
+                type="time"
+                value={reportingTime}
+                onChange={(e) => {
+                  setReportingTime(e.target.value);
+                  if (fieldErrors.reportingTime) {
+                    setFieldErrors((prev) => {
+                      const { reportingTime: _, ...rest } = prev;
+                      return rest;
+                    });
+                  }
+                }}
+                disabled={isLoading}
+                className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors ${
+                  fieldErrors.reportingTime
+                    ? 'border-rose-300 focus:border-rose-500'
+                    : 'border-gray-200 focus:border-emerald-600'
+                }`}
+              />
+              {fieldErrors.reportingTime && (
+                <p className="mt-1 text-xs text-rose-600 font-medium">{fieldErrors.reportingTime}</p>
+              )}
+            </div>
           </div>
 
-          {/* Reporting Time */}
-          <div>
-            <label
-              htmlFor="editReportingTime"
-              className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
-            >
-              <Clock size={13} className="text-emerald-600" />
-              Reporting Time <span className="text-rose-500">*</span>
-            </label>
-            <input
-              id="editReportingTime"
-              type="time"
-              value={reportingTime}
-              onChange={(e) => {
-                setReportingTime(e.target.value);
-                if (fieldErrors.reportingTime) {
-                  setFieldErrors((prev) => {
-                    const { reportingTime: _, ...rest } = prev;
-                    return rest;
-                  });
-                }
-              }}
-              disabled={isLoading}
-              className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors ${
-                fieldErrors.reportingTime
-                  ? 'border-rose-300 focus:border-rose-500'
-                  : 'border-gray-200 focus:border-emerald-600'
-              }`}
-            />
-            {fieldErrors.reportingTime && (
-              <p className="mt-1 text-xs text-rose-600 font-medium">{fieldErrors.reportingTime}</p>
-            )}
+          {/* Maximum Distance and Interest Deadline */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label
+                htmlFor="editMaxDistanceKm"
+                className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+              >
+                <MapPin size={13} className="text-emerald-600" />
+                Max Distance (km)
+              </label>
+              <input
+                id="editMaxDistanceKm"
+                type="number"
+                min="0.1"
+                step="0.5"
+                value={maxDistanceKm}
+                onChange={(e) => setMaxDistanceKm(e.target.value)}
+                disabled={isLoading}
+                placeholder="e.g. 15"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+              />
+              {fieldErrors.maxDistanceKm && (
+                <p className="mt-1 text-xs text-rose-600 font-medium">{fieldErrors.maxDistanceKm}</p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="editInterestDeadlineAt"
+                className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+              >
+                <CalendarClock size={13} className="text-emerald-600" />
+                Interest Deadline
+              </label>
+              <input
+                id="editInterestDeadlineAt"
+                type="datetime-local"
+                value={interestDeadlineAt}
+                onChange={(e) => setInterestDeadlineAt(e.target.value)}
+                disabled={isLoading}
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
+              />
+            </div>
           </div>
 
           {/* Work Instructions / Description */}

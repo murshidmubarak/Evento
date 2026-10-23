@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
 import type { AuthState, User, AuthResponse, ApiErrorResponse } from '../../types/auth';
 import { apiClient } from '../../services/apiClient';
 import { getStoredToken, setStoredToken, removeStoredToken } from '../../utils/localStorage';
@@ -102,7 +102,18 @@ const authSlice = createSlice({
       state.isLoading = false;
       state.error = null;
       removeStoredToken();
-    }
+    },
+    setUserLocation: (
+      state,
+      action: PayloadAction<{ address?: string; lat?: number; lng?: number; confirmedAt?: string }>
+    ) => {
+      if (state.user) {
+        state.user.location = {
+          ...state.user.location,
+          ...action.payload,
+        };
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -203,5 +214,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, forceLogout } = authSlice.actions;
+export const { clearError, forceLogout, setUserLocation } = authSlice.actions;
 export default authSlice.reducer;

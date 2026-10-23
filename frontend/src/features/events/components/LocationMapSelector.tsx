@@ -13,11 +13,14 @@ export interface LocationState {
 interface LocationMapSelectorProps {
   location: LocationState;
   onChange: (location: LocationState) => void;
+  addressLabel?: string;
+  placeholder?: string;
+  emptyWarning?: string;
 }
 
 const defaultCenter = { lat: 9.9312, lng: 76.2673 }; // Kochi
 
-export const LocationMapSelector: React.FC<LocationMapSelectorProps> = ({ location, onChange }) => {
+export const LocationMapSelector: React.FC<LocationMapSelectorProps> = (props) => {
   const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
   
   if (!token) {
@@ -29,11 +32,18 @@ export const LocationMapSelector: React.FC<LocationMapSelectorProps> = ({ locati
   }
 
   return (
-    <MapSelectorInner location={location} onChange={onChange} token={token} />
+    <MapSelectorInner {...props} token={token} />
   );
 };
 
-const MapSelectorInner: React.FC<LocationMapSelectorProps & { token: string }> = ({ location, onChange, token }) => {
+const MapSelectorInner: React.FC<LocationMapSelectorProps & { token: string }> = ({
+  location,
+  onChange,
+  token,
+  addressLabel = 'Full Event Address',
+  placeholder = 'e.g. Grand Ballroom, XYZ Convention Centre, MG Road...',
+  emptyWarning = 'Please select the event location on the map.',
+}) => {
   const [isLocating, setIsLocating] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -233,18 +243,18 @@ const MapSelectorInner: React.FC<LocationMapSelectorProps & { token: string }> =
       </div>
 
       <div className="bg-white">
-        <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Full Event Address</label>
+        <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">{addressLabel}</label>
         <textarea 
           value={location.address} 
           onChange={e => onChange({ ...location, address: e.target.value })} 
           rows={3}
           className="w-full rounded-lg border border-gray-300 focus:border-[#0051e5] focus:ring-[#0051e5] p-3 text-sm outline-none resize-none shadow-sm"
-          placeholder="e.g. Grand Ballroom, XYZ Convention Centre, MG Road..."
+          placeholder={placeholder}
         />
         {(location.lat === undefined || location.lng === undefined) && (
           <p className="text-amber-600 text-xs mt-2 font-medium flex items-center gap-1">
             <span className="inline-block w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
-            Please select the event location on the map.
+            {emptyWarning}
           </p>
         )}
       </div>

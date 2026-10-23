@@ -7,6 +7,8 @@ import { env } from '../../../config/env.js';
 import type { IUser } from '../model/user.model.js';
 import { BusinessIdService } from '../../users/service/business-id.service.js';
 import { emailService } from '../../email/service/email.service.js';
+import { isValidCoordinate } from '../../worker-selection/utils/distance.util.js';
+import { WorkerLocationHistoryRepository } from '../../work-requirements/repository/worker-location-history.repository.js';
 
 export interface RegisterUserDto {
   name: string;
@@ -52,6 +54,7 @@ export interface UpdateProfileDto {
     address?: string;
     lat?: number;
     lng?: number;
+    confirmedAt?: Date;
   } | string;
 }
 
@@ -857,11 +860,48 @@ export class UserService {
       if (typeof dto.location === 'string') {
         updateData.location = { address: dto.location.trim() };
       } else if (typeof dto.location === 'object' && dto.location !== null) {
+        if (dto.location.lat !== undefined || dto.location.lng !== undefined) {
+          if (!isValidCoordinate(dto.location.lat, dto.location.lng)) {
+            throw ApiError.badRequest(
+              'Invalid coordinates. Latitude must be between -90 and 90, and longitude between -180 and 180.'
+            );
+          }
+        }
         updateData.location = {
           address: dto.location.address?.trim(),
           lat: dto.location.lat,
           lng: dto.location.lng,
+          confirmedAt:
+            dto.location.lat !== undefined && dto.location.lng !== undefined
+              ? new Date()
+              : undefined,
         };
+
+        // If user is a worker and coordinates are supplied, record an immutable history version (§4, §5)
+        if (
+          user.role === 'worker' &&
+          updateData.location.lat !== undefined &&
+          updateData.location.lng !== undefined
+        ) {
+          const curr = user.location;
+          const isIdentical =
+            curr &&
+            isValidCoordinate(curr.lat, curr.lng) &&
+            Math.abs((curr.lat ?? 0) - updateData.location.lat) < 0.00001 &&
+            Math.abs((curr.lng ?? 0) - updateData.location.lng) < 0.00001 &&
+            (curr.address || '').trim() === (updateData.location.address || '').trim();
+
+          if (!isIdentical) {
+            const historyRepo = new WorkerLocationHistoryRepository();
+            await historyRepo.createVersion({
+              workerId: userId,
+              address: updateData.location.address,
+              lat: updateData.location.lat,
+              lng: updateData.location.lng,
+              effectiveFrom: updateData.location.confirmedAt || new Date(),
+            });
+          }
+        }
       }
     }
 

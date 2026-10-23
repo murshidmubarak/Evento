@@ -12,6 +12,8 @@
     "test": "tsx --import ./tests/setup.ts --test --test-concurrency=1 tests/**/*.test.ts",
     "worker": "tsx src/workers/paymentReminderWorker.ts",
     "worker:prod": "node dist/workers/paymentReminderWorker.js",
+    "worker:selection": "tsx src/workers/workerSelectionWorker.ts",
+    "worker:selection:prod": "node dist/workers/workerSelectionWorker.js",
     "seed": "tsx seed.ts",
     "admin:create": "tsx src/scripts/createAdmin.ts"
   },

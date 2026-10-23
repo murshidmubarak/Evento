@@ -28,6 +28,7 @@ export interface IUser extends Document {
     address?: string;
     lat?: number;
     lng?: number;
+    confirmedAt?: Date;
   };
   createdBy?: Types.ObjectId;
   createdAt: Date;
@@ -150,6 +151,9 @@ const userSchema = new Schema<IUser>(
       },
       lng: {
         type: Number,
+      },
+      confirmedAt: {
+        type: Date,
       },
     },
     createdBy: {

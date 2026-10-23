@@ -16,6 +16,7 @@ export interface User {
     address?: string;
     lat?: number;
     lng?: number;
+    confirmedAt?: string;
   };
   createdBy?: string;
   createdAt: string;

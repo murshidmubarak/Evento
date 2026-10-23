@@ -560,6 +560,30 @@ Worker cannot select themselves.
 Worker cannot select another Worker.
 Event Manager cannot manually select a Worker.
 Selection results are produced by the backend Selection Engine.
+
+### Mandatory Worker Location & Gate Rules
+1. **Mandatory Location Gate**: A Worker must select or confirm their current location before they can view available work opportunities or express interest in any Work Requirement.
+2. **Backend Enforcement**:
+   - `GET /api/worker/opportunities` returns `400 Bad Request` with `LOCATION_REQUIRED` if the worker lacks valid coordinates.
+   - `POST /api/worker/opportunities/:requirementId/interest` returns `400 Bad Request` with `LOCATION_REQUIRED` if the worker lacks valid coordinates.
+   - Direct API calls cannot bypass the location requirement.
+3. **Location Selection Interface**:
+   - Option A: "Use My Current Location" via browser geolocation (only after explicit user trigger).
+   - Option B: "Select Location Manually" via Mapbox Search or interactive draggable pin.
+   - Coordinate bounds: Latitude must be between -90 and 90; longitude between -180 and 180 (finite numbers).
+   - Zero coordinates are rejected as fallbacks for missing locations.
+4. **Privacy & Data Protection**:
+   - Declared on-demand by the worker; no background or continuous GPS tracking is ever performed.
+   - Exact coordinates are not revealed to other Workers or Clients.
+   - Distance calculation uses straight-line geographic distance (Haversine formula).
+5. **Hard Distance Limit**:
+   - A Worker is eligible for a Work Requirement only if: `actualDistanceKm <= maxDistanceKm`.
+   - Workers exceeding the manager-defined limit are excluded from opportunity listings and cannot express interest.
+6. **Location Snapshot & Tie-Breaker Preservation**:
+   - When interest is expressed, a `locationSnapshot` ({ address, lat, lng, confirmedAt }) is saved on the `WorkResponse`.
+   - If the worker updates their declared location before the recruitment deadline, pending `interested` responses have distances and snapshots updated without modifying the server-generated `respondedAt` timestamp (preserving the tie-breaker order).
+   - Once a Worker is `selected`, subsequent location changes do not alter or remove the confirmed assignment.
+
 12. Worker Selection Rules
 
 The Selection Engine considers eligible interested Workers.
@@ -570,14 +594,19 @@ role = worker
 workerType matches requirement
 isActive = true
 isAvailable = true
+hasValidConfirmedLocation = true
+actualDistanceKm <= maxDistanceKm
+sameCalendarDayFree = true
 responseStatus = interested
 
 Selection factors:
 
 Worker Type
-Availability
-Distance from Event
-Performance Score
+Availability (Same-Calendar-Day Restriction)
+Valid Confirmed Location & Max Distance Limit
+Distance from Event Venue
+Interest Submission Timestamp (Deterministic Tie-Breaker)
+Performance Score (Future 55/45 Formula)
 Required Worker Count
 
 Distance and performance are the main ranking factors.
@@ -1377,4 +1406,72 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
   - Permitted status transitions via manager PATCH: `draft -> open` (recruitment announcement) and `draft -> cancelled`, `open -> cancelled`.
   - Prohibited status transitions via client input: `selection_in_progress`, `filled`, and `closed` cannot be set by frontend PATCH calls; they are reserved for the Selection Engine.
   - Requirements cannot be hard-deleted; cancellation preserves audit history.
-  - Cancelled requirements are excluded from active event staffing demand calculations.
+  - Cancelled requirements are excluded from active event staffing demand calculations.
+
+---
+
+## EventOps ERP — Worker Selection Engine & Interest Lifecycle Rules
+
+### 1. Worker Interest Expression & Authority
+- **Per-Requirement Expression**: Workers express interest in a specific Work Requirement (`POST /api/worker/opportunities/:requirementId/interest`), not an event in general.
+- **Server Timestamp Authority**: Submission timestamps are authoritative and server-generated (`new Date()`). Frontend-supplied timestamps are ignored.
+- **Duplicate Prevention**: Backed by MongoDB compound unique index `{ requirementId: 1, workerId: 1 }` on `WorkResponse`. Repeated submissions are rejected or idempotent.
+- **Eligibility Validation on Submission**:
+  - Authenticated user has role `worker`.
+  - Account has `isActive: true`.
+  - Worker type matches requirement's `workerType`.
+  - Requirement is in `open` status and interest deadline has not passed (`now < interestDeadlineAt`).
+  - Worker does not have an active assignment on the same calendar day.
+
+### 2. Maximum Permitted Distance & Geographic Calculation
+- **Requirement-Level Restriction**: Manager specifies `maxDistanceKm` as a positive finite number (> 0) during requirement creation or before opening.
+- **Geographic Distance**: Calculated using the Haversine formula based on worker base location (`[lng, lat]`) and event location (`[lng, lat]`).
+- **Inclusive Range**: `actualDistanceKm <= maxDistanceKm` is eligible. Candidates exceeding `maxDistanceKm` are excluded.
+- **No Fabricated Fallbacks**: Missing or invalid coordinates exclude candidates from distance-based selection and report missing data; zero distance is never assumed.
+
+### 3. Strict Same-Calendar-Day Assignment Exclusion
+- **Mandatory Business Rule**: A Worker cannot receive two assignments on the same applicable calendar day (ISO `YYYY-MM-DD`).
+- **Cross-Event & Cross-Requirement**: Applies across all events and across requirements within the same event.
+- **Multi-Day Coverage**: For multi-day events, every calendar date between `startDate` and `endDate` is occupied.
+- **Two-Stage Enforcement**: Validated when worker expresses interest and re-validated deterministically immediately before assignment persistence.
+
+### 4. Deterministic Ranking Strategy
+- **Current Live Mode**: Strictly distance-based (Worker Performance Management is not yet implemented; no fake ratings are created).
+- **Tie-Breaking Hierarchy**:
+  1. Shorter valid distance (km).
+  2. Earlier server-recorded interest timestamp (`respondedAt`).
+  3. Stable unique identifier (`workerId.toString()`).
+- **Future Performance Integration**: Modular strategy interface implemented (`IRankingStrategy`). When verified performance data becomes available, the approved formula will be:
+  `Combined Score = (Performance Score × 0.55) + (Distance Score × 0.45)`
+  Normalized to 0–100 scale, resolved deterministically.
+
+### 5. Automatic Deadline Processing & Queue Infrastructure
+- **Dedicated Queue**: Uses a dedicated BullMQ queue `'worker-selection'` and background worker `workerSelectionWorker.ts`.
+- **Payment Queue Isolation**: The payment reminder queue is untouched; staffing selection does not mix with financial workflows.
+- **Stale Job Protection**: BullMQ jobs carry `selectionRound`. If `job.selectionRound !== requirement.selectionRound`, execution is skipped.
+- **Idempotency & Concurrency**: Atomic persistence (`$push` to `assignedWorkers`), version checking, and status transition guards prevent over-allocation or duplicate assignments.
+
+### 6. Partial Selection & Mandatory Extension Preservation
+- **Incomplete Staffing**: When a deadline expires and insufficient eligible candidates exist, all eligible candidates are selected up to remaining positions, and status returns to `open` with expired deadline.
+- **Worker Preservation Rule**: Extending the deadline (`POST /api/manager/work-requirements/:id/extend-deadline`) MUST NEVER remove, replace, or reset already assigned workers.
+- **Subsequent Rounds**: Increments `selectionRound`, logs audit record in `extensionHistory`, and selects only for `remainingCount = requiredCount - assignedWorkers.length`.
+- **Filled Transition**: Status transitions to `filled` ONLY when `assignedWorkers.length >= requiredCount`.
+
+### 7. Immutable Worker Location History & Anti-Manipulation
+- **Critical Core Rule**: When a Work Requirement is first published and opened for interest (`status: 'draft' -> 'open'`), the system records an authoritative server timestamp `interestPublishedAt`. The Worker's location version that was valid at that exact moment establishes an immutable cutoff for distance eligibility and ranking for that requirement.
+- **Anti-Manipulation Guarantee**: If a Worker updates their declared location after an opportunity is published, the new location **must not** affect distance calculations, eligibility, or ranking for that already-published requirement.
+- **Future Scope Applicability**: Updated Worker locations apply exclusively to new Work Requirements published after the location update.
+- **Deadline Extension Invariance**: When a manager extends a requirement's interest deadline (`POST /api/manager/work-requirements/:id/extend-deadline`), the requirement's original `interestPublishedAt` timestamp and location cutoff are strictly preserved. Extending a deadline cannot refresh the location cutoff or allow workers to manipulate their rankings.
+- **Location Versioning Model (`WorkerLocationHistory`)**:
+  - Saved in a dedicated immutable collection with fields: `workerId`, `address`, `lat`, `lng`, `effectiveFrom`, and `versionId`.
+  - Compound indexed on `{ workerId: 1, effectiveFrom: -1 }` for rapid point-in-time point lookup.
+  - Updates to current profile (`PATCH /api/worker/location` or `PATCH /api/users/profile`) create a new immutable record if coordinates change materially.
+  - Redundant updates with identical coordinates do not generate spurious versions.
+  - Historical version records are immutable and cannot be edited, overwritten, or deleted through ordinary APIs.
+- **Missing Historical Version Policy (§7, §16)**:
+  - If a worker did not have a confirmed location on file at or before `interestPublishedAt`, they cannot express interest in that already-published requirement even if they configure a location afterward (`400 Bad Request`).
+  - Workers without valid historical coordinates are excluded from selection evaluation rather than using fabricated fallback coordinates or assuming zero distance.
+- **Pre-Existing Data Fallback (§16)**:
+  - For legacy requirements created before immutable location history without `interestPublishedAt`, the system safely falls back to the worker's declared profile location to ensure zero regression.
+- **Location Privacy & Access Control**:
+  - Raw coordinate history is restricted to internal calculation services and authorized audit roles; precise coordinates are never broadcast to other workers or clients.

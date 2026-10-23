@@ -504,63 +504,45 @@ not_interested
 
 Only interested Workers enter the selection process.
 
-15. Phase 13 - Worker Selection Engine
+15. Phase 13 - Worker Selection Engine (Implemented & Verified)
 
-Implement the backend Selection Engine.
-
-Worker eligibility:
-
-role = worker
-workerType matches requirement
-isActive = true
-isAvailable = true
-responseStatus = interested
-
-Selection factors:
-
-Worker Type
-Availability
-Distance
-Performance Score
-Required Worker Count
-
-Distance and performance are the main ranking factors.
-
-Selection flow:
-
-Interested Workers
-       ↓
-Eligibility Check
-       ↓
-Distance Calculation
-       ↓
-Performance Evaluation
-       ↓
-Ranking
-       ↓
-Select Required Number
-       ↓
-Selected / Not Selected
-       ↓
-Notify Workers
+Implemented the backend Worker Selection Engine and Worker Opportunity Portal:
+- Worker interest submission (`POST /api/worker/opportunities/:requirementId/interest`) with atomic duplicate prevention.
+- Manager configured maximum distance (`maxDistanceKm`) and interest deadline (`interestDeadlineAt`).
+- Haversine straight-line distance calculation and coordinate validation without fabricating coordinates.
+- Strict same-calendar-day conflict exclusion across events and requirements.
+- Deterministic ranking: currently live distance-only ranking with server timestamp and stable identifier tie-breakers.
+- Prepared and pure-unit-tested future combined ranking: `(Performance * 0.55) + (Distance * 0.45)`.
+- Dedicated BullMQ queue `'worker-selection'` and standalone worker `workerSelectionWorker.ts`.
+- Incomplete staffing deadline extension preserving all previously assigned workers and selecting only for remaining positions.
+- Full UI integration in Manager Portal (modals for extension and results) and Worker Portal (opportunities, express interest, confirmed shifts).
+- Automated tests: 17 backend tests + 4 frontend UI tests all passing (100%).
 
 The Event Manager does not manually select Workers.
-
 The backend Selection Engine is the source of truth.
 
-16. Phase 14 - Location and Distance
+16. Phase 14 - Location, Distance, Immutable History & Anti-Manipulation (Implemented & Verified)
 
-Implement:
+Implemented:
+- Mandatory Worker location setup before opportunity discovery or interest submission.
+- Backend location gate (`400 Bad Request` with `LOCATION_REQUIRED` if unconfigured).
+- Worker latitude/longitude validation (-90..90, -180..180, finite numeric values).
+- Worker location selection via explicit browser geolocation ("Use Current Location") or manual Mapbox map pin/search.
+- Dedicated immutable collection `WorkerLocationHistory` storing `workerId`, `address`, `lat`, `lng`, `effectiveFrom`, and `versionId`.
+- Immutable publication cutoff (`interestPublishedAt`): Authoritatively stamps timestamp when requirement transitions from `draft` to `open`.
+- Anti-manipulation enforcement: Historical Worker location valid at requirement publication cutoff is frozen for that opportunity. Location updates after publication affect ONLY future opportunities.
+- Deadline extension invariance: Extending an interest deadline preserves the original `interestPublishedAt` and location cutoff.
+- Backend geographic distance calculation (Haversine straight-line formula) using historical coordinates valid at cutoff.
+- Hard maximum permitted distance enforcement (`actualDistanceKm <= maxDistanceKm`).
+- Strict same-calendar-day assignment exclusion across events and requirements.
+- Deterministic distance-only ranking with tie-breaking hierarchy (shorter distance -> earlier submission timestamp -> workerId).
+- Clean extension point for future 55% performance / 45% distance ranking strategy.
+- Automated tests: 18 location gate tests, 17 selection engine tests, 7 anti-manipulation tests, and 32 work requirements tests (100% passing).
 
-Worker latitude/longitude
-Event latitude/longitude
-Distance calculation
-Worker ranking by distance
-Travel allowance calculation
-
-Do not implement continuous GPS tracking.
-
-Distance calculation must happen on the backend.
+Rules:
+- Do not implement continuous GPS tracking.
+- Location is declared on-demand by the worker.
+- Distance calculation must happen on the backend using immutable historical cutoff.
 
 17. Phase 15 - Confirmed Work and Attendance
 

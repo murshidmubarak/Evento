@@ -11,6 +11,7 @@ import paymentRouter from './modules/payments/routes/payment.routes.js';
 import adminEventRouter from './modules/events/routes/admin-event.routes.js';
 import managerEventRouter from './modules/events/routes/manager-event.routes.js';
 import webhookRouter from './modules/payments/routes/webhook.routes.js';
+import workerRouter from './modules/work-requirements/routes/worker-opportunity.routes.js';
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use('/api/services', serviceRouter);
 app.use('/api/events', eventRouter);
 app.use('/api/admin/events', adminEventRouter);
 app.use('/api/manager', managerEventRouter);
+app.use('/api/worker', workerRouter);
 app.use('/api/quotations', quotationRouter);
 app.use('/api/payments', paymentRouter);
 app.use('/api/webhooks', webhookRouter);
