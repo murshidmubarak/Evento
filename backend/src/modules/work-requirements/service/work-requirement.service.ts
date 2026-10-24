@@ -1,11 +1,12 @@
 import { WorkRequirementRepository } from '../repository/work-requirement.repository.js';
 import { WorkResponseRepository } from '../repository/work-response.repository.js';
 import { EventRepository } from '../../events/repository/event.repository.js';
+import { Event } from '../../events/model/event.model.js';
 import { ApiError } from '../../../utils/ApiError.js';
 import { WorkRequirement, type IWorkRequirement } from '../model/work-requirement.model.js';
 import { isValidReportingTime, isValidMaxDistanceKm, isValidDeadline } from '../validation/work-requirement.validation.js';
 import { workerSelectionQueueService } from '../../worker-selection/queues/worker-selection.queue.js';
-import { toCalendarDayString } from '../../worker-selection/utils/calendar-day.util.js';
+import { toCalendarDayString, isEventDatePassed } from '../../worker-selection/utils/calendar-day.util.js';
 import mongoose from 'mongoose';
 
 export class WorkRequirementService {
@@ -19,7 +20,19 @@ export class WorkRequirementService {
     this.eventRepository = new EventRepository();
   }
 
-  private async validateManagerOwnershipAndEventState(managerId: string, eventId: string): Promise<any> {
+  private async ensureEventCompleted(event: any): Promise<void> {
+    if (!event) return;
+    if (event.status !== 'completed' && event.status !== 'cancelled') {
+      await Event.findByIdAndUpdate(event._id, { status: 'completed' });
+      event.status = 'completed';
+    }
+    await WorkRequirement.updateMany(
+      { eventId: event._id, status: { $nin: ['closed', 'cancelled'] } },
+      { $set: { status: 'closed' } }
+    );
+  }
+
+  private async validateManagerOwnershipAndEventState(managerId: string, eventId: string, isReadOnly = false): Promise<any> {
     if (!mongoose.Types.ObjectId.isValid(eventId)) {
       throw ApiError.badRequest('Invalid event ID format');
     }
@@ -30,8 +43,26 @@ export class WorkRequirementService {
       throw ApiError.notFound('Event not found');
     }
 
-    if (event.eventManagerId?.toString() !== managerId) {
+    const assignedManagerId = (event.eventManagerId as any)?._id?.toString() || event.eventManagerId?.toString();
+    if (assignedManagerId !== managerId) {
       throw ApiError.forbidden('You do not have permission to access this event');
+    }
+
+    const isPast = isEventDatePassed(event.date, event.endTime);
+    if (isPast && event.status !== 'completed' && event.status !== 'cancelled') {
+      await this.ensureEventCompleted(event);
+      event.status = 'completed';
+    }
+
+    if (isReadOnly) {
+      if (event.status !== 'confirmed' && event.status !== 'completed') {
+        throw ApiError.badRequest(`Work requirements can only be accessed on confirmed or completed events. Current status: '${event.status}'`);
+      }
+      return event;
+    }
+
+    if (event.status === 'completed' || isPast) {
+      throw ApiError.badRequest('Cannot create or manage work requirements for completed events or events whose date has passed');
     }
 
     // Business rule (§25): Worker recruitment begins only after Event = confirmed
@@ -112,7 +143,7 @@ export class WorkRequirementService {
   }
 
   async getRequirementsByEvent(managerId: string, eventId: string): Promise<IWorkRequirement[]> {
-    await this.validateManagerOwnershipAndEventState(managerId, eventId);
+    await this.validateManagerOwnershipAndEventState(managerId, eventId, true);
     return this.requirementRepository.findByEventId(eventId);
   }
 
@@ -126,7 +157,7 @@ export class WorkRequirementService {
       throw ApiError.notFound('Work requirement not found');
     }
 
-    await this.validateManagerOwnershipAndEventState(managerId, requirement.eventId.toString());
+    await this.validateManagerOwnershipAndEventState(managerId, requirement.eventId.toString(), true);
     return requirement;
   }
 
@@ -137,6 +168,16 @@ export class WorkRequirementService {
 
     const requirement = await this.getRequirementById(managerId, reqId);
     const event = await this.eventRepository.findById(requirement.eventId.toString());
+
+    if (!event) {
+      throw ApiError.notFound('Event not found');
+    }
+
+    const isPast = isEventDatePassed(event.date, event.endTime);
+    if (isPast || event.status === 'completed') {
+      await this.ensureEventCompleted(event);
+      throw ApiError.badRequest('Cannot update work requirement: Event date has already passed and the event is completed.');
+    }
 
     // Business rules: If changing status
     if (data.status) {
@@ -263,19 +304,10 @@ export class WorkRequirementService {
     }
 
     // If event day has passed, close requirement and disallow extension
-    if (event && event.date) {
-      const todayStr = toCalendarDayString(new Date());
-      let isPast = false;
-      try {
-        if (toCalendarDayString(event.date) < todayStr) isPast = true;
-      } catch {
-        if (new Date(event.date).getTime() < Date.now()) isPast = true;
-      }
-      if (isPast) {
-        await WorkRequirement.updateOne(
-          { _id: reqId, status: { $nin: ['closed', 'cancelled'] } },
-          { $set: { status: 'closed' } }
-        );
+    if (event) {
+      const isPast = isEventDatePassed(event.date, event.endTime);
+      if (isPast || event.status === 'completed') {
+        await this.ensureEventCompleted(event);
         throw ApiError.badRequest('Cannot extend deadline: Event day has already passed and this work requirement is now closed');
       }
     }

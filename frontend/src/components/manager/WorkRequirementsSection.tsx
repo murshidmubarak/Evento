@@ -74,9 +74,11 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   const isConfirmed = eventStatus === 'confirmed';
+  const isCompleted = eventStatus === 'completed';
+  const canAccessRequirements = isConfirmed || isCompleted;
 
   const fetchRequirements = async () => {
-    if (!eventId || !isConfirmed) {
+    if (!eventId || !canAccessRequirements) {
       setIsLoading(false);
       return;
     }
@@ -219,8 +221,8 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
     }
   };
 
-  // If event is not confirmed, render informative notice
-  if (!isConfirmed) {
+  // If event is not confirmed or completed, render informative notice
+  if (!canAccessRequirements) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs p-8 text-center space-y-4">
         <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-100">
@@ -245,6 +247,21 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
 
   return (
     <div className="space-y-6">
+      {/* Event Completed Read-Only Banner */}
+      {isCompleted && (
+        <div className="p-4 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 font-bold">
+            <CheckCircle2 size={16} />
+          </div>
+          <div>
+            <div className="font-bold text-purple-950">Event Completed (View Only)</div>
+            <div className="text-purple-700 text-[11px] mt-0.5">
+              This event's scheduled date and time has passed and its status is completed. New work requirements cannot be created, but you can view existing requirements, assigned staffing counts, and selection outcomes below.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Success Notification Banner */}
       {successNotice && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-medium text-emerald-800 flex items-center gap-2.5 animate-in fade-in duration-200">
@@ -281,14 +298,21 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
               <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsCreateModalOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
-            >
-              <Plus size={16} />
-              Add Requirement
-            </button>
+            {!isCompleted ? (
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+              >
+                <Plus size={16} />
+                Add Requirement
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-500 text-xs font-medium rounded-lg border border-gray-200">
+                <CheckCircle2 size={14} className="text-gray-400" />
+                Completed Event
+              </span>
+            )}
           </div>
         </div>
 
@@ -494,70 +518,91 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5">
-                          {/* Selection Results / Staffing details button */}
-                          {!isDraft && !isCancelled && (
-                            <button
-                              type="button"
-                              onClick={() => setResultsRequirement(req)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:text-purple-800 hover:bg-purple-50 rounded-md transition-colors"
-                              title="View Selection Results & Candidates"
-                            >
-                              <Award size={13} />
-                              Staffing Results
-                            </button>
-                          )}
-
-                          {/* Extend Deadline button if incompletely staffed and open/expired */}
-                          {isOpen && !isFilled && (
-                            <button
-                              type="button"
-                              onClick={() => setExtendingRequirement(req)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
-                              title="Extend Interest Deadline"
-                            >
-                              <CalendarClock size={13} />
-                              Extend Deadline
-                            </button>
-                          )}
-
-                          {isDraft && (
+                          {isCompleted ? (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => setAnnouncingRequirement(req)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 shadow-xs hover:shadow rounded-lg transition-all"
-                                title="Announce recruitment & open for worker interest"
-                              >
-                                <Radio size={13} className="animate-pulse" />
-                                Announce
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setEditingRequirement(req)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-colors"
-                                title="Edit requirement"
-                              >
-                                <Edit2 size={13} />
-                                Edit
-                              </button>
+                              {!isDraft && !isCancelled && (
+                                <button
+                                  type="button"
+                                  onClick={() => setResultsRequirement(req)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:text-purple-800 hover:bg-purple-50 rounded-md transition-colors"
+                                  title="View Selection Results & Candidates"
+                                >
+                                  <Award size={13} />
+                                  Staffing Results
+                                </button>
+                              )}
+                              {(isDraft || isCancelled) && (
+                                <span className="text-[11px] text-gray-400 italic">Concluded</span>
+                              )}
                             </>
-                          )}
+                          ) : (
+                            <>
+                              {/* Selection Results / Staffing details button */}
+                              {!isDraft && !isCancelled && (
+                                <button
+                                  type="button"
+                                  onClick={() => setResultsRequirement(req)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:text-purple-800 hover:bg-purple-50 rounded-md transition-colors"
+                                  title="View Selection Results & Candidates"
+                                >
+                                  <Award size={13} />
+                                  Staffing Results
+                                </button>
+                              )}
 
-                          {(isDraft || isOpen) && (
-                            <button
-                              type="button"
-                              onClick={() => setCancellingRequirement(req)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors"
-                              title="Cancel requirement"
-                            >
-                              <Ban size={13} />
-                              Cancel
-                            </button>
-                          )}
+                              {/* Extend Deadline button if incompletely staffed and open/expired */}
+                              {isOpen && !isFilled && (
+                                <button
+                                  type="button"
+                                  onClick={() => setExtendingRequirement(req)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                                  title="Extend Interest Deadline"
+                                >
+                                  <CalendarClock size={13} />
+                                  Extend Deadline
+                                </button>
+                              )}
 
-                          {isCancelled && (
-                            <span className="text-[11px] text-gray-400 italic">Cancelled</span>
+                              {isDraft && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAnnouncingRequirement(req)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 shadow-xs hover:shadow rounded-lg transition-all"
+                                    title="Announce recruitment & open for worker interest"
+                                  >
+                                    <Radio size={13} className="animate-pulse" />
+                                    Announce
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingRequirement(req)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-md transition-colors"
+                                    title="Edit requirement"
+                                  >
+                                    <Edit2 size={13} />
+                                    Edit
+                                  </button>
+                                </>
+                              )}
+
+                              {(isDraft || isOpen) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCancellingRequirement(req)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors"
+                                  title="Cancel requirement"
+                                >
+                                  <Ban size={13} />
+                                  Cancel
+                                </button>
+                              )}
+
+                              {isCancelled && (
+                                <span className="text-[11px] text-gray-400 italic">Cancelled</span>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>

@@ -80,7 +80,7 @@ describe('Event Manager Dashboard API', () => {
       clientId: new mongoose.Types.ObjectId(),
       title: 'Test Event',
       eventType: 'Wedding',
-      date: new Date('2026-10-15T00:00:00.000Z'),
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       startTime: '10:00',
       endTime: '14:00',
       location: { address: '123 Main St' },

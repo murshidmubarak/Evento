@@ -2,7 +2,8 @@ import { EventRepository } from '../repository/event.repository.js';
 import { ServiceRepository } from '../../services/repository/service.repository.js';
 import { MediaRepository } from '../../media/repository/media.repository.js';
 import { ApiError } from '../../../utils/ApiError.js';
-import type { IEvent } from '../model/event.model.js';
+import { type IEvent } from '../model/event.model.js';
+import { syncPassedEvents, autoCheckSingleEventCompleted } from '../utils/event-status-sync.util.js';
 
 export class EventService {
   private eventRepository: EventRepository;
@@ -82,6 +83,7 @@ export class EventService {
   }
 
   async getClientEvents(clientId: string): Promise<IEvent[]> {
+    await syncPassedEvents({ clientId });
     return this.eventRepository.findByClientId(clientId);
   }
 
@@ -89,6 +91,7 @@ export class EventService {
     if (role !== 'admin') {
       throw ApiError.forbidden('Only admins can view all events');
     }
+    await syncPassedEvents();
     return this.eventRepository.findAll(filters);
   }
 
@@ -97,6 +100,7 @@ export class EventService {
     if (!event) {
       throw ApiError.notFound('Event not found');
     }
+    await autoCheckSingleEventCompleted(event);
 
     if (role === 'client' && event.clientId.toString() !== userId) {
       throw ApiError.forbidden('You do not have permission to access this event');

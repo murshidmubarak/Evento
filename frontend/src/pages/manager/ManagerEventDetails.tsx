@@ -261,8 +261,8 @@ export const ManagerEventDetails: React.FC = () => {
       ) : (
         /* Event Overview Main Grid */
         <div className="space-y-6">
-          {/* Quick Staffing Banner (for confirmed events) */}
-          {event.status === 'confirmed' && (
+          {/* Quick Staffing Banner (for confirmed & completed events) */}
+          {(event.status === 'confirmed' || event.status === 'completed') && (
             <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/50 rounded-2xl border border-emerald-200/80 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 uppercase tracking-wider">
@@ -270,7 +270,9 @@ export const ManagerEventDetails: React.FC = () => {
                   Staffing & Work Requirements
                 </div>
                 <p className="text-xs text-gray-600">
-                  Define required worker counts, reporting times, and job instructions for this event.
+                  {event.status === 'completed'
+                    ? 'Review assigned workers, staffing demands, and work requirement history for this completed event.'
+                    : 'Define required worker counts, reporting times, and job instructions for this event.'}
                 </p>
               </div>
               <button
@@ -278,7 +280,7 @@ export const ManagerEventDetails: React.FC = () => {
                 onClick={() => setTab('requirements')}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors shrink-0"
               >
-                Manage Work Requirements
+                {event.status === 'completed' ? 'View Work Requirements' : 'Manage Work Requirements'}
                 <ArrowRight size={14} />
               </button>
             </div>
