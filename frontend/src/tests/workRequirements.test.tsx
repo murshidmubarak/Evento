@@ -121,18 +121,20 @@ describe('Work Requirements UI in Manager Portal', () => {
       expect(screen.getAllByText('Chef').length).toBeGreaterThanOrEqual(1);
 
       // Table rows
-      expect(screen.getByText('08:30 AM')).toBeDefined();
-      expect(screen.getByText('06:00 AM')).toBeDefined();
       expect(screen.getByText(/Buffet and table service/)).toBeDefined();
       expect(screen.getByText(/Head chef and sous chefs/)).toBeDefined();
 
       // Status badges
       expect(screen.getAllByText('Draft').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Open').length).toBeGreaterThanOrEqual(1);
+    });
 
-      // Actions: Draft has Edit & Cancel, Open has Cancel
+    // Opening details modal shows Reporting Time and Modal Actions (Edit & Cancel for draft)
+    fireEvent.click(screen.getAllByText('Details')[0]);
+    await waitFor(() => {
+      expect(screen.getByText('08:30 AM')).toBeDefined();
       expect(screen.getByText('Edit')).toBeDefined();
-      expect(screen.getAllByText('Cancel').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText('Cancel')).toBeDefined();
     });
   });
 
@@ -207,6 +209,12 @@ describe('Work Requirements UI in Manager Portal', () => {
     renderComponent('requirements');
 
     await waitFor(() => {
+      expect(screen.getAllByText('Details').length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Open details modal by clicking row / Details button
+    fireEvent.click(screen.getAllByText('Details')[0]);
+    await waitFor(() => {
       expect(screen.getByText('Edit')).toBeDefined();
     });
 
@@ -253,6 +261,12 @@ describe('Work Requirements UI in Manager Portal', () => {
 
     renderComponent('requirements');
 
+    await waitFor(() => {
+      expect(screen.getAllByText('Details').length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Open details modal by clicking row / Details button
+    fireEvent.click(screen.getAllByText('Details')[0]);
     await waitFor(() => {
       expect(screen.getByText('Cancel')).toBeDefined();
     });

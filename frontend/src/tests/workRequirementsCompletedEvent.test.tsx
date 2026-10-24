@@ -1,6 +1,6 @@
 /// <reference types="@testing-library/jest-dom" />
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ManagerEventDetails } from '../pages/manager/ManagerEventDetails';
 import { managerApi } from '../features/manager/managerApi';
@@ -139,8 +139,10 @@ describe('Work Requirements on Completed Events', () => {
     expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
     expect(screen.queryByText('Extend Deadline')).not.toBeInTheDocument();
 
-    // Staffing Results button should be accessible to view candidate records
-    const resultsButtons = screen.getAllByText('Staffing Results');
-    expect(resultsButtons.length).toBeGreaterThanOrEqual(1);
+    // Clicking Details opens details modal where Staffing Results is accessible
+    fireEvent.click(screen.getAllByText('Details')[0]);
+    await waitFor(() => {
+      expect(screen.getByText(/View Staffing Results/i)).toBeInTheDocument();
+    });
   });
 });
