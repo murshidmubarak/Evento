@@ -23,6 +23,7 @@ import '../modules/work-requirements/model/work-requirement.model.js';
 import '../modules/work-requirements/model/work-response.model.js';
 
 import { workerSelectionQueueService } from '../modules/worker-selection/queues/worker-selection.queue.js';
+import { notificationTransport } from '../sockets/notification-transport.js';
 
 let isShuttingDown = false;
 
@@ -76,6 +77,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     await workerSelectionQueueService.close();
     console.log('✅ [WorkerSelectionWorker] Selection queue and worker closed.');
+
+    await notificationTransport.close();
 
     if (mongoose.connection.readyState !== 0) {
       await mongoose.disconnect();

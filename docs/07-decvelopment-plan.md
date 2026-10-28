@@ -700,45 +700,37 @@ Keep reporting simple and useful.
 
 Avoid unnecessary charts and dashboards.
 
-24. Phase 22 - Notifications
+24. Phase 22 - Notifications (Milestone 1 Implemented & Verified)
 
-Implement notifications for:
+Persistent in-app notification system completed:
+- [DONE] Notification Mongoose Model & Repository: Persists recipientId, type, title, message, isRead, readAt, resourceType, resourceId, destinationRoute, deduplicationKey.
+- [DONE] Indexes: `{ recipientId: 1, createdAt: -1 }`, `{ recipientId: 1, isRead: 1 }`, and unique sparse `{ deduplicationKey: 1 }`.
+- [DONE] Authenticated REST APIs:
+  - `GET /api/notifications`: Newest-first paginated list, unreadCount, scoped to `req.user.id`.
+  - `PATCH /api/notifications/:id/read`: Ownership-guarded individual read marking.
+  - `PATCH /api/notifications/read-all`: Batch read marking for authenticated user.
+- [DONE] Business Workflow A: When a Work Requirement transitions from `draft` to `open`, genuinely eligible workers matching all 8 canonical criteria (active account, workerType match, calendar day conflict check, valid venue location, valid worker location, cutoff at `interestPublishedAt`, maxDistanceKm limit) receive `work_opportunity` notifications. Deduplication key `req_opp_${reqId}_${workerId}` prevents duplicates on retries.
+- [DONE] Business Workflow B: When `WorkerSelectionService.executeSelection()` finishes and persists assignments, selected workers receive `assignment_confirmed` notifications and the responsible Event Manager receives `selection_summary` notifications. Deduplication keys prevent duplicates on round retries.
+- [DONE] Transport Decoupling: Notification failures never roll back MongoDB business state.
+- [DONE] Automated Tests: 11 integration tests covering storage, APIs, isolation, and business triggers (100% passing).
 
-New Work Opportunity
-Worker Selected
-Worker Not Selected
-Payment Received
-Event Update
-Event Reminder
+25. Phase 23 - Realtime Communication (Milestone 1 Implemented & Verified)
 
-Basic flow:
+Socket.IO real-time notification foundation completed:
+- [DONE] Unified HTTP Server: Express and Socket.IO bound to single `http.createServer(app)`.
+- [DONE] Handshake JWT Authentication: Socket connections validate JWT token; unauthenticated attempts rejected.
+- [DONE] User Room Isolation: Sockets automatically join private room `user:<userId>`. Cross-room joining blocked.
+- [DONE] Cross-Process Realtime Delivery: Standalone `workerSelectionWorker.ts` publishes notification events to Redis Pub/Sub channel `eventops:notifications:realtime`. API server subscriber forwards events to local client sockets. In-memory mock fallback in tests.
+- [DONE] Frontend Real-Time Integration: Reusable `NotificationBell` with unread badge, interactive panel, newest-first list, time-ago formatting, mark as read, mark all read, load more, empty state, safe internal routing, and reconnect synchronization.
+- [DONE] Layouts: Integrated into `AdminLayout`, `ClientLayout`, `ManagerLayout`, and `WorkerLayout`.
+- [DONE] Frontend Automated Tests: 7 Vitest tests covering badge, panel, filtering, read actions, and real-time updates (100% passing).
 
-Business Event
-      ↓
-Notification Service
-      ↓
-Notification Record
-      ↓
-User
-
-Add realtime notification delivery after the basic notification system works.
-
-25. Phase 23 - Realtime Communication
-
-Implement Socket.IO for:
-
-Client ↔ Event Manager chat
-Event Manager ↔ Selected Workers chat
-Realtime notifications
-Worker selection notifications
-Payment notifications
-
-Do not add:
-
-Voice calling
-Video calling
-Stories
-Unnecessary realtime features
+Do not add in Milestone 1:
+- Voice calling
+- Video calling
+- Web Push / VAPID / Firebase Cloud Messaging
+- Stories
+- Unnecessary realtime features
 26. Phase 24 - Feedback
 
 Implement:

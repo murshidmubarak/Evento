@@ -27,7 +27,6 @@ import {
   CalendarClock,
   Radio,
   ChevronRight,
-  Info,
 } from 'lucide-react';
 
 interface WorkRequirementsSectionProps {

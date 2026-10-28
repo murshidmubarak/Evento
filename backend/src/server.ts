@@ -1,17 +1,12 @@
-/**
- * server.ts — application entry point.
- *
- * Responsibilities (in order):
- *  1. Load environment configuration (must happen before any other imports
- *     that read process.env)
- *  2. Connect to MongoDB
- *  3. Start the HTTP server
- *  4. Handle startup errors gracefully
- */
+import http from 'node:http';
 import './config/env.js'; // Side-effect: validates env vars & loads dotenv
 import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
 import app from './app.js';
+import { initSocketServer, closeSocketServer } from './sockets/socket.server.js';
+import { notificationTransport } from './sockets/notification-transport.js';
+
+let httpServer: http.Server | null = null;
 
 const startServer = async (): Promise<void> => {
   // 1. Connect to MongoDB before accepting HTTP requests
@@ -27,18 +22,23 @@ const startServer = async (): Promise<void> => {
     } catch (seedErr) {
       console.warn('⚠️ Could not verify default services on startup:', seedErr);
     }
-
   }
 
-  // 2. Start listening
-  const server = app.listen(env.port, () => {
+  // 2. Create single Node.js HTTP server and attach Socket.IO
+  httpServer = http.createServer(app);
+  initSocketServer(httpServer);
+  notificationTransport.initSubscriber();
+
+  // 3. Start listening
+  httpServer.listen(env.port, () => {
     console.log(`🚀 EventOps API running on http://localhost:${env.port}`);
     console.log(`   Environment : ${env.nodeEnv}`);
+    console.log(`   Socket.IO   : Attached & listening on port ${env.port}`);
     console.log(`   Health check: http://localhost:${env.port}/api/health`);
   });
 
-  // 3. Handle unexpected startup / runtime errors
-  server.on('error', (error: NodeJS.ErrnoException) => {
+  // 4. Handle unexpected startup / runtime errors
+  httpServer.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code === 'EADDRINUSE') {
       console.error(`❌ Port ${env.port} is already in use`);
     } else {
@@ -49,6 +49,34 @@ const startServer = async (): Promise<void> => {
 };
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
+
+const gracefulShutdown = async (signal: string): Promise<void> => {
+  console.log(`\n🛑 Received ${signal}. Shutting down server gracefully...`);
+  try {
+    await closeSocketServer();
+    await notificationTransport.close();
+
+    if (httpServer) {
+      await new Promise<void>((resolve) => {
+        httpServer!.close(() => resolve());
+      });
+    }
+
+    const mongoose = (await import('mongoose')).default;
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
+
+    console.log('👋 Server shutdown complete.');
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ Error during shutdown:', err);
+    process.exit(1);
+  }
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 process.on('unhandledRejection', (reason: unknown) => {
   console.error('❌ Unhandled Rejection:', reason);
@@ -61,3 +89,4 @@ process.on('uncaughtException', (error: Error) => {
 });
 
 startServer();
+

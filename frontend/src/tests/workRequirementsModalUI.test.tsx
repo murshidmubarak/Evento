@@ -23,7 +23,7 @@ describe('WorkRequirementsSection Professional UI & Details Modal', () => {
   const sampleRequirement: WorkRequirement = {
     _id: 'req_spec_1',
     eventId: 'event_999',
-    workerType: 'Security Guard',
+    workerType: 'Catering Supervisor',
     requiredCount: 4,
     reportingTime: '17:30',
     maxDistanceKm: 18,
@@ -56,7 +56,7 @@ describe('WorkRequirementsSection Professional UI & Details Modal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText('Security Guard').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Catering Supervisor').length).toBeGreaterThanOrEqual(1);
     });
 
     // Check table headers
@@ -89,7 +89,7 @@ describe('WorkRequirementsSection Professional UI & Details Modal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText('Security Guard').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Catering Supervisor').length).toBeGreaterThanOrEqual(1);
     });
 
     // Announce button is present in row

@@ -16,6 +16,7 @@ import {
   isValidCoordinate,
 } from '../utils/distance.util.js';
 import { toCalendarDayString, isSameCalendarDay } from '../utils/calendar-day.util.js';
+import { notificationService } from '../../notifications/service/notification.service.js';
 import { ApiError } from '../../../utils/ApiError.js';
 
 export interface SelectionResult {
@@ -413,6 +414,69 @@ export class WorkerSelectionService {
     }
 
     const finalReq = updatedRequirement || lockedRequirement;
+
+    // 9. Dispatch assignment confirmation & manager summary notifications (§10)
+    try {
+      const round = lockedRequirement.selectionRound || 1;
+      const eventTitle = event.title || 'an upcoming event';
+      const reportingTimeInfo = finalReq.reportingTime ? `Reporting time: ${finalReq.reportingTime}.` : '';
+
+      // A. Notify newly selected workers
+      if (selectedBatch.length > 0) {
+        const workerNotificationItems = selectedBatch.map((s) => ({
+          recipientId: s.workerId,
+          type: 'assignment_confirmed',
+          title: 'Assignment confirmed',
+          message: `You have been selected and your assignment is confirmed for ${eventTitle} (${finalReq.workerType}). ${reportingTimeInfo}`.trim(),
+          resourceType: 'work_requirement',
+          resourceId: requirementId,
+          destinationRoute: '/worker',
+          deduplicationKey: `sel_confirm_${requirementId}_round${round}_${s.workerId}`,
+          metadata: {
+            eventId: event._id.toString(),
+            workerType: finalReq.workerType,
+            reportingTime: finalReq.reportingTime,
+            selectionRound: round,
+          },
+        }));
+
+        await notificationService.createNotificationsBatch(workerNotificationItems);
+      }
+
+      // B. Notify responsible Event Manager
+      if (event.eventManagerId) {
+        const newlyAssigned = selectedBatch.length;
+        const remaining = Math.max(0, finalReq.requiredCount - newTotalAssigned);
+        let summaryMsg: string;
+        if (remaining === 0) {
+          summaryMsg = `Worker selection completed for ${finalReq.workerType} on ${eventTitle}. All ${finalReq.requiredCount} positions are fully staffed.`;
+        } else {
+          summaryMsg = `Worker selection completed for ${finalReq.workerType} on ${eventTitle}. ${newlyAssigned} assigned, ${remaining} position(s) remain unfilled.`;
+        }
+
+        await notificationService.createNotification({
+          recipientId: event.eventManagerId.toString(),
+          type: 'selection_summary',
+          title: 'Worker selection complete',
+          message: summaryMsg,
+          resourceType: 'work_requirement',
+          resourceId: requirementId,
+          destinationRoute: `/manager/events/${event._id.toString()}`,
+          deduplicationKey: `sel_summary_${requirementId}_round${round}_${event.eventManagerId.toString()}`,
+          metadata: {
+            eventId: event._id.toString(),
+            workerType: finalReq.workerType,
+            newlyAssignedCount: newlyAssigned,
+            totalAssignedCount: newTotalAssigned,
+            remainingCount: remaining,
+            requiredCount: finalReq.requiredCount,
+            selectionRound: round,
+          },
+        });
+      }
+    } catch (notifErr: any) {
+      console.error('⚠️ [WorkerSelectionService] Failed to dispatch selection notifications:', notifErr.message);
+    }
 
     return this.buildResult(
       finalReq,

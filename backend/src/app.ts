@@ -12,6 +12,7 @@ import adminEventRouter from './modules/events/routes/admin-event.routes.js';
 import managerEventRouter from './modules/events/routes/manager-event.routes.js';
 import webhookRouter from './modules/payments/routes/webhook.routes.js';
 import workerRouter from './modules/work-requirements/routes/worker-opportunity.routes.js';
+import notificationRouter from './modules/notifications/routes/notification.routes.js';
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use('/api/worker', workerRouter);
 app.use('/api/quotations', quotationRouter);
 app.use('/api/payments', paymentRouter);
 app.use('/api/webhooks', webhookRouter);
+app.use('/api/notifications', notificationRouter);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 

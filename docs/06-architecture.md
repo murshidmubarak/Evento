@@ -1404,6 +1404,54 @@ Manager Browser (/manager, /manager/events, /manager/events/:id)
                 └── Excludes sensitive quotation pricing, profit margins, and payment gateway tokens
 ```
 
+## 18. Persistent Notifications & Socket.IO Architecture (Milestone 1)
+
+### Architectural Flow:
+```text
+Business Event Trigger (Requirement Published / Selection Persisted)
+    │
+    ▼
+NotificationService (Validates payload & recipient IDs)
+    │
+    ├── 1. Persist to MongoDB (NotificationRepository.create / createMany)
+    │      └── Deduplication key prevents duplicate logical records
+    │      └── MongoDB is the single source of truth (failures never roll back business state)
+    │
+    └── 2. Real-Time Delivery Attempt (NotificationTransport.sendRealtime)
+           │
+           ├── If in API Process (Socket.IO instance available):
+           │     Emits directly to room `user:<recipientId>`
+           │     AND publishes to Redis Pub/Sub channel `eventops:notifications:realtime`
+           │
+           └── If in Worker Process (workerSelectionWorker.ts):
+                 Publishes event to Redis Pub/Sub channel `eventops:notifications:realtime`
+                 (Subscribed API server instances receive the message and deliver to local client sockets)
+```
+
+### Key Components:
+1. **Mongoose Notification Model**:
+   - `recipientId`: ObjectId reference to `User`, indexed.
+   - `type`: Enum (`work_opportunity`, `assignment_confirmed`, `selection_summary`, `payment_received`, `system`).
+   - `title`, `message`: Descriptive text without sensitive financials/tokens.
+   - `isRead`, `readAt`: Read status tracking.
+   - `resourceType`, `resourceId`: Optional linkage to underlying domain entities (e.g., `work_requirement`).
+   - `destinationRoute`: Validated internal application route (e.g. `/worker`, `/manager/events/:id`).
+   - `deduplicationKey`: Unique sparse index for idempotent creation (`req_opp_${reqId}_${workerId}`, `sel_confirm_${reqId}_round${round}_${workerId}`, `sel_summary_${reqId}_round${round}_${managerId}`).
+   - Compound indexes: `{ recipientId: 1, createdAt: -1 }`, `{ recipientId: 1, isRead: 1 }`.
+
+2. **Socket.IO Server Lifecycle**:
+   - Created in `server.ts` via `http.createServer(app)`.
+   - Single HTTP server for Express and Socket.IO.
+   - Handshake authentication via JWT token; rejects unauthenticated handshakes.
+   - Private room isolation: each user joins only `user:<userId>`.
+
+3. **Cross-Process Notification Transport**:
+   - `NotificationTransport` utilizes dedicated Redis Pub/Sub clients (`redis` v4 duplicate client) on channel `eventops:notifications:realtime`.
+   - Standalone background workers (`workerSelectionWorker.ts`) publish selection events to Redis; API server subscriber forwards them to connected Socket.IO sockets.
+   - In-memory mock fallback in test environments when Redis is not available.
+   - Transport errors are caught and logged; MongoDB persistence always succeeds independently.
+
+
 
 
 

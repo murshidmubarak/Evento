@@ -7,6 +7,8 @@ import { WorkRequirement, type IWorkRequirement } from '../model/work-requiremen
 import { isValidReportingTime, isValidMaxDistanceKm, isValidDeadline } from '../validation/work-requirement.validation.js';
 import { workerSelectionQueueService } from '../../worker-selection/queues/worker-selection.queue.js';
 import { toCalendarDayString, isEventDatePassed } from '../../worker-selection/utils/calendar-day.util.js';
+import { notificationService } from '../../notifications/service/notification.service.js';
+import { workerOpportunityService } from './worker-opportunity.service.js';
 import mongoose from 'mongoose';
 
 export class WorkRequirementService {
@@ -278,7 +280,54 @@ export class WorkRequirementService {
       );
     }
 
+    // Trigger opportunity announcements only on the first valid draft -> open transition (§9)
+    if (data.status === 'open' && requirement.status === 'draft') {
+      this.sendOpportunityAnnouncements(updated._id.toString(), event).catch((err) => {
+        console.error(`⚠️ [WorkRequirementService] Failed to dispatch opportunity announcements for req ${reqId}:`, err);
+      });
+    }
+
     return updated;
+  }
+
+  /**
+   * Internal helper to broadcast opportunity announcements to genuinely eligible workers.
+   * Uses deduplicationKey to prevent duplicate notifications on retries or repeated requests.
+   */
+  private async sendOpportunityAnnouncements(requirementId: string, event: any): Promise<void> {
+    try {
+      const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
+      if (!eligibleWorkerIds || eligibleWorkerIds.length === 0) {
+        return;
+      }
+
+      const req = await this.requirementRepository.findById(requirementId);
+      if (!req) return;
+
+      const eventTitle = event?.title || 'an upcoming event';
+      const reportingTimeInfo = req.reportingTime ? `Reporting time: ${req.reportingTime}.` : '';
+
+      const notificationItems = eligibleWorkerIds.map((workerId) => ({
+        recipientId: workerId,
+        type: 'work_opportunity',
+        title: 'New work opportunity',
+        message: `A new work requirement for ${req.workerType} has been published for ${eventTitle}. ${reportingTimeInfo}`.trim(),
+        resourceType: 'work_requirement',
+        resourceId: requirementId,
+        destinationRoute: '/worker',
+        deduplicationKey: `req_opp_${requirementId}_${workerId}`,
+        metadata: {
+          eventId: event?._id ? event._id.toString() : req.eventId.toString(),
+          workerType: req.workerType,
+          maxDistanceKm: req.maxDistanceKm,
+          interestDeadlineAt: req.interestDeadlineAt,
+        },
+      }));
+
+      await notificationService.createNotificationsBatch(notificationItems);
+    } catch (err: any) {
+      console.error(`⚠️ [WorkRequirementService] Announcement dispatch error for req ${requirementId}:`, err.message);
+    }
   }
 
   async cancelRequirement(managerId: string, reqId: string): Promise<IWorkRequirement> {

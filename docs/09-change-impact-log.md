@@ -915,6 +915,50 @@ Implemented immutable Worker location versioning, publication cutoff (`interestP
   - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
   - Frontend Production Build (`npm run build`): compiled cleanly in 3.50s, exit code 0.
 
+### [Milestone 1 — Persistent Notifications, Socket.IO, and Core Business Integration]
+**Date:** 2026-10-27
+**Level:** Medium (Shared notification model and transport; zero regression on existing authentication, RBAC, payment, reminder, selection, or financial infrastructure)
+
+**Description:**
+Implemented Milestone 1 notification foundation, Socket.IO real-time server with user room isolation, cross-process Redis Pub/Sub delivery from `workerSelectionWorker.ts`, REST APIs (`GET /api/notifications`, `PATCH /api/notifications/:id/read`, `PATCH /api/notifications/read-all`), frontend notification UI with unread badge, and end-to-end integration with Business Workflow A (requirement announcement to eligible workers) and Business Workflow B (worker assignment confirmation and manager selection summary).
+
+**Components & Files Changed:**
+- **Backend Infrastructure & Sockets**:
+  - `backend/src/modules/notifications/model/notification.model.ts`: Notification schema with recipient, type, title, message, isRead, readAt, resourceType, resourceId, destinationRoute, deduplicationKey (unique sparse), and compound indexes.
+  - `backend/src/modules/notifications/repository/notification.repository.ts`: Safe atomic batch inserts, pagination, unread counting, read marking, deduplication pre-checks.
+  - `backend/src/sockets/socket.server.ts`: Initialized Socket.IO attached to single HTTP server via `http.createServer(app)`; handshake JWT auth; joined private room `user:<userId>`.
+  - `backend/src/sockets/notification-transport.ts`: Cross-process delivery service via Redis Pub/Sub (`eventops:notifications:realtime`) with local in-memory mock fallback for tests without Redis.
+  - `backend/src/server.ts`: Converted Express listener to unified HTTP server, attached Socket.IO, initialized Redis notification subscriber, and configured graceful shutdown.
+  - `backend/src/workers/workerSelectionWorker.ts`: Integrated `notificationTransport.close()` into worker shutdown lifecycle.
+- **Backend Services & Controllers**:
+  - `backend/src/modules/notifications/service/notification.service.ts`: Internal notification creation with safe deduplication, recipient verification, batch creation, and non-blocking real-time delivery.
+  - `backend/src/modules/notifications/controller/notification.controller.ts` & `routes/notification.routes.ts`: `GET /api/notifications`, `PATCH /api/notifications/:id/read`, `PATCH /api/notifications/read-all`.
+  - `backend/src/app.ts`: Registered `/api/notifications` routes.
+- **Business Workflow A Integration (Requirement Publication Announcements)**:
+  - `backend/src/modules/work-requirements/service/worker-opportunity.service.ts`: Added `findEligibleWorkersForOpportunity` evaluating all 8 canonical criteria (active account, workerType match, calendar day conflict check, valid venue location, valid worker location, cutoff at `interestPublishedAt`, maxDistanceKm limit).
+  - `backend/src/modules/work-requirements/service/work-requirement.service.ts`: Dispatched `work_opportunity` notifications upon `draft -> open` transition with deduplication key `req_opp_${reqId}_${workerId}`.
+- **Business Workflow B Integration (Selection Confirmations & Manager Summary)**:
+  - `backend/src/modules/worker-selection/service/worker-selection.service.ts`: Dispatched `assignment_confirmed` to selected workers (`destinationRoute: '/worker'`) and `selection_summary` to responsible Event Manager (`destinationRoute: '/manager/events/:id'`) upon persisting assignments, with deduplication keys `sel_confirm_${reqId}_round${round}_${workerId}` and `sel_summary_${reqId}_round${round}_${managerId}`.
+- **Frontend State, Services & UI**:
+  - `frontend/src/features/notifications/notificationsApi.ts`: Axios client for notification listing and read status mutations.
+  - `frontend/src/features/notifications/notificationSlice.ts`: Redux state tracking items, unreadCount, real-time arrivals, and reset on logout.
+  - `frontend/src/services/socketClient.ts`: Socket.IO client instance with JWT auth, auto-reconnect, and reconnect resynchronization.
+  - `frontend/src/components/common/NotificationBell.tsx`: Reusable notification bell with unread badge, dropdown panel, newest-first list, time-ago formatting, mark as read, mark all read, load more, empty state, and safe internal navigation.
+  - `frontend/src/features/auth/authSlice.ts`: Disconnected socket and cleared notifications on user logout.
+  - `frontend/src/layouts/AdminLayout.tsx`, `ClientLayout.tsx`, `ManagerLayout.tsx`, `WorkerLayout.tsx`: Embedded `NotificationBell` in headers.
+- **Automated Tests**:
+  - `backend/tests/notifications.test.ts`: 11 backend integration tests covering model persistence, deduplication, REST APIs, cross-user denial, Socket.IO handshake auth and room isolation, eligible worker filtering on announcement, and assignment confirmation/summary dispatch.
+  - `frontend/src/tests/notificationsUI.test.tsx`: 7 Vitest tests covering badge rendering, panel toggle, empty state, filtering tabs, mark as read, navigation, and real-time socket events.
+- **Verification Results**:
+  - Backend Notifications Test Suite (`tests/notifications.test.ts`): 11/11 passed (100%).
+  - Full Backend Test Suite (`npm test`): 430/430 passed across 53 suites (100%).
+  - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+  - Backend Production Build (`npm run build`): compiled cleanly, exit code 0.
+  - Frontend Test Suite (`npm test`): 84/84 passed across 16 test files (100%).
+  - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled cleanly in 40.06s, exit code 0.
+
+
 
 
 

@@ -232,6 +232,114 @@ export class WorkerOpportunityService {
   }
 
   /**
+   * Identifies all genuinely eligible workers for a specific Work Requirement publication announcement.
+   * Enforces all 8 canonical eligibility constraints:
+   * 1. Active worker account with role 'worker'
+   * 2. workerType matches requirement.workerType exactly
+   * 3. Mandatory Location Gate: Worker profile has valid coordinates
+   * 4. Requirement is open and belongs to a confirmed event with valid venue coordinates
+   * 5. No same-calendar-day conflict on event date across all events
+   * 6. Immutable location history: Worker has a valid historical location version at interestPublishedAt cutoff
+   * 7. Haversine distance from effective historical location to event venue <= maxDistanceKm
+   * 8. Worker is not already assigned
+   */
+  async findEligibleWorkersForOpportunity(requirementId: string): Promise<string[]> {
+    if (!mongoose.Types.ObjectId.isValid(requirementId)) {
+      return [];
+    }
+
+    const req = await this.requirementRepository.findById(requirementId);
+    if (!req || req.status !== 'open' || !req.workerType) {
+      return [];
+    }
+
+    const event = await this.eventRepository.findById(req.eventId.toString());
+    if (!event || event.status !== 'confirmed') {
+      return [];
+    }
+
+    if (!isValidCoordinate(event.location?.lat, event.location?.lng)) {
+      return [];
+    }
+
+    // Query active workers of matching specialization
+    const candidateWorkers = await User.find({
+      role: 'worker',
+      isActive: true,
+      workerType: req.workerType,
+      'location.lat': { $exists: true, $ne: null },
+      'location.lng': { $exists: true, $ne: null },
+    }).lean();
+
+    const eligibleWorkerIds: string[] = [];
+    const publicationCutoff = req.interestPublishedAt || new Date();
+
+    for (const worker of candidateWorkers) {
+      const workerIdStr = worker._id.toString();
+
+      // 1. Mandatory Location Gate check
+      if (!isValidCoordinate(worker.location?.lat, worker.location?.lng)) {
+        continue;
+      }
+
+      // 2. Already assigned check
+      const isAssigned = (req.assignedWorkers || []).some(
+        (a: any) => a.workerId?.toString() === workerIdStr
+      );
+      if (isAssigned) {
+        continue;
+      }
+
+      // 3. Calendar conflict check on event day
+      if (event.date) {
+        const conflict = await workerSelectionService.checkSameCalendarDayConflict(
+          workerIdStr,
+          event.date,
+          req._id.toString()
+        );
+        if (conflict.hasConflict) {
+          continue;
+        }
+      }
+
+      // 4. Historical publication cutoff location version
+      let historicalLocation: EffectiveWorkerLocation | null = null;
+      if (req.interestPublishedAt) {
+        historicalLocation = await this.locationHistoryRepository.findEffectiveLocationAt(
+          workerIdStr,
+          publicationCutoff
+        );
+        if (!historicalLocation || !isValidCoordinate(historicalLocation.lat, historicalLocation.lng)) {
+          // Ineligible because no valid location on file at cutoff
+          continue;
+        }
+      }
+
+      const coordsToUse =
+        historicalLocation && isValidCoordinate(historicalLocation.lat, historicalLocation.lng)
+          ? historicalLocation
+          : worker.location!;
+
+      // 5. Distance check
+      const distanceKm = calculateHaversineDistanceKm(
+        coordsToUse.lat!,
+        coordsToUse.lng!,
+        event.location.lat!,
+        event.location.lng!
+      );
+
+      const maxDistance = req.maxDistanceKm;
+      if (maxDistance !== undefined && maxDistance > 0 && distanceKm > maxDistance) {
+        continue;
+      }
+
+      eligibleWorkerIds.push(workerIdStr);
+    }
+
+    return eligibleWorkerIds;
+  }
+
+  /**
    * Allows an eligible worker to express interest in a specific Work Requirement.
    */
   async expressInterest(workerId: string, requirementId: string): Promise<any> {
@@ -545,3 +653,6 @@ export class WorkerOpportunityService {
     return assignments;
   }
 }
+
+export const workerOpportunityService = new WorkerOpportunityService();
+

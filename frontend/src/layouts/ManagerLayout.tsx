@@ -3,6 +3,7 @@ import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { logout } from '../features/auth/authSlice';
 import { LogOut, LayoutDashboard, Menu, X, ShieldCheck, CalendarDays, Users } from 'lucide-react';
+import { NotificationBell } from '../components/common/NotificationBell';
 
 export const ManagerLayout: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -55,6 +56,7 @@ export const ManagerLayout: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <NotificationBell />
           <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold shrink-0">
             {user?.name?.charAt(0)?.toUpperCase() ?? 'M'}
           </div>
@@ -92,6 +94,7 @@ export const ManagerLayout: React.FC = () => {
               Manager
             </span>
           </div>
+          <NotificationBell />
         </div>
 
         {/* Mobile drawer header */}

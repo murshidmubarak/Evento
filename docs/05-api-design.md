@@ -3056,6 +3056,112 @@ Executes the deterministic selection engine immediately for the current round, p
 - **Invariance on Deadline Extension**: `POST /api/manager/work-requirements/:id/extend-deadline` extends the deadline but leaves `interestPublishedAt` unchanged.
 - **Audit Traceability**: `WorkResponse.locationSnapshot` includes `versionId`, coordinates, address, and `confirmedAt` corresponding to the historical version valid at publication time.
 
+## 9. Persistent Notifications & Socket.IO Real-Time API (Milestone 1)
+
+### 9.1 Overview & Security
+- **Authentication**: All notification endpoints enforce standard JWT bearer authentication (`authenticate` middleware).
+- **Recipient Isolation**: Notification access, unread counters, and mark-as-read mutations are strictly scoped to `req.user.id`. A user can never read, modify, or inspect another user's notifications.
+- **Real-Time Delivery**: Socket.IO connections authenticate via JWT in handshake (`auth.token` or `headers.authorization`). Sockets join exclusively private server-controlled rooms: `user:<userId>`.
+- **Persistence Source of Truth**: MongoDB is the authoritative store. Sockets and Redis Pub/Sub provide transport; transport disconnects never roll back MongoDB state.
+
+### 9.2 GET /api/notifications
+Retrieves paginated notifications for the authenticated user, ordered newest-first.
+
+**Access**: Authenticated (`admin`, `client`, `event_manager`, `worker`)
+
+**Query Parameters**:
+- `page` (optional integer >= 1, default: 1)
+- `limit` (optional integer 1..50, default: 20)
+- `isRead` (optional boolean: `true` | `false`)
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Notifications retrieved successfully",
+  "data": {
+    "notifications": [
+      {
+        "_id": "67bda1a8c3d82f0012345678",
+        "recipientId": "67bda1a8c3d82f0012345679",
+        "type": "work_opportunity",
+        "title": "New work opportunity",
+        "message": "A new Catering Boy requirement has been published for Gala Dinner 2026.",
+        "isRead": false,
+        "readAt": null,
+        "resourceType": "work_requirement",
+        "resourceId": "67bda1a8c3d82f001234567a",
+        "destinationRoute": "/worker",
+        "deduplicationKey": "req_opp_67bda1a8c3d82f001234567a_67bda1a8c3d82f0012345679",
+        "createdAt": "2026-10-27T14:00:00.000Z",
+        "updatedAt": "2026-10-27T14:00:00.000Z"
+      }
+    ],
+    "unreadCount": 1,
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1
+    }
+  }
+}
+```
+
+### 9.3 PATCH /api/notifications/:id/read
+Marks an individual notification belonging to the authenticated user as read.
+
+**Access**: Authenticated (`admin`, `client`, `event_manager`, `worker`)
+
+**URL Parameters**:
+- `id` (MongoDB ObjectId of the notification)
+
+**Security**: Enforces compound filter `{ _id: id, recipientId: req.user.id }`. If notification does not belong to caller, returns `404 Not Found`.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Notification marked as read",
+  "data": {
+    "notification": {
+      "_id": "67bda1a8c3d82f0012345678",
+      "recipientId": "67bda1a8c3d82f0012345679",
+      "isRead": true,
+      "readAt": "2026-10-27T14:05:00.000Z"
+    }
+  }
+}
+```
+
+### 9.4 PATCH /api/notifications/read-all
+Marks all unread notifications belonging to the authenticated user as read.
+
+**Access**: Authenticated (`admin`, `client`, `event_manager`, `worker`)
+
+**Security**: Strictly updates `{ recipientId: req.user.id, isRead: false }`.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "All notifications marked as read",
+  "data": {
+    "modifiedCount": 3
+  }
+}
+```
+
+### 9.5 Socket.IO Real-Time Events
+- **Connection Handshake**:
+  - `auth: { token: "<JWT_BEARER_TOKEN>" }`
+  - Rejection on missing, invalid, or expired tokens with `Authentication error`.
+- **User Room**: `user:<userId>` (auto-joined upon handshake; client cannot join arbitrary rooms).
+- **Server-to-Client Event**: `notification:new`
+  - **Payload**: Full `INotification` object.
+- **Client-to-Server Event**: None (notification mutations occur via authenticated REST endpoints).
+
+
 
 
 

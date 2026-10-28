@@ -11,6 +11,7 @@ import {
   Briefcase,
   MapPin
 } from 'lucide-react';
+import { NotificationBell } from '../components/common/NotificationBell';
 
 export const WorkerLayout: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -62,6 +63,7 @@ export const WorkerLayout: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <NotificationBell />
           <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-xs font-bold shrink-0">
             {user?.name?.charAt(0)?.toUpperCase() ?? 'W'}
           </div>
@@ -99,6 +101,7 @@ export const WorkerLayout: React.FC = () => {
               Worker
             </span>
           </div>
+          <NotificationBell />
         </div>
 
         {/* Mobile drawer header */}

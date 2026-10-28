@@ -3,6 +3,8 @@ import type { AuthState, User, AuthResponse, ApiErrorResponse } from '../../type
 import { apiClient } from '../../services/apiClient';
 import { getStoredToken, setStoredToken, removeStoredToken } from '../../utils/localStorage';
 import { AxiosError } from 'axios';
+import { disconnectSocket } from '../../services/socketClient';
+import { clearNotifications } from '../notifications/notificationSlice';
 
 const initialState: AuthState = {
   user: null,
@@ -78,11 +80,14 @@ export const fetchCurrentUser = createAsyncThunk<User, void, { rejectValue: stri
 
 export const logout = createAsyncThunk<void, void, { rejectValue: string }>(
   'auth/logout',
-  async (_) => {
+  async (_, { dispatch }) => {
     try {
       await apiClient.post('/auth/logout');
     } catch (err) {
       console.error('Logout API failed, continuing local logout', err);
+    } finally {
+      disconnectSocket();
+      dispatch(clearNotifications());
     }
   }
 );
@@ -102,6 +107,7 @@ const authSlice = createSlice({
       state.isLoading = false;
       state.error = null;
       removeStoredToken();
+      disconnectSocket();
     },
     setUserLocation: (
       state,
