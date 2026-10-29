@@ -8,6 +8,7 @@ import { isValidReportingTime, isValidMaxDistanceKm, isValidDeadline } from '../
 import { workerSelectionQueueService } from '../../worker-selection/queues/worker-selection.queue.js';
 import { toCalendarDayString, isEventDatePassed } from '../../worker-selection/utils/calendar-day.util.js';
 import { notificationService } from '../../notifications/service/notification.service.js';
+import { notificationQueueService } from '../../notifications/queues/notification.queue.js';
 import { workerOpportunityService } from './worker-opportunity.service.js';
 import mongoose from 'mongoose';
 
@@ -282,7 +283,10 @@ export class WorkRequirementService {
 
     // Trigger opportunity announcements only on the first valid draft -> open transition (§9)
     if (data.status === 'open' && requirement.status === 'draft') {
-      this.sendOpportunityAnnouncements(updated._id.toString(), event).catch((err) => {
+      notificationQueueService.enqueueRequirementAnnouncements({
+        requirementId: updated._id.toString(),
+        publishedAt: updated.interestPublishedAt ? updated.interestPublishedAt.toISOString() : new Date().toISOString(),
+      }).catch((err) => {
         console.error(`⚠️ [WorkRequirementService] Failed to dispatch opportunity announcements for req ${reqId}:`, err);
       });
     }
@@ -294,7 +298,17 @@ export class WorkRequirementService {
    * Internal helper to broadcast opportunity announcements to genuinely eligible workers.
    * Uses deduplicationKey to prevent duplicate notifications on retries or repeated requests.
    */
-  private async sendOpportunityAnnouncements(requirementId: string, event: any): Promise<void> {
+  private async sendOpportunityAnnouncements(requirementId: string, _event?: any): Promise<void> {
+    try {
+      await notificationQueueService.processRequirementAnnouncements({ requirementId });
+      return;
+    } catch (err: any) {
+      console.error(`⚠️ [WorkRequirementService] Announcement dispatch error for req ${requirementId}:`, err.message);
+      return;
+    }
+  }
+
+  private async _legacySendOpportunityAnnouncements(requirementId: string, event: any): Promise<void> {
     try {
       const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
       if (!eligibleWorkerIds || eligibleWorkerIds.length === 0) {

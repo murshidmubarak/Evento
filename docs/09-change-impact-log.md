@@ -958,6 +958,48 @@ Implemented Milestone 1 notification foundation, Socket.IO real-time server with
   - Frontend Lint (`npm run lint`): 0 errors, exit code 0.
   - Frontend Production Build (`npm run build`): compiled cleanly in 40.06s, exit code 0.
 
+---
+
+### [Unified Background Worker Architecture Refactor]
+**Date:** 2026-10-29
+**Impact Classification:** Medium (Internal architectural refactoring of background worker process lifecycle: unified orchestrator, single Node.js process startup, shared database initialization, graceful shutdown, and notification-ready worker registration with zero breaking changes to business logic, queues, models, or APIs)
+
+**Description:**
+Refactored the EventOps ERP background worker architecture so a single command (`npm run worker`) starts both the Payment Reminder worker and the Worker Selection worker within a single Node.js process using a lightweight orchestrator (`src/workers/worker.ts`). Refactored individual worker entry points (`paymentReminderWorker.ts`, `workerSelectionWorker.ts`) into explicit exported startup functions (`startPaymentReminderWorker`, `startWorkerSelectionWorker`) returning resource handles (`BackgroundWorkerHandle`), while preserving independent standalone execution wrappers for troubleshooting (`npm run worker:payment`, `npm run worker:selection`). Established single-connection MongoDB lifecycle management, safe rollback on startup errors, reverse-order graceful shutdown, and an extensible registry for future background workers (e.g. `startNotificationWorker`).
+
+**Components & Files Changed:**
+- `backend/src/workers/worker.ts`:
+  - Created `UnifiedWorker` orchestrator managing shared infrastructure and worker lifecycles.
+  - Implemented single-connection MongoDB initialization via `connectDB()`.
+  - Implemented deterministic startup sequence: Payment Reminder Worker -> Worker Selection Worker.
+  - Implemented safe startup rollback closing partially initialized workers if an error occurs.
+  - Implemented reverse-order graceful shutdown (`SIGINT` / `SIGTERM`) closing workers, queues, Redis resources, and disconnecting MongoDB.
+  - Provided extensible `registerWorker()` mechanism for future notification processing.
+- `backend/src/workers/paymentReminderWorker.ts`:
+  - Refactored into exported startup function `startPaymentReminderWorker()`.
+  - Preserved BullMQ scan & email worker initialization, recurring scan scheduler (`REMINDER_CHECK_INTERVAL_MS`), and queue configurations.
+  - Added standalone runner guard using `isMainModule` to prevent auto-start and duplicate signal handlers when imported.
+- `backend/src/workers/workerSelectionWorker.ts`:
+  - Refactored into exported startup function `startWorkerSelectionWorker()`.
+  - Preserved BullMQ selection worker initialization, deadline recovery scan (`scanAndProcessExpiredDeadlines`), and notification transport cleanup.
+  - Added standalone runner guard using `isMainModule` to prevent auto-start and duplicate signal handlers when imported.
+- `backend/src/utils/isMainModule.ts`:
+  - Added shared utility to cleanly differentiate standalone process execution from ESM module imports.
+- `backend/package.json`:
+  - Updated `"worker"` script to run `src/workers/worker.ts`.
+  - Updated `"worker:prod"` script to run `dist/workers/worker.js`.
+  - Added `"worker:payment"` and `"worker:payment:prod"` scripts for isolated payment reminder worker troubleshooting.
+  - Preserved `"worker:selection"` and `"worker:selection:prod"` scripts for isolated selection worker troubleshooting.
+- `backend/tests/unifiedWorker.test.ts`:
+  - Added 10 automated test cases verifying single-process registration, single MongoDB initialization, startup invocation, rollback on error, graceful shutdown, recovery logic preservation, signal handler isolation, and test DB safety guard.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Build (`npm run build`): compiled cleanly to `dist/`, exit code 0.
+- Unified Worker Test Suite (`tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Payment Reminder Queue Test Suite (`tests/reminderQueue.test.ts`): 10/10 passed (100%), exit code 0.
+- Worker Selection Test Suite (`tests/workerSelection.test.ts`): 17/17 passed (100%), exit code 0.
+- Full Backend Test Suite (`npm test`): 442/442 passed across 54 suites (100%), exit code 0.
 
 
 
@@ -968,3 +1010,67 @@ Implemented Milestone 1 notification foundation, Socket.IO real-time server with
 
 
 
+
+
+---
+
+### [BullMQ-Based Notification Processing & Unified Worker Registration]
+**Date:** 2026-10-29
+**Impact Classification:** Medium (Adds dedicated BullMQ notification queue and background processor to the Unified Worker architecture; replaces synchronous notification dispatch with resilient asynchronous job queueing; maintains MongoDB as single source of truth, persistent deduplication, bounded batch processing, and cross-process Socket.IO delivery without changes to business rules, financial calculations, or worker selection logic)
+
+**Description:**
+Integrated asynchronous notification processing as a third independent BullMQ worker within the EventOps ERP Unified Worker process. Introduced a dedicated BullMQ queue (`notification-processing`) with typed job payloads (`requirement-announcement`, `selection-completion`), bounded concurrency (3), exponential backoff retries (3 attempts), and startup recovery scanning (`scanAndRecoverPendingNotifications`). Refactored Work Requirement publication and Worker Selection completion producers to submit jobs to the queue rather than dispatching synchronously. MongoDB remains the authoritative source of truth: notifications use `deduplicationKey` for persistent idempotency, job processors re-validate persisted document state to prevent stale job execution, and failures in notification enqueuing/processing never roll back persisted domain states. Registered `startNotificationWorker()` as worker #3 in `src/workers/worker.ts`, preserving single-command execution (`npm run worker` starts Payment Reminders + Worker Selection + Notifications), reverse-order graceful shutdown, and standalone debugging (`npm run worker:notification`).
+
+**Components & Files Changed:**
+- `backend/src/modules/notifications/queues/notification.queue.ts`:
+  - Created `NotificationQueueService` managing the `notification-processing` BullMQ queue.
+  - Defined typed jobs: `requirement-announcement` (`RequirementAnnouncementJobData`) and `selection-completion` (`SelectionCompletionJobData`).
+  - Implemented `InMemoryNotificationQueue` for isolated test environments (`NODE_ENV === 'test'`).
+  - Implemented producer methods: `enqueueRequirementAnnouncements` and `enqueueSelectionNotifications` with deterministic, stable job IDs.
+  - Implemented worker processors:
+    - `processRequirementAnnouncements`: Validates active requirement state, evaluates `workerOpportunityService.findEligibleWorkersForOpportunity`, batches notifications with deduplication keys (`req_opp_${reqId}_${workerId}`), persists to MongoDB, and triggers real-time delivery.
+    - `processSelectionCompletion`: Validates requirement and selection round, batches `assignment_confirmed` notifications (`sel_confirm_${reqId}_round${round}_${workerId}`) for assigned workers, and dispatches `selection_summary` (`sel_summary_${reqId}_round${round}_${managerId}`) to responsible Event Manager.
+  - Implemented startup recovery: `scanAndRecoverPendingNotifications` scans and recovers unannounced open requirements and unnotified completed selections.
+  - Added queue configuration getters: `getQueueName()`, `getConcurrency()`, and `getMaxRetries()`.
+- `backend/src/modules/notifications/repository/notification.repository.ts`:
+  - Enhanced `createManySafe` so that when a duplicate key error (`11000`) occurs during bulk insertion (e.g. during retries or recovery), existing records matching the deduplication keys are retrieved and returned along with newly inserted documents, ensuring real-time socket delivery is not skipped on retries.
+- `backend/src/workers/notificationWorker.ts`:
+  - Implemented `startNotificationWorker()` returning `NotificationWorkerHandle` (`name: 'notification-worker', close: () => Promise<void>`).
+  - Added startup recovery invocation (`scanAndRecoverPendingNotifications`).
+  - Added standalone runner guard using `isMainModule` for isolated troubleshooting (`npm run worker:notification`).
+- `backend/src/workers/worker.ts`:
+  - Imported `startNotificationWorker` and registered it as default worker #3 (`Notification Worker`).
+  - Unified Worker now orchestrates Payment Reminder, Worker Selection, and Notification workers in one single process.
+  - Reverse-order graceful shutdown closes Notification Worker, Worker Selection Worker, and Payment Reminder Worker before closing MongoDB.
+- `backend/src/modules/work-requirements/service/work-requirement.service.ts`:
+  - Updated `updateRequirement`: On `draft -> open` transition, enqueues announcements asynchronously via `notificationQueueService.enqueueRequirementAnnouncements(...)`.
+  - Maintained `sendOpportunityAnnouncements` delegating to `notificationQueueService.processRequirementAnnouncements(...)` for backward compatibility.
+- `backend/src/modules/worker-selection/service/worker-selection.service.ts`:
+  - Migrated step 9 notification dispatch to `notificationQueueService.enqueueSelectionNotifications(...)`.
+- `backend/package.json`:
+  - Added `"worker:notification": "tsx src/workers/notificationWorker.ts"`.
+  - Added `"worker:notification:prod": "node dist/workers/notificationWorker.js"`.
+- `backend/tests/notificationQueue.test.ts`:
+  - Created 9 comprehensive automated tests verifying queue naming, concurrency (3), retries (3), Unified Worker registration, announcement processing for eligible workers, skipping stale/draft requirements, selection completion dispatches, stale round rejection, deduplication idempotency, and startup recovery.
+- `backend/tests/unifiedWorker.test.ts`:
+  - Updated test suite to verify 3 default registered workers (Payment Reminder, Worker Selection, Notification Worker), dynamic registration, lifecycle execution, and reverse graceful shutdown.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Production Build (`npm run build`): compiled `dist/` cleanly, exit code 0.
+- Notification Queue Test Suite (`tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Unified Worker Test Suite (`tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Persistent Notifications & Socket.IO Test Suite (`tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Frontend Notification UI Test Suite (`src/tests/notificationsUI.test.tsx`): 7/7 passed (100%), exit code 0.
+
+
+---
+
+### [Notification Queue Test Fixes]
+**Date:** 2026-10-29
+**Changes:**
+- Fixed TypeScript compiler errors in `backend/tests/notificationQueue.test.ts`.
+- Removed redundant `workerType` and `eventId` properties from `RequirementAnnouncementJobData` test fixtures (lines 220, 260, 385), aligning them with the minimal BullMQ queue data contract.
+- Safely asserted optional `resourceId` on Mongoose documents (`workerNotif.resourceId` and `managerNotif.resourceId`) by removing `.toString()` invocation that triggered `'workerNotif.resourceId' is possibly 'undefined'`.
+**Impact:**
+- Low impact. Isolated strictly to `backend/tests/notificationQueue.test.ts`. Production models, queue services, and schemas remain unchanged.

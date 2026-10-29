@@ -50,20 +50,40 @@ export class NotificationRepository {
       const inserted = await Notification.insertMany(uniqueRecords, { ordered: false });
       return inserted as unknown as INotification[];
     } catch (err: any) {
+      let saved: INotification[] = [];
       // insertMany with ordered:false returns insertedDocs in err.insertedDocs
       if (err.code === 11000 && err.insertedDocs) {
-        return err.insertedDocs as INotification[];
-      }
-      // If all failed or other error, fallback to one-by-one safe insertion
-      const saved: INotification[] = [];
-      for (const rec of uniqueRecords) {
-        try {
-          const doc = await this.create(rec);
-          saved.push(doc);
-        } catch {
-          // Ignore duplicate failures
+        saved = err.insertedDocs as INotification[];
+      } else {
+        // If all failed or other error, fallback to one-by-one safe insertion
+        for (const rec of uniqueRecords) {
+          try {
+            const doc = await this.create(rec);
+            saved.push(doc);
+          } catch {
+            // Ignore duplicate failures
+          }
         }
       }
+
+      // If some records already existed in MongoDB, load them by deduplicationKey
+      // so caller has complete records for real-time delivery on retries (§7)
+      if (saved.length < uniqueRecords.length) {
+        const savedKeys = new Set(saved.map((s) => s.deduplicationKey).filter(Boolean));
+        const missingKeys = uniqueRecords
+          .map((r) => r.deduplicationKey)
+          .filter((k): k is string => Boolean(k) && !savedKeys.has(k));
+
+        if (missingKeys.length > 0) {
+          try {
+            const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } });
+            saved.push(...existing);
+          } catch {
+            // Best effort
+          }
+        }
+      }
+
       return saved;
     }
   }

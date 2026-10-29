@@ -682,4 +682,45 @@ Admin routes must never allow non-admin roles. Protected route hierarchies must 
 
 
 
-
+
+
+
+---
+
+## BUG-014 — TypeScript Type Mismatch in Notification Queue Test (Excess Job Data Properties & Optional resourceId)
+
+### Date
+
+2026-10-29
+
+### Feature / Module
+
+Notifications / BullMQ Queue / `backend/tests/notificationQueue.test.ts`
+
+### Severity
+
+Low (Test suite TypeScript compilation error)
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+TypeScript compilation errors reported in `backend/tests/notificationQueue.test.ts`:
+1. `Object literal may only specify known properties, and 'workerType' does not exist in type 'RequirementAnnouncementJobData'.` (lines 223, 265, 388)
+2. `'workerNotif.resourceId' is possibly 'undefined'.` (line 323)
+
+### Root Cause
+
+1. `RequirementAnnouncementJobData` interface in `notification.queue.ts` is intentionally minimal (`requirementId: string`, optional `publishedAt`, `enqueuedAt`), adhering to the architecture rule that queue jobs carry identifiers rather than snapshotting domain attributes, with worker processors fetching authoritative data from MongoDB. The test fixture included redundant properties `workerType: 'Catering Boy'` and `eventId`, which failed TypeScript's excess property checking for object literals.
+2. In `INotification` (`notification.model.ts`), `resourceId` is an optional field (`resourceId?: string`). Calling `.toString()` on `workerNotif.resourceId` failed strict null checks since it can be `undefined`. Furthermore, calling `.toString()` on a field that is already a `string` was redundant.
+
+### Solution
+
+1. Removed the redundant `workerType` and `eventId` properties from the test `RequirementAnnouncementJobData` objects in `backend/tests/notificationQueue.test.ts` (lines 220, 260, 385).
+2. Changed `assert.strictEqual(workerNotif.resourceId.toString(), requirement._id.toString())` to `assert.strictEqual(workerNotif.resourceId, requirement._id.toString())`, directly comparing string values without calling `.toString()` on an optional property. Applied the same safe assertion to `managerNotif.resourceId`.
+
+### Rule
+
+Queue job payloads should only provide properties declared on their respective job data contract. In tests, assert optional Mongoose document string properties directly without invoking `.toString()`.

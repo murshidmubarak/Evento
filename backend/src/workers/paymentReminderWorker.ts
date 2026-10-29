@@ -1,22 +1,22 @@
 /**
  * src/workers/paymentReminderWorker.ts
  *
- * EventOps ERP — Dedicated Background Worker Process
+ * EventOps ERP — Payment Reminder Background Worker
  *
  * Responsibilities:
- * 1. Initialize MongoDB connection for authoritative balance revalidation & audit logging.
- * 2. Connect to Redis via BullMQ.
- * 3. Register BullMQ recurring JobScheduler for payment reminder scans.
- * 4. Process payment reminder scan jobs (discovering eligible installments & links).
- * 5. Process individual reminder email jobs with retry policies and exponential backoff.
- * 6. Graceful shutdown on SIGINT / SIGTERM.
+ * 1. Initialize BullMQ Workers for payment reminder scan and email delivery.
+ * 2. Register BullMQ recurring JobScheduler for payment reminder scans.
+ * 3. Discover eligible installments/links and dispatch reminder emails.
+ * 4. Graceful worker cleanup via exported handle.
+ * 5. Standalone execution support for troubleshooting (e.g. npm run worker:payment).
  */
 import '../config/env.js';
 import { env } from '../config/env.js';
 import { connectDB } from '../config/db.js';
 import mongoose from 'mongoose';
+import { isMainModule } from '../utils/isMainModule.js';
 
-// Ensure all Mongoose models are registered in this standalone worker process
+// Ensure all Mongoose models are registered
 import '../modules/auth/model/user.model.js';
 import '../modules/services/model/service.model.js';
 import '../modules/events/model/event.model.js';
@@ -26,36 +26,44 @@ import '../modules/payments/model/payment-reminder-log.model.js';
 
 import { paymentReminderQueueService } from '../modules/payments/queues/payment-reminder.queue.js';
 
-let isShuttingDown = false;
+export interface PaymentReminderWorkerHandle {
+  name: 'payment-reminder';
+  close: () => Promise<void>;
+}
 
-async function startWorker(): Promise<void> {
+export interface StartPaymentReminderWorkerOptions {
+  autoConnectDB?: boolean;
+}
+
+/**
+ * Explicit startup function for Payment Reminder background worker.
+ * Can be called by the Unified Worker orchestrator or standalone runner.
+ */
+export async function startPaymentReminderWorker(
+  options?: StartPaymentReminderWorkerOptions
+): Promise<PaymentReminderWorkerHandle> {
   console.log('🚀 [PaymentReminderWorker] Bootstrapping background worker...');
 
-  // 1. Verify Redis URL configuration
-  if (!env.redisUrl) {
-    console.error('❌ [PaymentReminderWorker] Fatal: REDIS_URL is not configured in environment.');
-    console.error('   Please provide a valid Redis URL (e.g., REDIS_URL=redis://127.0.0.1:6379 in .env).');
-    process.exit(1);
+  // 1. Verify Redis configuration
+  if (!env.redisUrl && env.nodeEnv !== 'test') {
+    throw new Error('[PaymentReminderWorker] Fatal: REDIS_URL is not configured in environment.');
   }
 
-  // 2. Connect to MongoDB
-  try {
+  // 2. Connect to MongoDB only if explicitly requested and disconnected
+  if (options?.autoConnectDB && mongoose.connection.readyState === 0) {
     await connectDB();
     console.log('✅ [PaymentReminderWorker] Connected to MongoDB.');
-  } catch (dbErr: any) {
-    console.error('❌ [PaymentReminderWorker] Failed to connect to MongoDB:', dbErr.message);
-    process.exit(1);
   }
 
   // 3. Initialize BullMQ Workers for Scan and Email queues
   try {
-    const { scanWorker, emailWorker } = paymentReminderQueueService.startWorkers();
+    paymentReminderQueueService.startWorkers();
     console.log('✅ [PaymentReminderWorker] BullMQ workers initialized:');
     console.log('   - Scan Worker (Queue: payment-reminder-scan, Concurrency: 1)');
     console.log('   - Email Worker (Queue: payment-reminder-email, Concurrency: 5, Max Retries: 3)');
   } catch (queueErr: any) {
     console.error('❌ [PaymentReminderWorker] Failed to initialize BullMQ workers:', queueErr.message);
-    process.exit(1);
+    throw queueErr;
   }
 
   // 4. Register Recurring Scan Scheduler if enabled
@@ -71,44 +79,66 @@ async function startWorker(): Promise<void> {
   }
 
   console.log('🎯 [PaymentReminderWorker] Ready and awaiting jobs.');
+
+  return {
+    name: 'payment-reminder',
+    close: async () => {
+      console.log('🛑 [PaymentReminderWorker] Closing payment reminder queues and workers...');
+      await paymentReminderQueueService.closeAll();
+      console.log('✅ [PaymentReminderWorker] BullMQ queues and workers closed.');
+    },
+  };
 }
 
-// ─── Graceful Shutdown ────────────────────────────────────────────────────────
+// ─── Standalone Execution Handler (Troubleshooting / Independent Run) ──────────
 
-async function gracefulShutdown(signal: string): Promise<void> {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
+if (isMainModule(import.meta.url)) {
+  let isShuttingDown = false;
+  let activeHandle: PaymentReminderWorkerHandle | null = null;
 
-  console.log(`\n🛑 [PaymentReminderWorker] Received ${signal}. Initiating graceful shutdown...`);
+  const standaloneShutdown = async (signal: string): Promise<void> => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
 
-  try {
-    // 1. Stop accepting new jobs and close BullMQ workers
-    await paymentReminderQueueService.closeAll();
-    console.log('✅ [PaymentReminderWorker] BullMQ queues and workers closed.');
+    console.log(`\n🛑 [PaymentReminderWorker] Received ${signal}. Initiating graceful shutdown...`);
 
-    // 2. Disconnect MongoDB
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.disconnect();
-      console.log('✅ [PaymentReminderWorker] MongoDB disconnected.');
+    try {
+      if (activeHandle) {
+        await activeHandle.close();
+      }
+
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+        console.log('✅ [PaymentReminderWorker] MongoDB disconnected.');
+      }
+
+      console.log('👋 [PaymentReminderWorker] Shutdown complete.');
+      process.exit(0);
+    } catch (err: any) {
+      console.error('❌ [PaymentReminderWorker] Error during shutdown:', err);
+      process.exit(1);
     }
+  };
 
-    console.log('👋 [PaymentReminderWorker] Shutdown complete.');
-    process.exit(0);
-  } catch (err: any) {
-    console.error('❌ [PaymentReminderWorker] Error during shutdown:', err);
-    process.exit(1);
-  }
+  process.on('SIGINT', () => standaloneShutdown('SIGINT'));
+  process.on('SIGTERM', () => standaloneShutdown('SIGTERM'));
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    console.error('❌ [PaymentReminderWorker] Unhandled Rejection:', reason);
+  });
+
+  process.on('uncaughtException', (error: Error) => {
+    console.error('❌ [PaymentReminderWorker] Uncaught Exception:', error);
+    standaloneShutdown('uncaughtException').finally(() => process.exit(1));
+  });
+
+  (async () => {
+    try {
+      await connectDB();
+      activeHandle = await startPaymentReminderWorker();
+    } catch (err: any) {
+      console.error('❌ [PaymentReminderWorker] Fatal startup error:', err);
+      process.exit(1);
+    }
+  })();
 }
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-process.on('unhandledRejection', (reason: unknown) => {
-  console.error('❌ [PaymentReminderWorker] Unhandled Rejection:', reason);
-});
-
-// Launch
-startWorker().catch((err) => {
-  console.error('❌ [PaymentReminderWorker] Fatal startup error:', err);
-  process.exit(1);
-});

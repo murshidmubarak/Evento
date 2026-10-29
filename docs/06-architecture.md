@@ -1455,3 +1455,92 @@ NotificationService (Validates payload & recipient IDs)
 
 
 
+
+
+## 19. Unified Background Worker & BullMQ Notification Processing Architecture
+
+### Architectural Overview
+
+EventOps ERP utilizes a single-command background worker process runtime:
+- `npm run dev`: Starts the Express REST API and Socket.IO real-time server (`src/server.ts`).
+- `npm run worker`: Starts all background workloads in a single Node.js process managed by a lightweight orchestrator (`src/workers/worker.ts`).
+
+The Unified Worker orchestrates three independent BullMQ worker subsystems:
+1. **Payment Reminder Worker** (`paymentReminderWorker.ts`):
+   - Recurring hourly scan scheduler (`payment-reminder-scan`)
+   - Parallel notification email queue (`payment-reminder-email`, concurrency: 5, retries: 3)
+2. **Worker Selection Worker** (`workerSelectionWorker.ts`):
+   - Automated AI selection deadline consumer (`worker-selection`, concurrency: 2)
+   - Startup recovery scan for overdue requirements (`scanAndProcessExpiredDeadlines`)
+3. **Notification Worker** (`notificationWorker.ts`):
+   - Asynchronous notification processing queue (`notification-processing`, concurrency: 3, retries: 3)
+   - Bounded opportunity announcement broadcasts (`requirement-announcement`)
+   - Selection completion & manager summary dispatches (`selection-completion`)
+   - Startup recovery scan for missed notifications (`scanAndRecoverPendingNotifications`)
+
+### Process Execution Diagram:
+```text
+                         npm run worker
+                               │
+                               ▼
+               Unified Worker (src/workers/worker.ts)
+                               │
+               ├── 1. Connect MongoDB (shared Mongoose instance)
+               │
+               ├── 2. Start Payment Reminder Worker
+               │      ├── Queue: payment-reminder-scan (Concurrency: 1)
+               │      ├── Queue: payment-reminder-email (Concurrency: 5, Retries: 3)
+               │      └── Scheduler: 3600s recurring scan
+               │
+               ├── 3. Start Worker Selection Worker
+               │      ├── Queue: worker-selection (Concurrency: 2)
+               │      └── Startup scan: scanAndProcessExpiredDeadlines()
+               │
+               └── 4. Start Notification Worker
+                      ├── Queue: notification-processing (Concurrency: 3, Retries: 3)
+                      └── Startup scan: scanAndRecoverPendingNotifications()
+
+  [SIGINT / SIGTERM Handlers]
+         │
+         ▼
+  Reverse-Order Graceful Shutdown:
+    1. Close Notification Worker & Transport
+    2. Close Worker Selection Worker & Transport
+    3. Close Payment Reminder Queues & Schedulers
+    4. Disconnect Shared MongoDB Connection
+```
+
+### Notification Queue Workflow:
+```text
+Work Requirement Publication (draft -> open)
+       │
+       ▼
+notificationQueueService.enqueueRequirementAnnouncements()
+       │
+       ▼
+BullMQ Queue: `notification-processing` (Job: `requirement-announcement`)
+       │
+       ▼
+NotificationProcessor:
+   1. Validates persisted requirement status === 'open' (MongoDB source of truth)
+   2. Evaluates workerOpportunityService.findEligibleWorkersForOpportunity()
+   3. Persists batch notifications in MongoDB (deduplicationKey: `req_opp_${reqId}_${workerId}`)
+   4. Emits real-time events via Redis Pub/Sub (`eventops:notifications:realtime`)
+   5. Connected Socket.IO API server routes to `user:<workerId>` rooms
+
+Worker Selection Completion (Status update -> filled / open)
+       │
+       ▼
+notificationQueueService.enqueueSelectionNotifications()
+       │
+       ▼
+BullMQ Queue: `notification-processing` (Job: `selection-completion`)
+       │
+       ▼
+NotificationProcessor:
+   1. Validates current selectionRound === job.selectionRound (stale round safety)
+   2. Persists assignment_confirmed notifications for selected workers (`sel_confirm_${reqId}_round${round}_${workerId}`)
+   3. Persists selection_summary notification for Event Manager (`sel_summary_${reqId}_round${round}_${managerId}`)
+   4. Emits real-time events via Redis Pub/Sub (`eventops:notifications:realtime`)
+   5. Connected Socket.IO API server routes to user rooms
+```
