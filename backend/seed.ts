@@ -13,6 +13,14 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const seedDatabase = async () => {
   try {
+    if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+      throw new Error(
+        'Refusing to run seed script in production/staging environment. ' +
+        'Static test credentials must not be inserted into live environments. ' +
+        'Use `npm run admin:create` instead to set up administrator accounts securely.'
+      );
+    }
+
     if (!process.env.MONGODB_URI) {
       throw new Error('MONGODB_URI is not set');
     }

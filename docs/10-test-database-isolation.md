@@ -195,3 +195,7 @@ If your local development database was wiped prior to these protections:
   npm run seed
   ```
   This creates default accounts (e.g., `admin@eventops.com` / `Admin@1234` and `manager@eventops.com`).
+
+> [!CAUTION]
+> **Environment Restriction**: **Avoid running `npm run seed` in staging or production environments.**
+> The `seed.ts` script is strictly reserved for local development environments. It inserts mock users with predictable static passwords (`Admin@1234`, `Manager@1234`, `password123`). Running it on non-development environments exposes the platform to credential compromise. In staging and production environments, always create administrative accounts using the interactive tool: `npm run admin:create`.

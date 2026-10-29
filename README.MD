@@ -38,6 +38,13 @@ npm run dev
 
 The API runs at `http://localhost:5000`.
 
+> [!WARNING]
+> **Database Seeding Notice**: Avoid running `npm run seed` in staging or production environments. `backend/seed.ts` is strictly for local development and contains static test accounts and well-known mock passwords (`Admin@1234`, `Manager@1234`, `password123`). For staging and production administrator setup, always use the secure interactive CLI tool:
+> ```bash
+> cd backend
+> npm run admin:create
+> ```
+
 ### Frontend
 
 ```bash

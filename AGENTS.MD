@@ -508,3 +508,8 @@ Do not silently modify dependent files when a change has High or Critical impact
 4. **Complete Deletion of Test Data After Test Runs**:
    - All test data created during test execution must be completely dropped/deleted after the tests finish running (e.g. calling `cleanupTestDatabase()` which drops `eventops_test` before disconnect in the `after()` teardown hook).
    - Zero test data or artifacts may linger in any database after test execution.
+
+5. **Avoid running `npm run seed` in staging or production environments**:
+   - `backend/seed.ts` is strictly intended for initial local development setup.
+   - It populates mock accounts with static, well-known test passwords (`Admin@1234`, `Manager@1234`, `password123`).
+   - For staging and production administrator setup, always use the secure interactive CLI tool: `npm run admin:create` (`backend/src/scripts/createAdmin.ts`).
