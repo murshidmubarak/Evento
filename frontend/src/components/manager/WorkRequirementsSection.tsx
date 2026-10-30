@@ -191,52 +191,55 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
   }, [requirements]);
 
   const getStatusBadge = (status: WorkRequirementStatus) => {
+    const baseClasses =
+      'inline-flex items-center justify-center gap-1.5 w-24 py-1 rounded-md text-xs font-semibold shadow-2xs transition-colors shrink-0';
+
     switch (status) {
       case 'draft':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+          <span className={`${baseClasses} bg-amber-50 text-amber-800 border border-amber-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
             Draft
           </span>
         );
       case 'open':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+          <span className={`${baseClasses} bg-blue-50 text-blue-700 border border-blue-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
             Open
           </span>
         );
       case 'selection_in_progress':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-2xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+          <span className={`${baseClasses} bg-purple-50 text-purple-700 border border-purple-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse shrink-0" />
             Selecting
           </span>
         );
       case 'filled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span className={`${baseClasses} bg-emerald-50 text-emerald-700 border border-emerald-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
             Filled
           </span>
         );
       case 'closed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          <span className={`${baseClasses} bg-gray-100 text-gray-700 border border-gray-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
             Closed
           </span>
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+          <span className={`${baseClasses} bg-rose-50 text-rose-700 border border-rose-200`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
             Cancelled
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
+          <span className={`${baseClasses} bg-gray-100 text-gray-700 border border-gray-200`}>
             {status}
           </span>
         );
@@ -322,29 +325,29 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
             </p>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={fetchRequirements}
               disabled={isLoading}
-              className="p-2.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl border border-gray-200/90 transition-colors shadow-2xs shrink-0"
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl border border-gray-200/90 transition-colors shadow-2xs shrink-0"
               title="Refresh requirements"
               aria-label="Refresh requirements list"
             >
-              <RefreshCw size={16} className={isLoading ? 'animate-spin text-emerald-700' : ''} />
+              <RefreshCw size={15} className={isLoading ? 'animate-spin text-emerald-700' : ''} />
             </button>
 
             {!isCompleted ? (
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(true)}
-                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-xs hover:shadow transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-2xs hover:shadow-xs transition-all"
               >
-                <Plus size={16} />
+                <Plus size={15} />
                 Add Requirement
               </button>
             ) : (
-              <span className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-xl border border-gray-200">
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 text-xs font-semibold rounded-xl border border-gray-200">
                 <CheckCircle2 size={14} className="text-gray-500" />
                 Completed Event
               </span>
@@ -470,14 +473,9 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                   const isDraft = req.status === 'draft';
                   const isCancelled = req.status === 'cancelled';
                   const assignedCount = req.assignedWorkers?.length || req.filled || 0;
-                  const isFilled = assignedCount >= req.requiredCount;
                   const isExpired = req.interestDeadlineAt
                     ? new Date(req.interestDeadlineAt).getTime() < Date.now()
                     : false;
-                  const progressPercent = Math.min(
-                    100,
-                    Math.round((assignedCount / Math.max(1, req.requiredCount)) * 100)
-                  );
 
                   return (
                     <tr
@@ -491,16 +489,9 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                       {/* Worker Role & Info */}
                       <td className="py-3.5 sm:py-4 px-3.5 sm:px-4 font-bold text-gray-900">
                         <div className="space-y-0.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-gray-900 group-hover:text-emerald-800 transition-colors font-bold text-sm">
-                              {req.workerType}
-                            </span>
-                            {req.selectionRound && req.selectionRound > 1 && (
-                              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-md text-[10px] font-bold border border-purple-200">
-                                Round {req.selectionRound}
-                              </span>
-                            )}
-                          </div>
+                          <span className="text-gray-900 group-hover:text-emerald-800 transition-colors font-bold text-sm block">
+                            {req.workerType}
+                          </span>
                           {req.description ? (
                             <p
                               className="text-[11px] text-gray-500 font-normal line-clamp-1 truncate max-w-xs"
@@ -516,40 +507,19 @@ export const WorkRequirementsSection: React.FC<WorkRequirementsSectionProps> = (
                         </div>
                       </td>
 
-                      {/* Staffing Headcount with Visual Progress Bar */}
-                      <td className="py-3.5 sm:py-4 px-3 sm:px-4">
-                        <div className="flex flex-col gap-1.5 min-w-[110px] max-w-[140px]">
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1">
-                              <span
-                                className={`font-black text-sm ${
-                                  isFilled ? 'text-emerald-700' : 'text-gray-900'
-                                }`}
-                              >
-                                {assignedCount}
-                              </span>
-                              <span className="text-gray-400">/</span>
-                              <span className="font-bold text-gray-600">
-                                {req.requiredCount}
-                              </span>
-                              <span className="text-[10px] text-gray-400 ml-0.5">filled</span>
-                            </div>
-                            <span className="text-[10px] font-bold text-gray-500">
-                              {progressPercent}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden border border-gray-200/50">
-                            <div
-                              className={`h-full rounded-full transition-all duration-300 ${
-                                isFilled
-                                  ? 'bg-emerald-500'
-                                  : progressPercent > 0
-                                  ? 'bg-purple-600'
-                                  : 'bg-gray-300'
-                              }`}
-                              style={{ width: `${progressPercent}%` }}
-                            />
-                          </div>
+                      {/* Staffing Progress: simple professional count */}
+                      <td className="py-3.5 sm:py-4 px-3 sm:px-4 whitespace-nowrap">
+                        <div className="inline-flex items-baseline gap-1.5 text-xs text-gray-700 font-medium">
+                          <span className="text-sm font-bold text-gray-900">
+                            {assignedCount}
+                          </span>
+                          <span className="text-gray-400 font-normal">/</span>
+                          <span className="text-xs font-semibold text-gray-600">
+                            {req.requiredCount}
+                          </span>
+                          <span className="text-[11px] text-gray-400 font-normal ml-0.5">
+                            filled
+                          </span>
                         </div>
                       </td>
 

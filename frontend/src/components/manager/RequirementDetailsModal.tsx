@@ -81,49 +81,49 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
     switch (status) {
       case 'draft':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             Draft (Not Announced)
           </span>
         );
       case 'open':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
             Recruitment Open
           </span>
         );
       case 'selection_in_progress':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
             Selection In Progress
           </span>
         );
       case 'filled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             Fully Staffed
           </span>
         );
       case 'closed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-            <span className="w-2 h-2 rounded-full bg-gray-400" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
             Recruitment Closed
           </span>
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
             Cancelled
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
             {status}
           </span>
         );
