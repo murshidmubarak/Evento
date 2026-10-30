@@ -20,6 +20,9 @@ import {
   Loader2,
   ExternalLink,
   Inbox,
+  XCircle,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const formatTimeAgo = (timestamp?: string): string => {
@@ -51,6 +54,14 @@ const getNotificationIcon = (type: string) => {
       return <CheckCircle2 size={16} className="text-emerald-600" />;
     case 'selection_summary':
       return <Users size={16} className="text-purple-600" />;
+    case 'requirement_cancelled':
+      return <XCircle size={16} className="text-rose-600" />;
+    case 'requirement_updated':
+      return <RefreshCw size={16} className="text-amber-600" />;
+    case 'deadline_extended':
+      return <Clock size={16} className="text-indigo-600" />;
+    case 'staffing_unfilled':
+      return <AlertTriangle size={16} className="text-amber-600" />;
     default:
       return <Bell size={16} className="text-amber-600" />;
   }

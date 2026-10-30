@@ -18,11 +18,15 @@ import { notificationService, CreateNotificationInput } from '../service/notific
 import { Notification } from '../model/notification.model.js';
 import { WorkRequirement } from '../../work-requirements/model/work-requirement.model.js';
 import { workerOpportunityService } from '../../work-requirements/service/worker-opportunity.service.js';
+import { workResponseRepository } from '../../work-requirements/repository/work-response.repository.js';
 
 export const NOTIFICATION_QUEUE_NAME = 'notification-processing';
 
 export const JOB_REQUIREMENT_ANNOUNCEMENT = 'requirement-announcement';
 export const JOB_SELECTION_COMPLETION = 'selection-completion';
+export const JOB_REQUIREMENT_CANCELLATION = 'requirement-cancellation';
+export const JOB_REQUIREMENT_UPDATE = 'requirement-update';
+export const JOB_DEADLINE_EXTENSION = 'deadline-extension';
 
 export interface RequirementAnnouncementJobData {
   requirementId: string;
@@ -40,7 +44,32 @@ export interface SelectionCompletionJobData {
   enqueuedAt?: string;
 }
 
-export type NotificationJobData = RequirementAnnouncementJobData | SelectionCompletionJobData;
+export interface RequirementCancellationJobData {
+  requirementId: string;
+  cancelledAt?: string;
+  enqueuedAt?: string;
+}
+
+export interface RequirementUpdateJobData {
+  requirementId: string;
+  changedFields: Record<string, { old: any; new: any }>;
+  enqueuedAt?: string;
+}
+
+export interface DeadlineExtensionJobData {
+  requirementId: string;
+  selectionRound: number;
+  newDeadline: string;
+  previousDeadline?: string;
+  enqueuedAt?: string;
+}
+
+export type NotificationJobData =
+  | RequirementAnnouncementJobData
+  | SelectionCompletionJobData
+  | RequirementCancellationJobData
+  | RequirementUpdateJobData
+  | DeadlineExtensionJobData;
 
 /**
  * Lightweight in-memory queue adapter for testing without an external Redis instance.
@@ -265,6 +294,124 @@ export class NotificationQueueService {
     return { jobId: job.id || jobId };
   }
 
+  /**
+   * Enqueues an asynchronous Work Requirement cancellation notification dispatch.
+   */
+  public async enqueueRequirementCancellation(data: {
+    requirementId: string;
+    cancelledAt?: string;
+  }): Promise<{ jobId: string }> {
+    const enqueuedAt = new Date().toISOString();
+    const jobId = `cancellation_${data.requirementId}_${Date.now()}`;
+    const jobData: RequirementCancellationJobData = {
+      requirementId: data.requirementId,
+      cancelledAt: data.cancelledAt || enqueuedAt,
+      enqueuedAt,
+    };
+
+    if (this.isMockMode) {
+      const job = await this.mockQueue.add(JOB_REQUIREMENT_CANCELLATION, jobData, { jobId });
+      if (this.autoProcessInMock) {
+        setImmediate(() => {
+          this.processRequirementCancellation(jobData).catch((err) => {
+            console.error('⚠️ [NotificationQueue Mock] Cancellation processing error:', err);
+          });
+        });
+      }
+      return { jobId: job.id };
+    }
+
+    const queue = this.getQueue() as Queue<any>;
+    const job = await queue.add(JOB_REQUIREMENT_CANCELLATION, jobData, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 3000 },
+    });
+
+    console.log(`📨 [NotificationQueue] Enqueued cancellation job '${job.id}' for req ${data.requirementId}`);
+    return { jobId: job.id || jobId };
+  }
+
+  /**
+   * Enqueues an asynchronous Work Requirement update notification dispatch.
+   */
+  public async enqueueRequirementUpdate(data: {
+    requirementId: string;
+    changedFields: Record<string, { old: any; new: any }>;
+  }): Promise<{ jobId: string }> {
+    const enqueuedAt = new Date().toISOString();
+    const jobId = `update_${data.requirementId}_${Date.now()}`;
+    const jobData: RequirementUpdateJobData = {
+      requirementId: data.requirementId,
+      changedFields: data.changedFields,
+      enqueuedAt,
+    };
+
+    if (this.isMockMode) {
+      const job = await this.mockQueue.add(JOB_REQUIREMENT_UPDATE, jobData, { jobId });
+      if (this.autoProcessInMock) {
+        setImmediate(() => {
+          this.processRequirementUpdate(jobData).catch((err) => {
+            console.error('⚠️ [NotificationQueue Mock] Update notification processing error:', err);
+          });
+        });
+      }
+      return { jobId: job.id };
+    }
+
+    const queue = this.getQueue() as Queue<any>;
+    const job = await queue.add(JOB_REQUIREMENT_UPDATE, jobData, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 3000 },
+    });
+
+    console.log(`📨 [NotificationQueue] Enqueued update job '${job.id}' for req ${data.requirementId}`);
+    return { jobId: job.id || jobId };
+  }
+
+  /**
+   * Enqueues an asynchronous Work Requirement deadline extension notification dispatch.
+   */
+  public async enqueueDeadlineExtension(data: {
+    requirementId: string;
+    selectionRound: number;
+    newDeadline: string;
+    previousDeadline?: string;
+  }): Promise<{ jobId: string }> {
+    const enqueuedAt = new Date().toISOString();
+    const jobId = `extension_${data.requirementId}_round_${data.selectionRound}`;
+    const jobData: DeadlineExtensionJobData = {
+      requirementId: data.requirementId,
+      selectionRound: data.selectionRound,
+      newDeadline: data.newDeadline,
+      previousDeadline: data.previousDeadline,
+      enqueuedAt,
+    };
+
+    if (this.isMockMode) {
+      const job = await this.mockQueue.add(JOB_DEADLINE_EXTENSION, jobData, { jobId });
+      if (this.autoProcessInMock) {
+        setImmediate(() => {
+          this.processDeadlineExtension(jobData).catch((err) => {
+            console.error('⚠️ [NotificationQueue Mock] Deadline extension processing error:', err);
+          });
+        });
+      }
+      return { jobId: job.id };
+    }
+
+    const queue = this.getQueue() as Queue<any>;
+    const job = await queue.add(JOB_DEADLINE_EXTENSION, jobData, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 3000 },
+    });
+
+    console.log(`📨 [NotificationQueue] Enqueued deadline extension job '${job.id}' for req ${data.requirementId} (Round ${data.selectionRound})`);
+    return { jobId: job.id || jobId };
+  }
+
   // ─── Processor Operations ───────────────────────────────────────────────────
 
   /**
@@ -340,29 +487,35 @@ export class NotificationQueueService {
    * Processes a Worker Selection completion job:
    * 1. Reads persisted WorkRequirement and validates current selection round.
    * 2. Notifies newly selected workers with assignment confirmation.
-   * 3. Notifies responsible Event Manager with selection summary.
+   * 3. Notifies responsible Event Manager with selection summary or unfilled staffing alert.
    */
   public async processSelectionCompletion(
     data: SelectionCompletionJobData
-  ): Promise<{ selectedWorkerCount: number; managerNotified: boolean }> {
+  ): Promise<{ selectedWorkerCount: number; managerNotified: boolean; isUnfilledAlert: boolean }> {
     const { requirementId, selectionRound } = data;
     console.log(`🔍 [NotificationProcessor] Processing selection notifications for requirement ${requirementId} (Round ${selectionRound})...`);
 
     if (!mongoose.Types.ObjectId.isValid(requirementId)) {
       console.warn(`⚠️ [NotificationProcessor] Invalid requirement ID format: ${requirementId}`);
-      return { selectedWorkerCount: 0, managerNotified: false };
+      return { selectedWorkerCount: 0, managerNotified: false, isUnfilledAlert: false };
     }
 
     const req = await WorkRequirement.findById(requirementId).populate('eventId');
     if (!req) {
       console.warn(`⚠️ [NotificationProcessor] Requirement ${requirementId} not found, skipping.`);
-      return { selectedWorkerCount: 0, managerNotified: false };
+      return { selectedWorkerCount: 0, managerNotified: false, isUnfilledAlert: false };
+    }
+
+    // Skip if requirement is cancelled or in draft
+    if (req.status === 'cancelled' || req.status === 'draft') {
+      console.log(`ℹ️ [NotificationProcessor] Requirement ${requirementId} is in '${req.status}' status, skipping selection notifications.`);
+      return { selectedWorkerCount: 0, managerNotified: false, isUnfilledAlert: false };
     }
 
     // Guard against stale jobs from an earlier round or mismatched round
     if (req.selectionRound !== selectionRound) {
       console.log(`ℹ️ [NotificationProcessor] Stale or mismatched selection notification job: current round ${req.selectionRound} !== job round ${selectionRound}.`);
-      return { selectedWorkerCount: 0, managerNotified: false };
+      return { selectedWorkerCount: 0, managerNotified: false, isUnfilledAlert: false };
     }
 
     const event = req.eventId as any;
@@ -402,6 +555,7 @@ export class NotificationQueueService {
 
     // Notify responsible Event Manager
     let managerNotified = false;
+    let isUnfilledAlert = false;
     if (event && event.eventManagerId) {
       const managerId = event.eventManagerId.toString();
       const newlyAssigned = targetWorkerIds.length;
@@ -409,21 +563,32 @@ export class NotificationQueueService {
       const remaining = Math.max(0, req.requiredCount - totalAssigned);
 
       let summaryMsg = '';
-      if (req.status === 'filled') {
-        summaryMsg = `Worker selection completed for ${req.workerType} on ${eventTitle}. All ${req.requiredCount} position(s) have been filled.`;
+      let notifTitle = 'Worker selection complete';
+      let notifType = 'selection_summary';
+      let dedupKey = `sel_summary_${requirementId}_round${selectionRound}_${managerId}`;
+
+      if (remaining > 0 && req.status !== 'filled') {
+        isUnfilledAlert = true;
+        notifTitle = 'Staffing Requirement Still Unfilled';
+        summaryMsg = `Staffing requirement for ${req.workerType} on ${eventTitle} remains unfilled. Required: ${req.requiredCount}, Assigned: ${totalAssigned}, Remaining: ${remaining}. Please review candidates or extend the deadline.`;
+        notifType = 'staffing_unfilled';
+        dedupKey = `staffing_unfilled_${requirementId}_round${selectionRound}_${managerId}`;
       } else {
-        summaryMsg = `Worker selection completed for ${req.workerType} on ${eventTitle}. ${newlyAssigned} assigned, ${remaining} position(s) remain unfilled.`;
+        summaryMsg = `Worker selection completed for ${req.workerType} on ${eventTitle}. All ${req.requiredCount} position(s) have been filled.`;
+        notifTitle = 'Worker selection complete';
+        notifType = 'selection_summary';
+        dedupKey = `sel_summary_${requirementId}_round${selectionRound}_${managerId}`;
       }
 
       const managerNotification = await notificationService.createNotification({
         recipientId: managerId,
-        type: 'selection_summary',
-        title: 'Worker selection complete',
+        type: notifType,
+        title: notifTitle,
         message: summaryMsg,
         resourceType: 'work_requirement',
         resourceId: requirementId,
         destinationRoute: `/manager/events/${event._id.toString()}`,
-        deduplicationKey: `sel_summary_${requirementId}_round${selectionRound}_${managerId}`,
+        deduplicationKey: dedupKey,
         metadata: {
           selectionRound,
           workerType: req.workerType,
@@ -431,6 +596,7 @@ export class NotificationQueueService {
           totalAssigned,
           remaining,
           status: req.status,
+          isUnfilledAlert,
         },
       });
 
@@ -438,10 +604,360 @@ export class NotificationQueueService {
     }
 
     console.log(
-      `✅ [NotificationProcessor] Selection notifications dispatched for req ${requirementId}: ${selectedWorkerCount} worker(s) notified, manager notified: ${managerNotified}.`
+      `✅ [NotificationProcessor] Selection notifications dispatched for req ${requirementId}: ${selectedWorkerCount} worker(s) notified, manager notified: ${managerNotified} (Unfilled alert: ${isUnfilledAlert}).`
     );
 
-    return { selectedWorkerCount, managerNotified };
+    return { selectedWorkerCount, managerNotified, isUnfilledAlert };
+  }
+
+  /**
+   * Processes a Work Requirement cancellation notification job (Event A):
+   * 1. Revalidates persisted WorkRequirement and verifies 'cancelled' status.
+   * 2. Notifies assigned workers with assignment cancellation message.
+   * 3. Notifies interested workers with opportunity cancellation message.
+   * 4. Deduplicates recipient groups by Worker ID.
+   */
+  public async processRequirementCancellation(
+    data: RequirementCancellationJobData
+  ): Promise<{ notifiedAssignedCount: number; notifiedInterestedCount: number; totalNotified: number }> {
+    const { requirementId } = data;
+    console.log(`🔍 [NotificationProcessor] Processing cancellation job for requirement ${requirementId}...`);
+
+    if (!mongoose.Types.ObjectId.isValid(requirementId)) {
+      console.warn(`⚠️ [NotificationProcessor] Invalid requirement ID format: ${requirementId}`);
+      return { notifiedAssignedCount: 0, notifiedInterestedCount: 0, totalNotified: 0 };
+    }
+
+    const req = await WorkRequirement.findById(requirementId).populate('eventId');
+    if (!req) {
+      console.warn(`⚠️ [NotificationProcessor] Requirement ${requirementId} not found, skipping.`);
+      return { notifiedAssignedCount: 0, notifiedInterestedCount: 0, totalNotified: 0 };
+    }
+
+    // Safety revalidation: only process if requirement is genuinely cancelled
+    if (req.status !== 'cancelled') {
+      console.log(`ℹ️ [NotificationProcessor] Requirement ${requirementId} is not in 'cancelled' status (current: '${req.status}'), skipping cancellation notifications.`);
+      return { notifiedAssignedCount: 0, notifiedInterestedCount: 0, totalNotified: 0 };
+    }
+
+    const event = req.eventId as any;
+    const eventTitle = event?.title || 'an upcoming event';
+
+    // Group 1: Persisted assigned workers
+    const assignedWorkerIds = (req.assignedWorkers || [])
+      .map((a: any) => a.workerId?.toString())
+      .filter((id: string) => Boolean(id) && mongoose.Types.ObjectId.isValid(id));
+    const assignedSet = new Set(assignedWorkerIds);
+
+    // Group 2: Valid active interested workers
+    const responses = await workResponseRepository.findInterestedByRequirement(requirementId);
+    const interestedWorkerIds = responses
+      .filter((r) => r.responseStatus === 'interested')
+      .map((r) => r.workerId.toString())
+      .filter((id) => !assignedSet.has(id)); // Deduplicate against assigned group
+
+    const notificationItems: CreateNotificationInput[] = [];
+
+    // Assigned workers notification
+    for (const workerId of assignedWorkerIds) {
+      notificationItems.push({
+        recipientId: workerId,
+        type: 'requirement_cancelled',
+        title: 'Work Requirement Cancelled',
+        message: `Your confirmed assignment for ${req.workerType} on ${eventTitle} has been cancelled.`,
+        resourceType: 'work_requirement',
+        resourceId: requirementId,
+        destinationRoute: '/worker',
+        deduplicationKey: `req_cancel_${requirementId}_${workerId}`,
+        metadata: {
+          eventId: event?._id ? event._id.toString() : req.eventId.toString(),
+          workerType: req.workerType,
+          wasAssigned: true,
+        },
+      });
+    }
+
+    // Interested workers notification
+    for (const workerId of interestedWorkerIds) {
+      notificationItems.push({
+        recipientId: workerId,
+        type: 'requirement_cancelled',
+        title: 'Work Requirement Cancelled',
+        message: `The work requirement for ${req.workerType} on ${eventTitle} that you expressed interest in has been cancelled.`,
+        resourceType: 'work_requirement',
+        resourceId: requirementId,
+        destinationRoute: '/worker',
+        deduplicationKey: `req_cancel_${requirementId}_${workerId}`,
+        metadata: {
+          eventId: event?._id ? event._id.toString() : req.eventId.toString(),
+          workerType: req.workerType,
+          wasAssigned: false,
+        },
+      });
+    }
+
+    const saved = await notificationService.createNotificationsBatch(notificationItems, 50);
+    console.log(
+      `✅ [NotificationProcessor] Cancellation notifications complete for req ${requirementId}: ${saved.length} notification(s) dispatched (${assignedWorkerIds.length} assigned, ${interestedWorkerIds.length} interested).`
+    );
+
+    return {
+      notifiedAssignedCount: assignedWorkerIds.length,
+      notifiedInterestedCount: interestedWorkerIds.length,
+      totalNotified: saved.length,
+    };
+  }
+
+  /**
+   * Processes a Work Requirement operational update notification job (Event B):
+   * 1. Revalidates persisted WorkRequirement and staffing counts.
+   * 2. Evaluates Scenario A (fully filled), Scenario B (unfilled, open window), or Scenario C (unfilled, closed window).
+   * 3. Assembles concise diff notification and deduplicates recipients.
+   */
+  public async processRequirementUpdate(
+    data: RequirementUpdateJobData
+  ): Promise<{ scenario: 'A' | 'B' | 'C' | 'none'; notifiedCount: number }> {
+    const { requirementId, changedFields } = data;
+    console.log(`🔍 [NotificationProcessor] Processing update notifications for requirement ${requirementId}...`);
+
+    if (!mongoose.Types.ObjectId.isValid(requirementId)) {
+      console.warn(`⚠️ [NotificationProcessor] Invalid requirement ID format: ${requirementId}`);
+      return { scenario: 'none', notifiedCount: 0 };
+    }
+
+    const req = await WorkRequirement.findById(requirementId).populate('eventId');
+    if (!req) {
+      console.warn(`⚠️ [NotificationProcessor] Requirement ${requirementId} not found, skipping.`);
+      return { scenario: 'none', notifiedCount: 0 };
+    }
+
+    // Skip if requirement is draft or cancelled
+    if (req.status === 'draft' || req.status === 'cancelled') {
+      console.log(`ℹ️ [NotificationProcessor] Requirement ${requirementId} is in '${req.status}' status, skipping update notifications.`);
+      return { scenario: 'none', notifiedCount: 0 };
+    }
+
+    // Verify there are actual material changes
+    if (!changedFields || Object.keys(changedFields).length === 0) {
+      console.log(`ℹ️ [NotificationProcessor] No material changes provided for req ${requirementId}, skipping.`);
+      return { scenario: 'none', notifiedCount: 0 };
+    }
+
+    const event = req.eventId as any;
+    const eventTitle = event?.title || 'an upcoming event';
+
+    // Build human-readable description of changed operational fields
+    const changeSummaries: string[] = [];
+    if (changedFields.reportingTime) {
+      changeSummaries.push(`Reporting time: ${changedFields.reportingTime.old} -> ${changedFields.reportingTime.new}`);
+    }
+    if (changedFields.requiredCount) {
+      changeSummaries.push(`Required count: ${changedFields.requiredCount.old} -> ${changedFields.requiredCount.new}`);
+    }
+    if (changedFields.workerType) {
+      changeSummaries.push(`Role: ${changedFields.workerType.old} -> ${changedFields.workerType.new}`);
+    }
+    if (changedFields.maxDistanceKm) {
+      changeSummaries.push(`Max distance: ${changedFields.maxDistanceKm.old}km -> ${changedFields.maxDistanceKm.new}km`);
+    }
+    if (changedFields.description) {
+      changeSummaries.push('Work details updated');
+    }
+    const changesText = changeSummaries.length > 0 ? changeSummaries.join(', ') : 'operational details updated';
+
+    // 6.1 Determine staffing status after update
+    const assignedWorkers = req.assignedWorkers || [];
+    const assignedWorkerIds = assignedWorkers
+      .map((a: any) => a.workerId?.toString())
+      .filter((id: string) => Boolean(id) && mongoose.Types.ObjectId.isValid(id));
+    const assignedCount = assignedWorkerIds.length;
+    const requiredCount = req.requiredCount;
+    const isFullyFilled = assignedCount >= requiredCount;
+
+    // Check if interest window is open
+    const isInterestOpen =
+      req.status === 'open' &&
+      Boolean(req.interestDeadlineAt && req.interestDeadlineAt.getTime() > Date.now());
+
+    let scenario: 'A' | 'B' | 'C' = 'C';
+    let recipientIds: string[] = [];
+
+    if (isFullyFilled) {
+      // 6.2 Scenario A — Worker count fully filled: notify only selected/assigned workers
+      scenario = 'A';
+      recipientIds = [...assignedWorkerIds];
+    } else if (isInterestOpen) {
+      // 6.3 Scenario B — Worker count not filled and interest window is open:
+      // Notify assigned workers + valid interested workers + currently eligible workers
+      scenario = 'B';
+      const responses = await workResponseRepository.findInterestedByRequirement(requirementId);
+      const interestedWorkerIds = responses
+        .filter((r) => r.responseStatus === 'interested')
+        .map((r) => r.workerId.toString());
+
+      const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
+
+      const combined = new Set<string>([
+        ...assignedWorkerIds,
+        ...interestedWorkerIds,
+        ...eligibleWorkerIds,
+      ]);
+      recipientIds = Array.from(combined);
+    } else {
+      // 6.4 Scenario C — Worker count not filled but interest window is closed:
+      // Notify assigned workers + valid interested workers (do not notify newly eligible workers)
+      scenario = 'C';
+      const responses = await workResponseRepository.findInterestedByRequirement(requirementId);
+      const interestedWorkerIds = responses
+        .filter((r) => r.responseStatus === 'interested')
+        .map((r) => r.workerId.toString());
+
+      const combined = new Set<string>([
+        ...assignedWorkerIds,
+        ...interestedWorkerIds,
+      ]);
+      recipientIds = Array.from(combined);
+    }
+
+    if (recipientIds.length === 0) {
+      return { scenario, notifiedCount: 0 };
+    }
+
+    const updateStamp = data.enqueuedAt || new Date().toISOString();
+    const sortedFieldNames = Object.keys(changedFields).sort().join('_');
+
+    const notificationItems: CreateNotificationInput[] = recipientIds.map((workerId) => {
+      const isAssigned = assignedWorkerIds.includes(workerId);
+      const title = 'Work Requirement Updated';
+      const message = isAssigned
+        ? `Your assigned requirement for ${req.workerType} on ${eventTitle} has been updated: ${changesText}.`
+        : `Work requirement for ${req.workerType} on ${eventTitle} has been updated: ${changesText}.`;
+
+      return {
+        recipientId: workerId,
+        type: 'requirement_updated',
+        title,
+        message,
+        resourceType: 'work_requirement',
+        resourceId: requirementId,
+        destinationRoute: '/worker',
+        deduplicationKey: `req_upd_${requirementId}_${sortedFieldNames}_${updateStamp}_${workerId}`,
+        metadata: {
+          eventId: event?._id ? event._id.toString() : req.eventId.toString(),
+          workerType: req.workerType,
+          scenario,
+          changedFields,
+          isAssigned,
+        },
+      };
+    });
+
+    const saved = await notificationService.createNotificationsBatch(notificationItems, 50);
+    console.log(
+      `✅ [NotificationProcessor] Update notifications dispatched for req ${requirementId} (Scenario ${scenario}): ${saved.length}/${recipientIds.length} worker(s) notified.`
+    );
+
+    return { scenario, notifiedCount: saved.length };
+  }
+
+  /**
+   * Processes a Work Requirement deadline extension notification job (Event C):
+   * 1. Revalidates persisted WorkRequirement and selection round.
+   * 2. Notifies valid interested workers and other currently eligible workers.
+   * 3. Excludes already assigned workers (assignments preserved, not new candidates).
+   * 4. Deduplicates recipient groups by Worker ID.
+   */
+  public async processDeadlineExtension(
+    data: DeadlineExtensionJobData
+  ): Promise<{ notifiedCount: number; eligibleCount: number }> {
+    const { requirementId, selectionRound, newDeadline } = data;
+    console.log(`🔍 [NotificationProcessor] Processing deadline extension for req ${requirementId} (Round ${selectionRound})...`);
+
+    if (!mongoose.Types.ObjectId.isValid(requirementId)) {
+      console.warn(`⚠️ [NotificationProcessor] Invalid requirement ID format: ${requirementId}`);
+      return { notifiedCount: 0, eligibleCount: 0 };
+    }
+
+    const req = await WorkRequirement.findById(requirementId).populate('eventId');
+    if (!req) {
+      console.warn(`⚠️ [NotificationProcessor] Requirement ${requirementId} not found, skipping.`);
+      return { notifiedCount: 0, eligibleCount: 0 };
+    }
+
+    // Skip if requirement is cancelled or closed
+    if (req.status === 'cancelled' || req.status === 'closed') {
+      console.log(`ℹ️ [NotificationProcessor] Requirement ${requirementId} is in '${req.status}' status, skipping deadline extension notification.`);
+      return { notifiedCount: 0, eligibleCount: 0 };
+    }
+
+    // Stale round guard
+    if (req.selectionRound !== selectionRound) {
+      console.log(`ℹ️ [NotificationProcessor] Mismatched selection round for deadline extension: current round ${req.selectionRound} !== job round ${selectionRound}.`);
+      return { notifiedCount: 0, eligibleCount: 0 };
+    }
+
+    const event = req.eventId as any;
+    const eventTitle = event?.title || 'an upcoming event';
+
+    // Assigned workers are preserved and excluded from opportunity candidate notifications
+    const assignedIds = new Set(
+      (req.assignedWorkers || []).map((a: any) => a.workerId?.toString()).filter(Boolean)
+    );
+
+    // Group 2: Workers who have already expressed valid interest
+    const responses = await workResponseRepository.findInterestedByRequirement(requirementId);
+    const interestedWorkerIds = responses
+      .filter((r) => r.responseStatus === 'interested' || r.responseStatus === 'not_selected')
+      .map((r) => r.workerId.toString())
+      .filter((id) => !assignedIds.has(id));
+
+    // Group 3: Other workers who are currently eligible under existing Worker Opportunity service
+    const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
+    const unassignedEligibleIds = eligibleWorkerIds.filter((id) => !assignedIds.has(id));
+
+    // Combine Group 2 and Group 3 and deduplicate by Worker ID
+    const recipientIds = Array.from(new Set<string>([...interestedWorkerIds, ...unassignedEligibleIds]));
+
+    if (recipientIds.length === 0) {
+      console.log(`ℹ️ [NotificationProcessor] No interested or eligible workers found for extension on req ${requirementId}.`);
+      return { notifiedCount: 0, eligibleCount: 0 };
+    }
+
+    // Format deadline using standard conventions
+    const formattedDeadline = new Date(newDeadline).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const notificationItems: CreateNotificationInput[] = recipientIds.map((workerId) => ({
+      recipientId: workerId,
+      type: 'deadline_extended',
+      title: 'Work Requirement Deadline Extended',
+      message: `The interest deadline for ${req.workerType} on ${eventTitle} has been extended to ${formattedDeadline}.`,
+      resourceType: 'work_requirement',
+      resourceId: requirementId,
+      destinationRoute: '/worker',
+      deduplicationKey: `req_ext_${requirementId}_round${selectionRound}_${workerId}`,
+      metadata: {
+        eventId: event?._id ? event._id.toString() : req.eventId.toString(),
+        workerType: req.workerType,
+        selectionRound,
+        newDeadline,
+      },
+    }));
+
+    const saved = await notificationService.createNotificationsBatch(notificationItems, 50);
+    console.log(
+      `✅ [NotificationProcessor] Deadline extension notifications dispatched for req ${requirementId}: ${saved.length}/${recipientIds.length} worker(s) notified.`
+    );
+
+    return {
+      notifiedCount: saved.length,
+      eligibleCount: unassignedEligibleIds.length,
+    };
   }
 
   // ─── Startup Recovery & Enqueue Resilience ──────────────────────────────────
@@ -536,6 +1052,12 @@ export class NotificationQueueService {
           return this.processRequirementAnnouncements(job.data as RequirementAnnouncementJobData);
         } else if (job.name === JOB_SELECTION_COMPLETION) {
           return this.processSelectionCompletion(job.data as SelectionCompletionJobData);
+        } else if (job.name === JOB_REQUIREMENT_CANCELLATION) {
+          return this.processRequirementCancellation(job.data as RequirementCancellationJobData);
+        } else if (job.name === JOB_REQUIREMENT_UPDATE) {
+          return this.processRequirementUpdate(job.data as RequirementUpdateJobData);
+        } else if (job.name === JOB_DEADLINE_EXTENSION) {
+          return this.processDeadlineExtension(job.data as DeadlineExtensionJobData);
         } else {
           console.warn(`⚠️ [NotificationWorker] Unknown job name: ${job.name}`);
         }

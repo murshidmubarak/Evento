@@ -217,17 +217,15 @@ export class WorkRequirementService {
       }
     }
 
-    // Business rules logic: Cannot modify fields if recruitment has started (i.e. status is not 'draft')
-    const hasFieldEdits =
-      data.workerType !== undefined ||
-      data.requiredCount !== undefined ||
-      data.reportingTime !== undefined ||
-      data.description !== undefined ||
-      data.maxDistanceKm !== undefined ||
-      data.interestDeadlineAt !== undefined;
+    // Business rules logic: Cannot modify fields if requirement is cancelled or closed
+    if (requirement.status === 'cancelled' || requirement.status === 'closed') {
+      throw ApiError.badRequest(`Cannot update a work requirement in '${requirement.status}' status`);
+    }
 
-    if (hasFieldEdits && requirement.status !== 'draft') {
-      throw ApiError.badRequest('Cannot update a work requirement that is already open or in progress');
+    if (data.requiredCount !== undefined && data.requiredCount < (requirement.assignedWorkers?.length || 0)) {
+      throw ApiError.badRequest(
+        `Required count (${data.requiredCount}) cannot be less than currently assigned count (${requirement.assignedWorkers.length})`
+      );
     }
 
     // Protect against modifying eventId
@@ -267,9 +265,33 @@ export class WorkRequirementService {
       }
     }
 
+    // Detect material operational field changes to notify relevant participants
+    const changedFields: Record<string, { old: any; new: any }> = {};
+    if (allowedUpdates.workerType && allowedUpdates.workerType !== requirement.workerType) {
+      changedFields.workerType = { old: requirement.workerType, new: allowedUpdates.workerType };
+    }
+    if (allowedUpdates.requiredCount !== undefined && allowedUpdates.requiredCount !== requirement.requiredCount) {
+      changedFields.requiredCount = { old: requirement.requiredCount, new: allowedUpdates.requiredCount };
+    }
+    if (allowedUpdates.reportingTime && allowedUpdates.reportingTime !== requirement.reportingTime) {
+      changedFields.reportingTime = { old: requirement.reportingTime, new: allowedUpdates.reportingTime };
+    }
+    if (allowedUpdates.maxDistanceKm !== undefined && allowedUpdates.maxDistanceKm !== requirement.maxDistanceKm) {
+      changedFields.maxDistanceKm = { old: requirement.maxDistanceKm || 0, new: allowedUpdates.maxDistanceKm };
+    }
+
     const updated = await this.requirementRepository.updateById(reqId, allowedUpdates);
     if (!updated) {
       throw ApiError.notFound('Work requirement not found');
+    }
+
+    // If transitioned to 'cancelled', automatically dispatch cancellation notifications
+    if (data.status === 'cancelled') {
+      notificationQueueService.enqueueRequirementCancellation({
+        requirementId: updated._id.toString(),
+      }).catch((err) => {
+        console.error(`⚠️ [WorkRequirementService] Failed to dispatch cancellation notifications for req ${reqId}:`, err);
+      });
     }
 
     // If transitioned to 'open', automatically schedule deadline selection job
@@ -288,6 +310,16 @@ export class WorkRequirementService {
         publishedAt: updated.interestPublishedAt ? updated.interestPublishedAt.toISOString() : new Date().toISOString(),
       }).catch((err) => {
         console.error(`⚠️ [WorkRequirementService] Failed to dispatch opportunity announcements for req ${reqId}:`, err);
+      });
+    }
+
+    // Trigger update notifications when material fields change on an active requirement (not draft or cancelled)
+    if (requirement.status !== 'draft' && Object.keys(changedFields).length > 0) {
+      notificationQueueService.enqueueRequirementUpdate({
+        requirementId: updated._id.toString(),
+        changedFields,
+      }).catch((err) => {
+        console.error(`⚠️ [WorkRequirementService] Failed to dispatch update notifications for req ${reqId}:`, err);
       });
     }
 
@@ -428,6 +460,16 @@ export class WorkRequirementService {
 
     // Schedule BullMQ job for the new deadline
     await workerSelectionQueueService.scheduleSelectionJob(reqId, newDeadline, newRound);
+
+    // Enqueue deadline extension notification
+    notificationQueueService.enqueueDeadlineExtension({
+      requirementId: reqId,
+      selectionRound: newRound,
+      newDeadline: newDeadline.toISOString(),
+      previousDeadline: previousDeadline.toISOString(),
+    }).catch((err) => {
+      console.error(`⚠️ [WorkRequirementService] Failed to dispatch deadline extension notifications for req ${reqId}:`, err);
+    });
 
     return updated;
   }

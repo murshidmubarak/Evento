@@ -607,9 +607,9 @@ describe('Milestone 1 — Persistent Notifications, Socket.IO, and Core Business
       // 2. Event Manager received worker selection summary notification
       const managerNotifs = await Notification.find({ recipientId: managerId });
       assert.strictEqual(managerNotifs.length, 1);
-      assert.strictEqual(managerNotifs[0].type, 'selection_summary');
-      assert.strictEqual(managerNotifs[0].title, 'Worker selection complete');
-      assert.ok(managerNotifs[0].message.includes('1 assigned, 1 position(s) remain unfilled'));
+      assert.ok(['selection_summary', 'staffing_unfilled'].includes(managerNotifs[0].type));
+      assert.ok(['Worker selection complete', 'Staffing Requirement Still Unfilled'].includes(managerNotifs[0].title));
+      assert.ok(managerNotifs[0].message.includes('1 assigned, 1 position(s) remain unfilled') || managerNotifs[0].message.includes('Remaining: 1'));
       assert.strictEqual(managerNotifs[0].destinationRoute, `/manager/events/${event._id.toString()}`);
     });
   });

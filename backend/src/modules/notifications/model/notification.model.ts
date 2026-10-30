@@ -6,7 +6,11 @@ export type NotificationType =
   | 'selection_summary'
   | 'payment_received'
   | 'event_updated'
-  | 'general';
+  | 'general'
+  | 'requirement_cancelled'
+  | 'requirement_updated'
+  | 'deadline_extended'
+  | 'staffing_unfilled';
 
 export interface INotification extends Document {
   _id: mongoose.Types.ObjectId;

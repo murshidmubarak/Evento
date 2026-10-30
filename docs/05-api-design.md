@@ -3165,4 +3165,141 @@ Marks all unread notifications belonging to the authenticated user as read.
 
 
 
-
+
+
+
+---
+
+## 10. Notification Milestone 2 — Advanced Work Requirement Lifecycle & Staffing Notification Events
+
+### 10.1 Notification Types
+The notification type enum has been extended with four dedicated lifecycle and staffing event types:
+- `requirement_cancelled`: Dispatched when a work requirement is cancelled.
+- `requirement_updated`: Dispatched when material operational changes occur on an active requirement.
+- `deadline_extended`: Dispatched when an interest deadline is extended for subsequent recruitment rounds.
+- `staffing_unfilled`: Dispatched to the Event Manager when worker selection finishes with remaining vacancies.
+
+### 10.2 Event Payloads & Schemas
+
+#### Event A: Work Requirement Cancellation (`requirement_cancelled`)
+- **Queue Job**: `requirement-cancellation`
+- **Job Payload**:
+  ```json
+  {
+    "requirementId": "65b2...f1",
+    "cancelledAt": "2026-10-30T10:00:00.000Z",
+    "enqueuedAt": "2026-10-30T10:00:00.120Z"
+  }
+  ```
+- **Dispatched Notification Item**:
+  ```json
+  {
+    "recipientId": "65b1...a1",
+    "type": "requirement_cancelled",
+    "title": "Work Requirement Cancelled",
+    "message": "Your confirmed assignment for Chef on Grand Royal Reception 2026 has been cancelled.",
+    "resourceType": "work_requirement",
+    "resourceId": "65b2...f1",
+    "destinationRoute": "/worker",
+    "deduplicationKey": "req_cancel_65b2...f1_65b1...a1",
+    "metadata": {
+      "eventId": "65b0...01",
+      "workerType": "Chef",
+      "isAssigned": true,
+      "cancelledAt": "2026-10-30T10:00:00.000Z"
+    }
+  }
+  ```
+
+#### Event B: Work Requirement Update (`requirement_updated`)
+- **Queue Job**: `requirement-update`
+- **Job Payload**:
+  ```json
+  {
+    "requirementId": "65b2...f1",
+    "changedFields": {
+      "reportingTime": { "old": "08:00", "new": "09:30" },
+      "requiredCount": { "old": 2, "new": 3 }
+    },
+    "enqueuedAt": "2026-10-30T10:15:00.000Z"
+  }
+  ```
+- **Dispatched Notification Item**:
+  ```json
+  {
+    "recipientId": "65b1...a2",
+    "type": "requirement_updated",
+    "title": "Work Requirement Updated",
+    "message": "Work requirement for Chef on Grand Royal Reception 2026 has been updated: Reporting time: 08:00 -> 09:30, Required count: 2 -> 3.",
+    "resourceType": "work_requirement",
+    "resourceId": "65b2...f1",
+    "destinationRoute": "/worker",
+    "deduplicationKey": "req_upd_65b2...f1_reportingTime_requiredCount_2026-10-30T10:15:00.000Z_65b1...a2",
+    "metadata": {
+      "eventId": "65b0...01",
+      "workerType": "Chef",
+      "scenario": "B",
+      "changedFields": {
+        "reportingTime": { "old": "08:00", "new": "09:30" },
+        "requiredCount": { "old": 2, "new": 3 }
+      },
+      "isAssigned": false
+    }
+  }
+  ```
+
+#### Event C: Deadline Extension (`deadline_extended`)
+- **Queue Job**: `deadline-extension`
+- **Job Payload**:
+  ```json
+  {
+    "requirementId": "65b2...f1",
+    "selectionRound": 2,
+    "newDeadline": "2026-11-05T18:00:00.000Z",
+    "enqueuedAt": "2026-10-30T10:30:00.000Z"
+  }
+  ```
+- **Dispatched Notification Item**:
+  ```json
+  {
+    "recipientId": "65b1...a3",
+    "type": "deadline_extended",
+    "title": "Work Requirement Deadline Extended",
+    "message": "The interest deadline for Chef on Grand Royal Reception 2026 has been extended to Nov 5, 2026, 06:00 PM.",
+    "resourceType": "work_requirement",
+    "resourceId": "65b2...f1",
+    "destinationRoute": "/worker",
+    "deduplicationKey": "req_ext_65b2...f1_round2_65b1...a3",
+    "metadata": {
+      "eventId": "65b0...01",
+      "workerType": "Chef",
+      "selectionRound": 2,
+      "newDeadline": "2026-11-05T18:00:00.000Z"
+    }
+  }
+  ```
+
+#### Event D: Unfilled Staffing Alert (`staffing_unfilled`)
+- **Queue Job**: `selection-completion` (evaluated when `remainingCount > 0 && req.status !== 'filled'`)
+- **Dispatched Notification Item**:
+  ```json
+  {
+    "recipientId": "65b0...m1",
+    "type": "staffing_unfilled",
+    "title": "Staffing Requirement Still Unfilled",
+    "message": "Staffing requirement for Chef on Grand Royal Reception 2026 remains unfilled. Required: 3, Assigned: 1, Remaining: 2. Please review candidates or extend the deadline.",
+    "resourceType": "work_requirement",
+    "resourceId": "65b2...f1",
+    "destinationRoute": "/manager/events/65b0...01",
+    "deduplicationKey": "staffing_unfilled_65b2...f1_round1_65b0...m1",
+    "metadata": {
+      "selectionRound": 1,
+      "workerType": "Chef",
+      "requiredCount": 3,
+      "totalAssigned": 1,
+      "remaining": 2,
+      "status": "open",
+      "isUnfilledAlert": true
+    }
+  }
+  ```

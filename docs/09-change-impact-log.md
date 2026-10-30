@@ -1074,3 +1074,60 @@ Integrated asynchronous notification processing as a third independent BullMQ wo
 - Safely asserted optional `resourceId` on Mongoose documents (`workerNotif.resourceId` and `managerNotif.resourceId`) by removing `.toString()` invocation that triggered `'workerNotif.resourceId' is possibly 'undefined'`.
 **Impact:**
 - Low impact. Isolated strictly to `backend/tests/notificationQueue.test.ts`. Production models, queue services, and schemas remain unchanged.
+
+
+---
+
+### [Notification Milestone 2 — Advanced Work Requirement Lifecycle & Staffing Notifications]
+**Date:** 2026-10-30
+**Impact Classification:** Medium (Extends existing BullMQ notification processing and Unified Worker architecture with four specialized Work Requirement lifecycle events: cancellations, material updates with conditional recipient selection, deadline extensions with location invariance, and unfilled staffing alerts to Event Managers; strictly preserves MongoDB source-of-truth authority, persistent deduplication, and zero-downtime backward compatibility)
+
+**Description:**
+Implemented Notification Milestone 2 on top of the established EventOps ERP notification infrastructure. Added conditional recipient selection algorithms matching workers and managers to Work Requirements based on their actual database-persisted relationship:
+1. **Event A — Cancellation Notifications**: Notifies assigned workers (`WorkRequirement.assignedWorkers`) and active interested workers (`WorkResponse` with `responseStatus: 'interested'`), deduplicated by Worker ID. Differentiates messaging between confirmed assignment cancellation and opportunity cancellation.
+2. **Event B — Work Requirement Changes**: Compares old and new persisted values for material operational fields (`workerType`, `requiredCount`, `reportingTime`, `maxDistanceKm`). Excludes irrelevant metadata changes. Evaluates staffing count and interest window state to select recipients conditionally:
+   - *Scenario A (Fully Filled)*: Notifies ONLY assigned workers.
+   - *Scenario B (Unfilled & Interest Window Open)*: Notifies assigned + active interested + currently eligible workers (from `workerOpportunityService.findEligibleWorkersForOpportunity`), deduplicated.
+   - *Scenario C (Unfilled & Interest Window Closed)*: Notifies assigned + active interested workers only.
+3. **Event C — Deadline Extensions**: Triggered upon persisted deadline extension (`extendDeadline`). Notifies active interested workers and currently eligible candidates, deduplicated. Excludes assigned workers (their confirmed work is strictly preserved). Preserves the requirement's original publication timestamp (`interestPublishedAt`) and historical worker location versions.
+4. **Event D — Unfilled Staffing Alerts**: Triggered upon worker selection completion when vacancies remain (`remainingCount = max(0, requiredCount - assignedCount) > 0`). Sends alert titled `Staffing Requirement Still Unfilled` exclusively to the responsible Event Manager. When all positions are filled, suppresses the unfilled alert and delivers the standard positive completion summary.
+5. **Frontend Notification Bell**: Updated `NotificationBell.tsx` with dedicated Lucide-react iconography: `XCircle` for cancellations, `RefreshCw` for updates, `Clock` for deadline extensions, and `AlertTriangle` for unfilled staffing alerts.
+
+**Components & Files Changed:**
+- `backend/src/modules/notifications/model/notification.model.ts`:
+  - Extended `NotificationType` with `'requirement_cancelled' | 'requirement_updated' | 'deadline_extended' | 'staffing_unfilled'`.
+- `backend/src/modules/work-requirements/repository/work-response.repository.ts`:
+  - Exported singleton instance `export const workResponseRepository = new WorkResponseRepository();` for centralized access.
+- `backend/src/modules/notifications/queues/notification.queue.ts`:
+  - Added BullMQ job constants: `JOB_REQUIREMENT_CANCELLATION`, `JOB_REQUIREMENT_UPDATE`, `JOB_DEADLINE_EXTENSION`.
+  - Added typed job interfaces: `RequirementCancellationJobData`, `RequirementUpdateJobData`, `DeadlineExtensionJobData`.
+  - Added queue producer methods: `enqueueRequirementCancellation`, `enqueueRequirementUpdate`, `enqueueDeadlineExtension`.
+  - Implemented background processor methods: `processRequirementCancellation`, `processRequirementUpdate`, `processDeadlineExtension`.
+  - Updated `processSelectionCompletion` to generate `staffing_unfilled` alerts when vacancies remain and `selection_summary` when fully filled.
+  - Registered job processors in `startWorker()` and in-memory mock handler.
+- `backend/src/modules/work-requirements/service/work-requirement.service.ts`:
+  - Removed outdated restriction blocking updates on non-draft requirements; added status guards for closed/cancelled requirements.
+  - Added operational field change detection (`changedFields`).
+  - Integrated `enqueueRequirementCancellation` on transition to `cancelled`.
+  - Integrated `enqueueRequirementUpdate` on active non-draft requirement changes.
+  - Integrated `enqueueDeadlineExtension` inside `extendDeadline`.
+- `frontend/src/components/common/NotificationBell.tsx`:
+  - Added icon and styling mappings for `requirement_cancelled`, `requirement_updated`, `deadline_extended`, `staffing_unfilled`.
+- `backend/tests/notificationMilestone2.test.ts`:
+  - Created 19 comprehensive automated test cases covering Event A (1-4), Event B (1-5), Event C (1-3), Event D (1-4), and End-to-End service integration (1-3).
+- `docs/04-status-and-business-rules.md`:
+  - Documented Section 8: Notification Milestone 2 rules, candidate groups, scenarios, and constraints.
+- `docs/05-api-design.md`:
+  - Documented Section 10: Event schemas, queue job payloads, and notification delivery contracts.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+- Frontend Build (`npm run build`): compiled cleanly in 4.08s, exit code 0.
+- Milestone 2 Test Suite (`tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Existing Notifications Test Suite (`tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Notification Queue Test Suite (`tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Work Requirements Test Suite (`tests/workRequirements.test.ts`): 32/32 passed (100%), exit code 0.
+- Worker Selection Test Suite (`tests/workerSelection.test.ts`): 17/17 passed (100%), exit code 0.
+- Unified Worker Test Suite (`tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.

@@ -77,3 +77,5 @@ export class WorkResponseRepository {
     );
   }
 }
+
+export const workResponseRepository = new WorkResponseRepository();

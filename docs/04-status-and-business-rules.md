@@ -1474,4 +1474,83 @@ Clients can pay for EventOps quotations either directly via the in-app Razorpay 
 - **Pre-Existing Data Fallback (§16)**:
   - For legacy requirements created before immutable location history without `interestPublishedAt`, the system safely falls back to the worker's declared profile location to ensure zero regression.
 - **Location Privacy & Access Control**:
-  - Raw coordinate history is restricted to internal calculation services and authorized audit roles; precise coordinates are never broadcast to other workers or clients.
+  - Raw coordinate history is restricted to internal calculation services and authorized audit roles; precise coordinates are never broadcast to other workers or clients.
+
+
+---
+
+## 8. Notification Milestone 2 — Advanced Work Requirement Lifecycle & Staffing Rules
+
+### 8.1 Recipient Group Selection & Authority
+Notifications for Work Requirement lifecycle transitions strictly query persisted database state rather than relying on frontend counts or optimistic assumptions. Three canonical candidate pools are evaluated:
+1. **Recipient Group 1 (Selected/Assigned Workers)**:
+   - Retrieved directly from `WorkRequirement.assignedWorkers`.
+   - Represents workers with confirmed, active assignments for the requirement.
+2. **Recipient Group 2 (Interested Workers)**:
+   - Retrieved from persisted `WorkResponse` documents where `requirementId` matches.
+   - For cancellations: filtered to active interest (`responseStatus === 'interested'`). Withdrawn (`not_interested`) workers are strictly excluded.
+   - For extensions: filtered to active or unselected expressions (`responseStatus === 'interested' || responseStatus === 'not_selected'`).
+   - Workers already assigned are deduplicated or treated in their assigned capacity.
+3. **Recipient Group 3 (Currently Eligible Workers)**:
+   - Evaluated dynamically via `workerOpportunityService.findEligibleWorkersForOpportunity(requirementId)`.
+   - Enforces all 8 canonical eligibility constraints: active worker account, exact matching `workerType`, valid profile coordinates (Mandatory Location Gate), confirmed event with venue coordinates, no same-calendar-day conflict, valid historical location version at `interestPublishedAt` cutoff, and Haversine distance within `maxDistanceKm`.
+   - Does not broadcast to all workers; excludes workers already assigned to the requirement.
+4. **Recipient Deduplication**:
+   - For each logical business event, recipient groups are merged into a unique set by stable Worker ObjectId (`Set<string>`).
+   - Each recipient receives exactly one notification per logical event.
+
+### 8.2 Event A — Work Requirement Cancellation Notifications
+- **Trigger**: Generated exclusively after a cancellation has successfully persisted in MongoDB (`req.status === 'cancelled'`). Cancelled requirements cannot generate false cancellation messages before the state transition.
+- **Recipients**: Assigned Workers (Group 1) + Active Interested Workers (Group 2), deduplicated by Worker ID. Unrelated eligible workers who never expressed interest are NOT notified.
+- **Content Differentiation**:
+  - Assigned Workers: `Your confirmed assignment for ${workerType} on ${eventTitle} has been cancelled.`
+  - Interested Workers: `The work requirement for ${workerType} on ${eventTitle} that you expressed interest in has been cancelled.`
+  - Safe destination route: `/worker`.
+- **Idempotency**: Stable MongoDB deduplication key: `req_cancel_${reqId}_${workerId}`.
+
+### 8.3 Event B — Work Requirement Changes (Update Notifications)
+- **Material Operational Fields**: Update notifications are triggered exclusively for material operational changes that affect worker scheduling or eligibility:
+  - `workerType`
+  - `requiredCount`
+  - `reportingTime`
+  - `maxDistanceKm`
+  - Irrelevant metadata changes (such as general notes or internal descriptions) or updates where values did not materially change do NOT generate notifications.
+- **Staffing & Window State Scenarios**:
+  - `assignedCount` = valid unique assigned workers in `req.assignedWorkers`.
+  - `isFullyFilled` = `assignedCount >= requiredCount`.
+  - `isInterestOpen` = `req.status === 'open' && interestDeadlineAt > now`.
+- **Scenario A (Fully Filled: `assignedCount >= requiredCount`)**:
+  - Staffing requirement is fulfilled.
+  - Recipients: ONLY selected/assigned workers (`req.assignedWorkers`).
+  - Interested and eligible workers are NOT notified.
+- **Scenario B (Unfilled & Interest Window Open: `assignedCount < requiredCount && isInterestOpen`)**:
+  - Vacancies remain and new interest can still be accepted.
+  - Recipients: Assigned Workers + Active Interested Workers + Currently Eligible Workers, merged and deduplicated by Worker ID.
+- **Scenario C (Unfilled & Interest Window Closed: `assignedCount < requiredCount && !isInterestOpen`)**:
+  - Recruitment window is expired or closed.
+  - Recipients: Assigned Workers + Active Interested Workers only.
+  - Does NOT announce to newly eligible workers because the window is closed. Does not reopen recruitment automatically.
+- **Content & Conciseness**: Differentiates assigned vs interested messaging. Combines multiple changed fields into a single concise notification per recipient.
+- **Idempotency**: Stable deduplication key: `req_upd_${reqId}_${sortedFieldNames}_${timestamp}_${workerId}`.
+
+### 8.4 Event C — Deadline Extension Notifications
+- **Trigger**: Generated exclusively after a deadline extension has persisted in MongoDB via `extendDeadline`.
+- **Recipients**: Valid Interested Workers (Group 2: `interested` / `not_selected`) + Currently Eligible Workers (Group 3), deduplicated by Worker ID.
+- **Assignment Preservation**: Workers assigned in previous rounds are strictly preserved in `req.assignedWorkers` and are excluded from candidate extension notifications (their work is confirmed).
+- **Location History Invariance**: Extending a deadline strictly preserves the original `interestPublishedAt` publication timestamp. Workers who moved nearby after publication remain evaluated against their location at original publication cutoff.
+- **Idempotency**: Stable deduplication key: `req_ext_${reqId}_round${selectionRound}_${workerId}`. Safe destination route: `/worker`.
+
+### 8.5 Event D — Unfilled Staffing Notifications
+- **Trigger**: Generated upon Worker Selection Engine evaluation completion when vacancies remain (`remainingCount = max(0, requiredCount - assignedCount) > 0`).
+- **Recipient**: Responsible Event Manager assigned to the parent event (`event.eventManagerId`). Ownership is verified against the parent Event record before dispatch.
+- **Unfilled Alert**:
+  - Title: `Staffing Requirement Still Unfilled`
+  - Message: Explicitly describes the staffing deficit: `Staffing requirement for ${workerType} on ${eventTitle} remains unfilled. Required: ${requiredCount}, Assigned: ${totalAssigned}, Remaining: ${remaining}. Please review candidates or extend the deadline.`
+  - Safe destination route: `/manager/events/${eventId}`.
+  - Type: `staffing_unfilled`.
+  - Deduplication key: `staffing_unfilled_${reqId}_round${selectionRound}_${managerId}`.
+- **Positive Outcome (Fully Filled: `remainingCount === 0 || req.status === 'filled'`)**:
+  - Unfilled alert is suppressed.
+  - Manager receives standard completion summary: `Worker selection completed for ${workerType} on ${eventTitle}. All ${requiredCount} position(s) have been filled.`
+  - Type: `selection_summary`.
+- **Subsequent Selection Rounds**: Distinct rounds (`selectionRound`) produce distinct outcome notifications; prior round alerts do not block subsequent round notifications. Stale round jobs are rejected.
