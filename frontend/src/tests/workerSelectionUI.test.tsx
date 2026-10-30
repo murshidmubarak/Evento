@@ -105,7 +105,7 @@ describe('Worker Selection Engine Frontend UI Tests', () => {
       const mockOnExtended = vi.fn();
       const updatedReq = {
         ...mockRequirement,
-        interestDeadlineAt: '2026-10-28T18:00:00.000Z',
+        interestDeadlineAt: new Date(Date.now() + 86400000 * 3).toISOString(),
         selectionRound: 2,
       };
       vi.mocked(workRequirementsApi.extendDeadline).mockResolvedValueOnce(updatedReq);
@@ -125,13 +125,14 @@ describe('Worker Selection Engine Frontend UI Tests', () => {
       expect(input).toBeDefined();
       expect(form).toBeDefined();
 
-      fireEvent.change(input, { target: { value: '2026-10-28T18:00' } });
+      const futureVal = new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16);
+      fireEvent.change(input, { target: { value: futureVal } });
       fireEvent.submit(form);
 
       await waitFor(() => {
         expect(workRequirementsApi.extendDeadline).toHaveBeenCalledWith(
           'req_101',
-          new Date('2026-10-28T18:00').toISOString()
+          new Date(futureVal).toISOString()
         );
         expect(mockOnExtended).toHaveBeenCalledWith(updatedReq);
       });

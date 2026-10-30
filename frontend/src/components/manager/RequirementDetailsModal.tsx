@@ -3,6 +3,7 @@ import {
   type WorkRequirement,
   type WorkRequirementStatus,
 } from '../../features/work-requirements/workRequirementsApi';
+
 export const formatDisplayTime = (timeStr?: string): string => {
   if (!timeStr) return 'Not specified';
   const trimmed = timeStr.trim();
@@ -16,9 +17,9 @@ export const formatDisplayTime = (timeStr?: string): string => {
   }
   return trimmed;
 };
+
 import {
   X,
-  Briefcase,
   Users,
   Clock,
   MapPin,
@@ -30,6 +31,7 @@ import {
   Sparkles,
   ChevronRight,
   UserCheck,
+  Phone,
 } from 'lucide-react';
 
 interface RequirementDetailsModalProps {
@@ -64,7 +66,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
   const isOpenStatus = requirement.status === 'open';
   const isCancelled = requirement.status === 'cancelled';
 
-  const assignedCount = requirement.assignedWorkers?.length || 0;
+  const assignedCount = requirement.assignedWorkers?.length || requirement.filled || 0;
   const isFilled = assignedCount >= requirement.requiredCount;
   const progressPercent = Math.min(
     100,
@@ -79,28 +81,28 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
     switch (status) {
       case 'draft':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
             Draft (Not Announced)
           </span>
         );
       case 'open':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
             Recruitment Open
           </span>
         );
       case 'selection_in_progress':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
             Selection In Progress
           </span>
         );
       case 'filled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Fully Staffed
           </span>
@@ -130,43 +132,41 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/60 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="details-modal-title"
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-150"
+        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200/90 animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-5 border-b border-gray-100 bg-linear-to-r from-gray-50/80 via-white to-gray-50/50 flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 shadow-xs">
-              <Briefcase size={22} />
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 bg-linear-to-r from-emerald-50/30 via-white to-gray-50/40 flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 id="details-modal-title" className="text-base sm:text-lg font-extrabold text-gray-900 tracking-tight">
+                {requirement.workerType}
+              </h3>
+              {getStatusBadge(requirement.status)}
+              {requirement.selectionRound && requirement.selectionRound > 1 && (
+                <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-md text-[10px] sm:text-[11px] font-bold border border-purple-200">
+                  Round {requirement.selectionRound}
+                </span>
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h3 className="text-lg font-bold text-gray-900">
-                  {requirement.workerType}
-                </h3>
-                {getStatusBadge(requirement.status)}
-                {requirement.selectionRound && requirement.selectionRound > 1 && (
-                  <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-md text-[11px] font-semibold border border-purple-200">
-                    Round {requirement.selectionRound}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
-                <span>Staffing Requirement Details</span>
-                <span>•</span>
-                <span className="font-medium text-gray-700">{eventTitle}</span>
-              </p>
-            </div>
+            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1.5 truncate">
+              <span>Staffing Requirement Details</span>
+              <span>•</span>
+              <span className="font-semibold text-gray-700 truncate">{eventTitle}</span>
+            </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1.5 sm:p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors shrink-0"
             title="Close modal"
             aria-label="Close modal"
           >
@@ -175,16 +175,16 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
         </div>
 
         {/* Scrollable Body */}
-        <div className="px-6 py-5 overflow-y-auto space-y-6">
-          {/* Key Metrics Grid: Staffing, Reporting Time, Max Distance, Deadline */}
+        <div className="px-4 sm:px-6 py-4 sm:py-5 overflow-y-auto space-y-4 sm:space-y-5">
+          {/* Key Metrics Grid: Reporting Time, Max Distance, Staffing, Deadline */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {/* Reporting Time Card (Highlight requested by user) */}
-            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/40 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
-              <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                <Clock size={15} className="text-emerald-600" />
+            {/* Reporting Time Card */}
+            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/50 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
+              <div className="flex items-center gap-2 text-gray-600 text-xs font-bold uppercase tracking-wider">
+                <Clock size={15} className="text-emerald-700" />
                 <span>Reporting Time</span>
               </div>
-              <div className="mt-2 text-base font-bold text-gray-900">
+              <div className="mt-2 text-base font-black text-gray-900">
                 {formatDisplayTime(requirement.reportingTime)}
               </div>
               <p className="text-[11px] text-gray-500 mt-0.5">
@@ -192,13 +192,13 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
               </p>
             </div>
 
-            {/* Max Permitted Distance Card (Highlight requested by user) */}
-            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/40 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
-              <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                <MapPin size={15} className="text-blue-600" />
+            {/* Max Permitted Distance Card */}
+            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/50 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
+              <div className="flex items-center gap-2 text-gray-600 text-xs font-bold uppercase tracking-wider">
+                <MapPin size={15} className="text-blue-700" />
                 <span>Maximum Distance</span>
               </div>
-              <div className="mt-2 text-base font-bold text-gray-900">
+              <div className="mt-2 text-base font-black text-gray-900">
                 {requirement.maxDistanceKm ? `${requirement.maxDistanceKm} km` : 'No radius limit'}
               </div>
               <p className="text-[11px] text-gray-500 mt-0.5">
@@ -209,26 +209,26 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
             </div>
 
             {/* Staffing Demand Card */}
-            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/40 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
-              <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
+            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/50 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
+              <div className="flex items-center justify-between text-gray-600 text-xs font-bold uppercase tracking-wider">
                 <div className="flex items-center gap-2">
-                  <Users size={15} className="text-purple-600" />
+                  <Users size={15} className="text-purple-700" />
                   <span>Headcount Progress</span>
                 </div>
-                <span className="text-gray-900 font-bold">{progressPercent}%</span>
+                <span className="text-gray-900 font-extrabold">{progressPercent}%</span>
               </div>
               <div className="mt-2 flex items-baseline gap-1.5">
-                <span className={`text-xl font-extrabold ${isFilled ? 'text-emerald-600' : 'text-gray-900'}`}>
+                <span className={`text-xl font-black ${isFilled ? 'text-emerald-700' : 'text-gray-900'}`}>
                   {assignedCount}
                 </span>
-                <span className="text-gray-400 font-semibold">/</span>
+                <span className="text-gray-400 font-bold">/</span>
                 <span className="text-base font-bold text-gray-700">
                   {requirement.requiredCount}
                 </span>
                 <span className="text-xs text-gray-500 ml-1">workers assigned</span>
               </div>
               {/* Progress bar */}
-              <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-2 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${
                     isFilled ? 'bg-emerald-500' : 'bg-purple-600'
@@ -239,9 +239,9 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
             </div>
 
             {/* Interest Deadline Card */}
-            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/40 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
-              <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                <CalendarClock size={15} className="text-amber-600" />
+            <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/50 hover:bg-white hover:border-gray-300 transition-colors shadow-2xs">
+              <div className="flex items-center gap-2 text-gray-600 text-xs font-bold uppercase tracking-wider">
+                <CalendarClock size={15} className="text-amber-700" />
                 <span>Interest Window Deadline</span>
               </div>
               <div className="mt-2 text-sm font-bold text-gray-900">
@@ -260,11 +260,11 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
               <div className="mt-1">
                 {requirement.interestDeadlineAt ? (
                   isExpired ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-semibold">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-amber-800 font-bold">
                       <Clock size={11} /> Application window closed / expired
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-emerald-800 font-bold">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       Window currently accepting interest
                     </span>
@@ -281,11 +281,11 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
           {/* Work Description / Instructions */}
           <div className="p-4 rounded-xl border border-gray-200/80 bg-white shadow-2xs">
             <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-600" />
+              <Sparkles size={14} className="text-emerald-700" />
               Role Description & Special Instructions
             </h4>
             {requirement.description ? (
-              <p className="text-xs text-gray-700 mt-2 leading-relaxed bg-gray-50/60 p-3 rounded-lg border border-gray-100">
+              <p className="text-xs text-gray-700 mt-2 leading-relaxed bg-gray-50/80 p-3.5 rounded-xl border border-gray-100 font-medium">
                 {requirement.description}
               </p>
             ) : (
@@ -297,10 +297,10 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
 
           {/* Assigned Workers Quick List (if any) */}
           {requirement.assignedWorkers && requirement.assignedWorkers.length > 0 && (
-            <div className="p-4 rounded-xl border border-gray-200/80 bg-white shadow-2xs">
+            <div className="p-4 rounded-xl border border-gray-200/80 bg-white shadow-2xs space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
-                  <UserCheck size={15} className="text-emerald-600" />
+                  <UserCheck size={15} className="text-emerald-700" />
                   Assigned Personnel ({requirement.assignedWorkers.length})
                 </h4>
                 {onViewResults && (
@@ -310,38 +310,47 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onViewResults(requirement);
                     }}
-                    className="text-xs font-semibold text-purple-700 hover:text-purple-800 flex items-center gap-1"
+                    className="text-xs font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 transition-colors"
                   >
                     View All in Staffing Results <ChevronRight size={13} />
                   </button>
                 )}
               </div>
 
-              <div className="mt-3 divide-y divide-gray-100 max-h-48 overflow-y-auto">
+              <div className="divide-y divide-gray-100 max-h-52 overflow-y-auto">
                 {requirement.assignedWorkers.map((aw, idx) => {
                   const workerObj = typeof aw.workerId === 'object' ? aw.workerId : null;
                   const name = workerObj?.name || 'Assigned Worker';
                   const phone = workerObj?.phone;
 
                   return (
-                    <div key={idx} className="py-2 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-[11px]">
+                    <div key={idx} className="py-2.5 flex items-center justify-between text-xs gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
                           {name.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-semibold text-gray-900">{name}</div>
-                          {phone && <div className="text-[10px] text-gray-500">{phone}</div>}
+                          <div className="font-bold text-gray-900">{name}</div>
+                          {phone && (
+                            <a
+                              href={`tel:${phone}`}
+                              className="text-[11px] text-gray-500 hover:text-emerald-700 flex items-center gap-1 mt-0.5"
+                            >
+                              <Phone size={10} className="text-gray-400" />
+                              <span>{phone}</span>
+                            </a>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         {aw.distanceKm !== undefined && (
-                          <span className="text-[11px] font-medium text-gray-600">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md">
+                            <MapPin size={10} className="text-gray-400" />
                             {aw.distanceKm.toFixed(1)} km away
                           </span>
                         )}
-                        <div className="text-[10px] text-gray-400">
-                          {new Date(aw.assignedAt).toLocaleDateString([], {
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          Assigned {new Date(aw.assignedAt).toLocaleDateString([], {
                             month: 'short',
                             day: 'numeric',
                           })}
@@ -358,14 +367,14 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
           {requirement.extensionHistory && requirement.extensionHistory.length > 0 && (
             <div className="p-4 rounded-xl border border-gray-200/80 bg-gray-50/50 shadow-2xs">
               <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
-                <Clock size={14} className="text-blue-600" />
+                <Clock size={14} className="text-blue-700" />
                 Deadline Extension Audit Trail ({requirement.extensionHistory.length})
               </h4>
               <div className="mt-2.5 space-y-2">
                 {requirement.extensionHistory.map((hist, idx) => (
                   <div
                     key={idx}
-                    className="p-2.5 bg-white rounded-lg border border-gray-200/70 text-xs text-gray-700 flex items-center justify-between"
+                    className="p-3 bg-white rounded-xl border border-gray-200/80 text-xs text-gray-700 flex items-center justify-between shadow-2xs"
                   >
                     <div>
                       <span className="text-[11px] font-semibold text-gray-500">
@@ -405,11 +414,11 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
         </div>
 
         {/* Modal Actions Footer */}
-        <div className="px-6 py-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors shadow-2xs"
+            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors shadow-2xs"
           >
             Close
           </button>
@@ -424,7 +433,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                     onClose();
                     onViewResults(requirement);
                   }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow-2xs transition-colors"
                 >
                   <Award size={14} />
                   View Staffing Results
@@ -440,7 +449,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onCancel(requirement);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors"
                     title="Cancel this requirement"
                   >
                     <Ban size={14} />
@@ -456,7 +465,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onEdit(requirement);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors shadow-2xs"
                     title="Edit requirement settings"
                   >
                     <Edit2 size={14} />
@@ -472,7 +481,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onExtendDeadline(requirement);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors"
                     title="Extend Interest Deadline"
                   >
                     <CalendarClock size={14} />
@@ -488,7 +497,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onViewResults(requirement);
                     }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow-2xs transition-colors"
                     title="View Selection Results & Candidates"
                   >
                     <Award size={14} />
@@ -504,7 +513,7 @@ export const RequirementDetailsModal: React.FC<RequirementDetailsModalProps> = (
                       onClose();
                       onAnnounce(requirement);
                     }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition-colors"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-2xs transition-colors"
                     title="Announce recruitment & broadcast to workers"
                   >
                     <Radio size={14} className="animate-pulse" />
