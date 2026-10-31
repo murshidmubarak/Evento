@@ -28,6 +28,7 @@ import '../modules/payments/model/payment-reminder-log.model.js';
 import '../modules/work-requirements/model/work-requirement.model.js';
 import '../modules/work-requirements/model/work-response.model.js';
 import '../modules/notifications/model/notification.model.js';
+import '../modules/notifications/model/notification-outbox.model.js';
 
 import {
   startPaymentReminderWorker,
@@ -41,6 +42,7 @@ import {
   startNotificationWorker,
   NotificationWorkerHandle,
 } from './notificationWorker.js';
+import { notificationOutboxDispatcherService } from '../modules/notifications/service/notification-outbox-dispatcher.service.js';
 
 export interface BackgroundWorkerHandle {
   name: string;
@@ -55,16 +57,31 @@ export interface RegisteredWorker {
 }
 
 /**
+ * Explicit starter for the Notification Outbox Dispatcher.
+ */
+export async function startNotificationOutboxDispatcher(): Promise<BackgroundWorkerHandle> {
+  notificationOutboxDispatcherService.start();
+  return {
+    name: 'Notification Outbox Dispatcher',
+    close: async () => {
+      await notificationOutboxDispatcherService.stop();
+    },
+  };
+}
+
+/**
  * Standard registry of background workers started by the Unified Worker.
- * Starts all three independent BullMQ workloads:
+ * Starts all four independent workloads:
  * 1. Payment Reminder worker (payment-reminder-scan, payment-reminder-email)
  * 2. Worker Selection worker (worker-selection)
  * 3. Notification worker (notification-processing)
+ * 4. Notification Outbox Dispatcher (transactional outbox recovery & polling)
  */
 export const defaultWorkerRegistrations: RegisteredWorker[] = [
   { name: 'Payment Reminder Worker', start: startPaymentReminderWorker },
   { name: 'Worker Selection Worker', start: startWorkerSelectionWorker },
   { name: 'Notification Worker', start: startNotificationWorker },
+  { name: 'Notification Outbox Dispatcher', start: startNotificationOutboxDispatcher },
 ];
 
 export class UnifiedWorker {

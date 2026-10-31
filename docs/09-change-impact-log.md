@@ -1171,3 +1171,107 @@ Elevated the Event Manager work requirement user experience across all related c
 - Modal UI & Actions Test Suite (`src/tests/workRequirementsModalUI.test.tsx`): 3/3 passed (100%).
 - Worker Selection UI Test Suite (`src/tests/workerSelectionUI.test.tsx`): 5/5 passed (100%).
 - Full Frontend Test Suite (`npm test`): 84/84 passed across 16 test files (100%), exit code 0.
+
+
+---
+
+### [Notification Reliability Upgrade — Path A: Transactional Outbox Pattern + BullMQ Recovery]
+**Date:** 2026-10-31
+**Impact Classification:** High (Introduces durable MongoDB Transactional Outbox pattern, multi-document ACID transactions with Replica Set rs0, dedicated outbox dispatcher background worker, and outbox event models/repositories while preserving all existing EventOps business rules and BullMQ queues)
+
+**Description:**
+Resolved the dual-write vulnerability identified in the Notification Milestone 2 audit, where successful MongoDB business writes for Work Requirement cancellations, operational updates, and deadline extensions could fail to enqueue BullMQ jobs if Redis was temporarily down or partitioned:
+1. **Dedicated Outbox Collection (`notification_outboxes`)**:
+   - Implemented `backend/src/modules/notifications/model/notification-outbox.model.ts` with strict schema, status state machine (`pending`, `dispatching`, `queued`, `processed`, `dead_letter`), generation tracking, lease management, and compound indexes.
+2. **Outbox Repository (`notification-outbox.repository.ts`)**:
+   - Implemented atomic operations: `create`, `claimEvent`, `markQueued`, `markProcessed`, `recordDispatchFailure`, `recoverExpiredLeases`, and `redriveDeadLetter`.
+3. **Multi-Document ACID Transactions (`work-requirement.service.ts`)**:
+   - Refactored `cancelRequirement`, `updateRequirement`, and `extendDeadline` to execute business state mutations and outbox record insertions atomically inside `session.withTransaction()`.
+   - Any failure aborts the entire transaction with zero partial state or orphaned events.
+4. **Outbox Dispatcher Service (`notification-outbox-dispatcher.service.ts`)**:
+   - Registered as worker #4 in `backend/src/workers/worker.ts` under the Unified Worker runtime.
+   - Bounded indexed polling (every 2000ms, batch size: 10).
+   - Atomic distributed lease locking (`findOneAndUpdate` with PID/UUID token and 30-second TTL).
+   - Enqueues typed BullMQ jobs (`requirement-cancellation`, `requirement-update`, `deadline-extension`) to `notification-processing` queue.
+   - Waits for BullMQ acknowledgment before marking outbox records `queued`.
+   - Automatically recovers stale leases from crashed worker instances.
+   - Bounded exponential backoff when Redis is unavailable, resuming automatically upon reconnection.
+5. **Worker Notification Processors (`notification.queue.ts`)**:
+   - Updated processor functions (`processRequirementCancellation`, `processRequirementUpdate`, `processDeadlineExtension`) to mark outbox records `processed` upon successful notification persistence.
+6. **Automated Reliability Test Suite (`backend/tests/notificationOutbox.test.ts`)**:
+   - 8 comprehensive automated tests:
+     1. Transactional Atomicity on cancellation (commits requirement + outbox atomically).
+     2. Transactional Rollback on simulated outbox failure (aborts requirement update).
+     3. Material Update Atomicity (material changes insert outbox, unchanged updates skip).
+     4. Deadline Extension Atomicity (preserves assigned workers, inserts outbox).
+     5. Redis Outage Simulation & Automatic Recovery (retains outbox, exponential backoff, recovers on reconnect).
+     6. Concurrent Dispatcher Distributed Lease Locking (second dispatcher claim rejected).
+     7. Expired Lease Recovery (stale leases returned to pending).
+     8. Exhausted Retries Dead-Letter Transition & Redrive (transitions to dead_letter, redrives cleanly).
+
+**Components & Files Changed:**
+- `backend/src/modules/notifications/model/notification-outbox.model.ts` (New)
+- `backend/src/modules/notifications/repository/notification-outbox.repository.ts` (New)
+- `backend/src/modules/notifications/service/notification-outbox-dispatcher.service.ts` (New)
+- `backend/src/modules/notifications/queues/notification.queue.ts` (Updated)
+- `backend/src/modules/work-requirements/service/work-requirement.service.ts` (Updated)
+- `backend/src/workers/worker.ts` (Updated)
+- `backend/tests/notificationOutbox.test.ts` (New)
+- `backend/tests/notificationMilestone2.test.ts` (Verified 19/19 passing)
+- `backend/tests/notificationQueue.test.ts` (Updated for worker #4, 9/9 passing)
+- `backend/tests/unifiedWorker.test.ts` (Updated for worker #4, 10/10 passing)
+- `docs/06-architecture.md` (Updated with Section 20)
+- `docs/09-change-impact-log.md` (Updated)
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Outbox Reliability Test Suite (`backend/tests/notificationOutbox.test.ts`): 8/8 passed (100%), exit code 0.
+- Milestone 2 Test Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Notification Queue Test Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Unified Worker Test Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Frontend Test Suite (`npm test`): 84/84 passed across 16 test files (100%), exit code 0.
+- Frontend Production Build (`npm run build`): compiled cleanly in 7.36s, exit code 0.
+
+---
+
+### [Notification Reliability Upgrade — Fixes 1, 2, and 3 (Prepare for Milestone 3)]
+**Date:** 2026-10-31
+**Impact Classification:** Medium (Standardizes BullMQ job typing, improves background dispatcher promise orchestration and logging, and tightens test assertions without altering any database models, API contracts, or business rules)
+
+**Description:**
+Resolved the three targeted reliability and test harness issues identified during the Transactional Outbox verification:
+1. **Fix 1 — Typed BullMQ Outbox Job Names (`notification.queue.ts`)**:
+   - `enqueueOutboxJob()` now dynamically maps `event.eventType` to specific typed job constants:
+     - `'requirement_cancelled'` -> `JOB_REQUIREMENT_CANCELLATION` (`'requirement-cancellation'`)
+     - `'requirement_updated'` -> `JOB_REQUIREMENT_UPDATE` (`'requirement-update'`)
+     - `'deadline_extended'` -> `JOB_DEADLINE_EXTENSION` (`'deadline-extension'`)
+   - Preserved stable `eventId`, dispatch generation tracking, retry and backoff options (`attempts: 5`, exponential backoff), and job deduplication (`jobId: outbox:<id>:<generation>`).
+   - Updated processor failure listeners to record dead-letter transitions on retry exhaustion.
+   - Updated mock queue runner to route typed jobs to their respective domain processors and mark outbox records `processed`.
+2. **Fix 2 — Post-Commit Immediate Dispatch Orchestration & Warning Logging (`work-requirement.service.ts` & `notification-outbox-dispatcher.service.ts`)**:
+   - Replaced silent `.catch(() => {})` in `work-requirement.service.ts` (`cancelRequirement`, `updateRequirement`, `extendDeadline`) with structured warning logs via `logger.warn` to preserve production observability.
+   - Enhanced `NotificationOutboxDispatcherService` with `activeDispatchPromise` tracking. When immediate dispatch or polling is triggered while a cycle is already active, callers receive and await `activeDispatchPromise`, eliminating test race conditions between background triggers and assertion checks.
+3. **Fix 3 — Scoped Opportunity Assertion Query (`backend/tests/notifications.test.ts`)**:
+   - Filtered recipient notifications query by `{ recipientId: worker._id, type: 'work_opportunity' }` on lines 513 and 522 to prevent unrelated `requirement_updated` notifications from failing the opportunity duplicate assertion.
+4. **Test Suite Enhancements (`backend/tests/notificationOutbox.test.ts`)**:
+   - Added Test 9 verifying exact typed job name mapping (`requirement-cancellation`, `requirement-update`, `deadline-extension`) and mock processor routing.
+   - Standardized deterministic triggers in outbox tests.
+
+**Components & Files Changed:**
+- `backend/src/modules/notifications/queues/notification.queue.ts`
+- `backend/src/modules/notifications/service/notification-outbox-dispatcher.service.ts`
+- `backend/src/modules/work-requirements/service/work-requirement.service.ts`
+- `backend/tests/notifications.test.ts`
+- `backend/tests/notificationOutbox.test.ts`
+- `docs/08-bug-log.md`
+- `docs/09-change-impact-log.md`
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Outbox Reliability Suite (`backend/tests/notificationOutbox.test.ts`): 9/9 passed (100%), exit code 0.
+- Milestone 2 Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Notification Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.

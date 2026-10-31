@@ -724,3 +724,52 @@ TypeScript compilation errors reported in `backend/tests/notificationQueue.test.
 ### Rule
 
 Queue job payloads should only provide properties declared on their respective job data contract. In tests, assert optional Mongoose document string properties directly without invoking `.toString()`.
+
+
+---
+
+## BUG-015 — Generic BullMQ Outbox Job Mapping and In-Flight Dispatch Race Condition in Outbox Tests
+
+### Date
+
+2026-10-31
+
+### Feature / Module
+
+Notifications / Transactional Outbox / Notification Queue / Dispatcher (`notification.queue.ts`, `notification-outbox-dispatcher.service.ts`, `work-requirement.service.ts`, `notifications.test.ts`)
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. **Generic Job Name Mapping**: In `notification.queue.ts`, `enqueueOutboxJob()` submitted all outbox events to BullMQ under a generic job name `'outbox-event'` (`JOB_OUTBOX_EVENT`). Although processors handled it, this degraded BullMQ typed job observability and caused `notificationMilestone2.test.ts` to fail when querying BullMQ by typed job names (`requirement-cancellation`, `requirement-update`, `deadline-extension`).
+2. **Dispatch Concurrency Race in Tests**: In `work-requirement.service.ts`, immediate dispatch was invoked non-blockingly via `.catch(() => {})` with swallowed errors. When automated tests in `notificationOutbox.test.ts` called `await triggerImmediateDispatch()` right after a service call, `this.isPolling` was already `true` from the background trigger, causing the test's call to return `{ processedCount: 0, errorsCount: 0 }` immediately while the background cycle was still in-flight. The test then asserted `status === 'queued'` before the background write finished, causing intermittent test failures.
+3. **Unfiltered Recipient Query in Opportunity Test**: In `backend/tests/notifications.test.ts` line 522, a test checking that updating an event requirement does not duplicate work opportunity announcements queried `notificationRepository.getUserNotifications(worker._id)`. Because Milestone 2 correctly delivers a `requirement_updated` notification on material changes, the returned array contained 2 notifications (1 opportunity + 1 update), failing the `assert.strictEqual(notifications.length, 1)` check.
+
+### Root Cause
+
+1. `enqueueOutboxJob` defaulted to the generic string constant `JOB_OUTBOX_EVENT` instead of mapping `event.eventType` to the corresponding typed constants (`JOB_REQUIREMENT_CANCELLATION`, `JOB_REQUIREMENT_UPDATE`, `JOB_DEADLINE_EXTENSION`).
+2. `notification-outbox-dispatcher.service.ts` had boolean flag guard `if (this.isPolling) return;` which did not provide a way for concurrent callers to await the in-flight dispatch cycle.
+3. The test assertion in `notifications.test.ts` was not scoped to `type: 'work_opportunity'`.
+
+### Solution
+
+1. In `backend/src/modules/notifications/queues/notification.queue.ts`, updated `enqueueOutboxJob()` to map `event.eventType` to:
+   - `'requirement_cancelled'` -> `JOB_REQUIREMENT_CANCELLATION` (`'requirement-cancellation'`)
+   - `'requirement_updated'` -> `JOB_REQUIREMENT_UPDATE` (`'requirement-update'`)
+   - `'deadline_extended'` -> `JOB_DEADLINE_EXTENSION` (`'deadline-extension'`)
+   Updated the mock processor in `notification.queue.ts` to dispatch to the appropriate handler and mark the outbox event `processed`.
+2. In `notification-outbox-dispatcher.service.ts`, introduced `private activeDispatchPromise: Promise<DispatchCycleResult> | null = null`. When a poll or immediate trigger is called while a cycle is active, it returns `activeDispatchPromise`, ensuring all callers can deterministically await cycle completion. Replaced empty `.catch(() => {})` in `work-requirement.service.ts` with structured warning logs via `logger.warn`.
+3. In `backend/tests/notifications.test.ts`, updated the query to `{ recipientId: worker._id, type: 'work_opportunity' }` on lines 513 and 522.
+
+### Rule
+
+1. Always submit BullMQ jobs with their specific typed job names to preserve queue observability and monitoring contracts.
+2. Background background-worker dispatchers must expose awaitable in-flight cycle promises to eliminate race conditions between immediate post-commit triggers and test harnesses.
+3. When asserting against notification counts for a specific business event, filter queries by `type` to prevent legitimate orthogonal notifications from failing the test.

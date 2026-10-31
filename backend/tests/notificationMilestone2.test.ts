@@ -18,6 +18,7 @@ import { WorkRequirement } from '../src/modules/work-requirements/model/work-req
 import { WorkResponse } from '../src/modules/work-requirements/model/work-response.model.js';
 import { WorkerLocationHistory } from '../src/modules/work-requirements/model/worker-location-history.model.js';
 import { WorkRequirementService } from '../src/modules/work-requirements/service/work-requirement.service.js';
+import { notificationOutboxDispatcherService } from '../src/modules/notifications/service/notification-outbox-dispatcher.service.js';
 import { workerOpportunityService } from '../src/modules/work-requirements/service/worker-opportunity.service.js';
 import { workerSelectionService } from '../src/modules/worker-selection/service/worker-selection.service.js';
 
@@ -954,6 +955,7 @@ describe('Notification Milestone 2 — Advanced Work Requirement Lifecycle & Sta
 
       // Cancel requirement
       await requirementService.cancelRequirement(managerId, req._id.toString());
+      await notificationOutboxDispatcherService.triggerImmediateDispatch();
 
       // Check mock queue received cancellation job
       const mockQueue = notificationQueueService.getMockQueue();
@@ -997,6 +999,7 @@ describe('Notification Milestone 2 — Advanced Work Requirement Lifecycle & Sta
         req._id.toString(),
         futureDeadline.toISOString()
       );
+      await notificationOutboxDispatcherService.triggerImmediateDispatch();
 
       // Verify assigned worker is strictly preserved
       assert.strictEqual(updated.assignedWorkers.length, 1);
@@ -1035,6 +1038,7 @@ describe('Notification Milestone 2 — Advanced Work Requirement Lifecycle & Sta
       await requirementService.updateRequirement(managerId, req._id.toString(), {
         reportingTime: '09:30',
       });
+      await notificationOutboxDispatcherService.triggerImmediateDispatch();
 
       const mockQueue = notificationQueueService.getMockQueue();
       const updateJob = mockQueue.jobs.find((j) => j.name === JOB_REQUIREMENT_UPDATE);

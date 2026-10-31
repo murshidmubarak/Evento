@@ -19,6 +19,8 @@ import { Notification } from '../model/notification.model.js';
 import { WorkRequirement } from '../../work-requirements/model/work-requirement.model.js';
 import { workerOpportunityService } from '../../work-requirements/service/worker-opportunity.service.js';
 import { workResponseRepository } from '../../work-requirements/repository/work-response.repository.js';
+import { notificationOutboxRepository } from '../repository/notification-outbox.repository.js';
+import type { INotificationOutbox, OutboxEventType } from '../model/notification-outbox.model.js';
 
 export const NOTIFICATION_QUEUE_NAME = 'notification-processing';
 
@@ -27,6 +29,7 @@ export const JOB_SELECTION_COMPLETION = 'selection-completion';
 export const JOB_REQUIREMENT_CANCELLATION = 'requirement-cancellation';
 export const JOB_REQUIREMENT_UPDATE = 'requirement-update';
 export const JOB_DEADLINE_EXTENSION = 'deadline-extension';
+export const JOB_OUTBOX_EVENT = 'outbox-event';
 
 export interface RequirementAnnouncementJobData {
   requirementId: string;
@@ -64,12 +67,21 @@ export interface DeadlineExtensionJobData {
   enqueuedAt?: string;
 }
 
+export interface OutboxNotificationJobData {
+  outboxEventId: string;
+  eventType: OutboxEventType;
+  dispatchGeneration: number;
+  payload: any;
+  enqueuedAt?: string;
+}
+
 export type NotificationJobData =
   | RequirementAnnouncementJobData
   | SelectionCompletionJobData
   | RequirementCancellationJobData
   | RequirementUpdateJobData
-  | DeadlineExtensionJobData;
+  | DeadlineExtensionJobData
+  | OutboxNotificationJobData;
 
 /**
  * Lightweight in-memory queue adapter for testing without an external Redis instance.
@@ -412,6 +424,92 @@ export class NotificationQueueService {
     return { jobId: job.id || jobId };
   }
 
+  /**
+   * Enqueues an asynchronous notification job from an outbox event record.
+   * Maps outbox eventType to appropriate typed BullMQ job names:
+   * - requirement_cancelled -> requirement-cancellation
+   * - requirement_updated -> requirement-update
+   * - deadline_extended -> deadline-extension
+   */
+  public async enqueueOutboxJob(event: INotificationOutbox): Promise<{ jobId: string }> {
+    const enqueuedAt = new Date().toISOString();
+    const jobId = `outbox_${event.eventId}_gen${event.dispatchGeneration}`;
+
+    let jobName: string = JOB_OUTBOX_EVENT;
+    let jobData: any = {
+      outboxEventId: event.eventId,
+      eventType: event.eventType,
+      dispatchGeneration: event.dispatchGeneration,
+      payload: event.payload,
+      enqueuedAt,
+    };
+
+    if (event.eventType === 'requirement_cancelled') {
+      jobName = JOB_REQUIREMENT_CANCELLATION;
+      jobData = {
+        ...event.payload,
+        outboxEventId: event.eventId,
+        eventType: event.eventType,
+        dispatchGeneration: event.dispatchGeneration,
+        enqueuedAt: event.payload?.enqueuedAt || enqueuedAt,
+      };
+    } else if (event.eventType === 'requirement_updated') {
+      jobName = JOB_REQUIREMENT_UPDATE;
+      jobData = {
+        ...event.payload,
+        outboxEventId: event.eventId,
+        eventType: event.eventType,
+        dispatchGeneration: event.dispatchGeneration,
+        enqueuedAt: event.payload?.enqueuedAt || enqueuedAt,
+      };
+    } else if (event.eventType === 'deadline_extended') {
+      jobName = JOB_DEADLINE_EXTENSION;
+      jobData = {
+        ...event.payload,
+        outboxEventId: event.eventId,
+        eventType: event.eventType,
+        dispatchGeneration: event.dispatchGeneration,
+        enqueuedAt: event.payload?.enqueuedAt || enqueuedAt,
+      };
+    }
+
+    if (this.isMockMode) {
+      const job = await this.mockQueue.add(jobName, jobData, { jobId });
+      if (this.autoProcessInMock) {
+        setImmediate(() => {
+          if (jobName === JOB_REQUIREMENT_CANCELLATION) {
+            this.processRequirementCancellation(jobData).catch((err) => {
+              console.error('⚠️ [NotificationQueue Mock] Cancellation processing error:', err);
+            });
+          } else if (jobName === JOB_REQUIREMENT_UPDATE) {
+            this.processRequirementUpdate(jobData).catch((err) => {
+              console.error('⚠️ [NotificationQueue Mock] Update notification processing error:', err);
+            });
+          } else if (jobName === JOB_DEADLINE_EXTENSION) {
+            this.processDeadlineExtension(jobData).catch((err) => {
+              console.error('⚠️ [NotificationQueue Mock] Deadline extension processing error:', err);
+            });
+          } else {
+            this.processOutboxEvent(jobData).catch((err) => {
+              console.error('⚠️ [NotificationQueue Mock] Outbox processing error:', err);
+            });
+          }
+        });
+      }
+      return { jobId: job.id };
+    }
+
+    const queue = this.getQueue() as Queue<any>;
+    const job = await queue.add(jobName, jobData, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 3000 },
+    });
+
+    console.log(`📨 [NotificationQueue] Enqueued outbox job '${job.id}' (${jobName}) for event ${event.eventId}`);
+    return { jobId: job.id || jobId };
+  }
+
   // ─── Processor Operations ───────────────────────────────────────────────────
 
   /**
@@ -701,6 +799,10 @@ export class NotificationQueueService {
       `✅ [NotificationProcessor] Cancellation notifications complete for req ${requirementId}: ${saved.length} notification(s) dispatched (${assignedWorkerIds.length} assigned, ${interestedWorkerIds.length} interested).`
     );
 
+    if ((data as any).outboxEventId) {
+      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    }
+
     return {
       notifiedAssignedCount: assignedWorkerIds.length,
       notifiedInterestedCount: interestedWorkerIds.length,
@@ -820,6 +922,9 @@ export class NotificationQueueService {
     }
 
     if (recipientIds.length === 0) {
+      if ((data as any).outboxEventId) {
+        await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+      }
       return { scenario, notifiedCount: 0 };
     }
 
@@ -856,6 +961,10 @@ export class NotificationQueueService {
     console.log(
       `✅ [NotificationProcessor] Update notifications dispatched for req ${requirementId} (Scenario ${scenario}): ${saved.length}/${recipientIds.length} worker(s) notified.`
     );
+
+    if ((data as any).outboxEventId) {
+      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    }
 
     return { scenario, notifiedCount: saved.length };
   }
@@ -920,6 +1029,9 @@ export class NotificationQueueService {
 
     if (recipientIds.length === 0) {
       console.log(`ℹ️ [NotificationProcessor] No interested or eligible workers found for extension on req ${requirementId}.`);
+      if ((data as any).outboxEventId) {
+        await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+      }
       return { notifiedCount: 0, eligibleCount: 0 };
     }
 
@@ -954,10 +1066,53 @@ export class NotificationQueueService {
       `✅ [NotificationProcessor] Deadline extension notifications dispatched for req ${requirementId}: ${saved.length}/${recipientIds.length} worker(s) notified.`
     );
 
+    if ((data as any).outboxEventId) {
+      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    }
+
     return {
       notifiedCount: saved.length,
       eligibleCount: unassignedEligibleIds.length,
     };
+  }
+
+  /**
+   * Processes an outbox notification job:
+   * 1. Loads outbox record and checks if already processed.
+   * 2. Delegates to the established business event processor.
+   * 3. Marks outbox record as 'processed' after successful dispatch.
+   */
+  public async processOutboxEvent(
+    data: OutboxNotificationJobData
+  ): Promise<{ status: string; outboxEventId: string }> {
+    const { outboxEventId, eventType, payload } = data;
+    console.log(`🔍 [NotificationProcessor] Processing outbox job ${outboxEventId} (Type: ${eventType})...`);
+
+    const outbox = await notificationOutboxRepository.findByEventId(outboxEventId);
+    if (!outbox) {
+      console.warn(`⚠️ [NotificationProcessor] Outbox record ${outboxEventId} not found, skipping.`);
+      return { status: 'not_found', outboxEventId };
+    }
+
+    if (outbox.status === 'processed') {
+      console.log(`ℹ️ [NotificationProcessor] Outbox event ${outboxEventId} already processed, skipping.`);
+      return { status: 'already_processed', outboxEventId };
+    }
+
+    if (eventType === 'requirement_cancelled') {
+      await this.processRequirementCancellation(payload);
+    } else if (eventType === 'requirement_updated') {
+      await this.processRequirementUpdate(payload);
+    } else if (eventType === 'deadline_extended') {
+      await this.processDeadlineExtension(payload);
+    } else {
+      console.warn(`⚠️ [NotificationProcessor] Unknown outbox event type: ${eventType}`);
+    }
+
+    await notificationOutboxRepository.markProcessed(outboxEventId);
+    console.log(`✅ [NotificationProcessor] Outbox event ${outboxEventId} marked as processed.`);
+
+    return { status: 'success', outboxEventId };
   }
 
   // ─── Startup Recovery & Enqueue Resilience ──────────────────────────────────
@@ -1048,7 +1203,9 @@ export class NotificationQueueService {
       async (job: Job<NotificationJobData>) => {
         console.log(`⚙️ [NotificationWorker] Executing job ${job.id} (Name: ${job.name})...`);
 
-        if (job.name === JOB_REQUIREMENT_ANNOUNCEMENT) {
+        if (job.name === JOB_OUTBOX_EVENT) {
+          return this.processOutboxEvent(job.data as OutboxNotificationJobData);
+        } else if (job.name === JOB_REQUIREMENT_ANNOUNCEMENT) {
           return this.processRequirementAnnouncements(job.data as RequirementAnnouncementJobData);
         } else if (job.name === JOB_SELECTION_COMPLETION) {
           return this.processSelectionCompletion(job.data as SelectionCompletionJobData);
@@ -1072,8 +1229,26 @@ export class NotificationQueueService {
       console.log(`✅ [NotificationWorker] Job ${job.id} completed.`);
     });
 
-    this.worker.on('failed', (job, err) => {
+    this.worker.on('failed', async (job, err) => {
       console.error(`💥 [NotificationWorker] Job ${job?.id} failed:`, err.message);
+      const outboxEventId = (job?.data as any)?.outboxEventId;
+      if (outboxEventId) {
+        const attemptsMade = job?.attemptsMade || 1;
+        const maxAttempts = job?.opts?.attempts || 3;
+        if (attemptsMade >= maxAttempts) {
+          console.warn(`🚨 [NotificationWorker] Outbox event ${outboxEventId} exhausted BullMQ retries (${attemptsMade}/${maxAttempts}), moving to dead_letter.`);
+          const outbox = await notificationOutboxRepository.findByEventId(outboxEventId);
+          if (outbox && outbox.status !== 'processed') {
+            await notificationOutboxRepository.recordDispatchFailure(
+              outboxEventId,
+              outbox.leaseToken || 'worker_failed',
+              err.message,
+              0,
+              1 // Force dead_letter immediately since retries exhausted
+            );
+          }
+        }
+      }
     });
 
     return { worker: this.worker };

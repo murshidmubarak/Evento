@@ -1544,3 +1544,84 @@ NotificationProcessor:
    4. Emits real-time events via Redis Pub/Sub (`eventops:notifications:realtime`)
    5. Connected Socket.IO API server routes to user rooms
 ```
+
+
+## 20. Transactional Outbox Pattern & Notification Reliability (Path A)
+
+### Core Problem Solved (Dual-Write Dual-Failure Vulnerability)
+In previous milestones, Work Requirement cancellation, material updates, and deadline extensions performed dual writes:
+1. Write business state update to MongoDB.
+2. Directly enqueue BullMQ job to Redis.
+
+If Redis was temporarily unavailable or transient network partitions occurred, the business operation committed to MongoDB while the notification job was lost permanently.
+
+### Architecture (Path A: Separate Outbox Collection)
+EventOps ERP implements Path A — an ACID-compliant Transactional Outbox Pattern leveraging MongoDB Multi-Document Transactions:
+
+```text
+Business Operation (cancelRequirement / updateRequirement / extendDeadline)
+       │
+       ▼
+MongoDB Transaction (`session.withTransaction()`)
+       │
+       ├─────────────────────────────────────────┐
+       ▼                                         ▼
+Update WorkRequirement Doc              Insert NotificationOutbox Doc
+(status: 'cancelled', etc.)             (status: 'pending', nextAttemptAt: now)
+       │                                         │
+       └────────────────────┬────────────────────┘
+                            │
+                            ▼
+                    Transaction Commit
+                            │
+                            ▼
+              Outbox Dispatcher Poller / Trigger
+              (Unified Worker #4, interval 2000ms)
+                            │
+                            ▼
+              Atomic Distributed Lease Claim
+              (status: 'dispatching', leaseToken: PID/UUID)
+                            │
+                            ▼
+              Enqueue to BullMQ Queue (`notification-processing`)
+              (Typed Jobs: requirement-cancellation, etc.)
+                            │
+               BullMQ Acknowledgment
+                            │
+                            ▼
+              Mark Outbox `queued`
+                            │
+                            ▼
+              Notification Background Worker
+                            │
+                            ▼
+              Persist Durable Notifications in MongoDB
+              (DeduplicationKey exact-once)
+                            │
+                            ▼
+              Mark Outbox `processed`
+                            │
+                            ▼
+              Emit Real-time Socket.IO via Redis Pub/Sub
+```
+
+### Key Technical Mechanisms
+1. **Multi-Document ACID Transactions**:
+   - Work Requirement updates and outbox insertions execute inside `session.withTransaction()`.
+   - Requires MongoDB running as a Replica Set (`rs0`).
+   - If either write fails, the entire transaction is rolled back; zero partial state or orphaned events.
+2. **Dedicated Outbox Collection (`notification_outboxes`)**:
+   - Fields: `eventId`, `eventType`, `aggregateType`, `aggregateId`, `payload`, `status` (`pending` | `dispatching` | `queued` | `processed` | `dead_letter`), `dispatchGeneration`, `attempts`, `nextAttemptAt`, `leaseToken`, `leaseExpiresAt`, `lastError`.
+   - Compound Indexes: `{ status: 1, nextAttemptAt: 1 }`, `{ status: 1, leaseExpiresAt: 1 }`.
+3. **Atomic Distributed Lease Locking**:
+   - Multiple background worker processes can run concurrently without double-processing.
+   - Dispatcher claims events via atomic `findOneAndUpdate` with unique instance `leaseToken` and 30-second `leaseExpiresAt`.
+4. **Transient Failure & Redis Outage Resilience**:
+   - If Redis is down, outbox records remain safely persisted in MongoDB.
+   - Enqueue failures trigger bounded exponential backoff: `Math.min(1000 * 2^attempts, 60000)`.
+   - When Redis restores, the dispatcher automatically resumes enqueuing pending events.
+5. **Dead-Letter Queue (DLQ) & Manual Redrive**:
+   - After exceeding max attempts (default 5), events transition to `dead_letter` for operator diagnostics.
+   - `redriveDeadLetter(eventId)` resets `status: 'pending'`, `attempts: 0`, and increments `dispatchGeneration`.
+6. **Unified Worker Integration**:
+   - Registered as worker #4 in `src/workers/worker.ts`, running bounded background polling and clean reverse-order shutdown on SIGTERM/SIGINT.

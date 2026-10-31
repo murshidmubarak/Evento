@@ -55,13 +55,15 @@ describe('Unified Background Worker Architecture', () => {
     const worker = new UnifiedWorker();
     const registrations = worker.getRegisteredWorkers();
 
-    assert.equal(registrations.length, 3, 'Must have exactly 3 registered workers by default');
+    assert.equal(registrations.length, 4, 'Must have exactly 4 registered workers by default');
     assert.equal(registrations[0].name, 'Payment Reminder Worker');
     assert.equal(registrations[1].name, 'Worker Selection Worker');
     assert.equal(registrations[2].name, 'Notification Worker');
+    assert.equal(registrations[3].name, 'Notification Outbox Dispatcher');
     assert.equal(typeof registrations[0].start, 'function');
     assert.equal(typeof registrations[1].start, 'function');
     assert.equal(typeof registrations[2].start, 'function');
+    assert.equal(typeof registrations[3].start, 'function');
   });
 
   it('2. Extensibility: Can register a future worker (e.g. Audit Worker) before startup', () => {
@@ -83,8 +85,8 @@ describe('Unified Background Worker Architecture', () => {
     });
 
     const registrations = worker.getRegisteredWorkers();
-    assert.equal(registrations.length, 4, 'Must have 4 registered workers after addition');
-    assert.equal(registrations[3].name, 'Audit Worker');
+    assert.equal(registrations.length, 5, 'Must have 5 registered workers after addition');
+    assert.equal(registrations[4].name, 'Audit Worker');
   });
 
   it('3. Throws when attempting to register a worker after startup has occurred', async () => {

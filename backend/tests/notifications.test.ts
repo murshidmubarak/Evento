@@ -510,7 +510,7 @@ describe('Milestone 1 — Persistent Notifications, Socket.IO, and Core Business
       });
       await new Promise((r) => setTimeout(r, 150));
 
-      const count1 = await Notification.countDocuments({ recipientId: worker._id });
+      const count1 = await Notification.countDocuments({ recipientId: worker._id, type: 'work_opportunity' });
       assert.strictEqual(count1, 1);
 
       // Attempt repeated update (e.g. updating description without status change)
@@ -519,7 +519,7 @@ describe('Milestone 1 — Persistent Notifications, Socket.IO, and Core Business
       }).catch(() => {}); // might be rejected if non-draft edits blocked
       await new Promise((r) => setTimeout(r, 150));
 
-      const count2 = await Notification.countDocuments({ recipientId: worker._id });
+      const count2 = await Notification.countDocuments({ recipientId: worker._id, type: 'work_opportunity' });
       assert.strictEqual(count2, 1);
     });
   });

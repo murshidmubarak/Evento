@@ -6,10 +6,10 @@ import { ApiError } from '../../../utils/ApiError.js';
 import { WorkRequirement, type IWorkRequirement } from '../model/work-requirement.model.js';
 import { isValidReportingTime, isValidMaxDistanceKm, isValidDeadline } from '../validation/work-requirement.validation.js';
 import { workerSelectionQueueService } from '../../worker-selection/queues/worker-selection.queue.js';
-import { toCalendarDayString, isEventDatePassed } from '../../worker-selection/utils/calendar-day.util.js';
-import { notificationService } from '../../notifications/service/notification.service.js';
+import { isEventDatePassed } from '../../worker-selection/utils/calendar-day.util.js';
 import { notificationQueueService } from '../../notifications/queues/notification.queue.js';
-import { workerOpportunityService } from './worker-opportunity.service.js';
+import { notificationOutboxRepository } from '../../notifications/repository/notification-outbox.repository.js';
+import { notificationOutboxDispatcherService } from '../../notifications/service/notification-outbox-dispatcher.service.js';
 import mongoose from 'mongoose';
 
 export class WorkRequirementService {
@@ -164,138 +164,181 @@ export class WorkRequirementService {
     return requirement;
   }
 
+  /**
+   * Updates an existing work requirement within an atomic MongoDB multi-document transaction.
+   * If material operational changes occur, persists a 'requirement_updated' outbox event atomically.
+   */
   async updateRequirement(managerId: string, reqId: string, data: Partial<IWorkRequirement>): Promise<IWorkRequirement> {
     if (!mongoose.Types.ObjectId.isValid(reqId)) {
       throw ApiError.badRequest('Invalid work requirement ID format');
     }
 
-    const requirement = await this.getRequirementById(managerId, reqId);
-    const event = await this.eventRepository.findById(requirement.eventId.toString());
-
-    if (!event) {
-      throw ApiError.notFound('Event not found');
-    }
-
-    const isPast = isEventDatePassed(event.date, event.endTime);
-    if (isPast || event.status === 'completed') {
-      await this.ensureEventCompleted(event);
-      throw ApiError.badRequest('Cannot update work requirement: Event date has already passed and the event is completed.');
-    }
-
-    // Business rules: If changing status
-    if (data.status) {
-      if (data.status === 'cancelled') {
-        if (requirement.status === 'cancelled') {
-          throw ApiError.badRequest('Work requirement is already cancelled');
-        }
-        if (requirement.status === 'filled' || requirement.status === 'closed') {
-          throw ApiError.badRequest(`Cannot cancel a work requirement in '${requirement.status}' status`);
-        }
-      } else if (data.status === 'open') {
-        if (requirement.status !== 'draft') {
-          throw ApiError.badRequest(`Cannot open recruitment for requirement in '${requirement.status}' status`);
-        }
-
-        // Before transitioning draft -> open, ensure mandatory distance and deadline are provided
-        const effectiveMaxDistance = data.maxDistanceKm !== undefined ? data.maxDistanceKm : requirement.maxDistanceKm;
-        if (effectiveMaxDistance === undefined || effectiveMaxDistance === null || effectiveMaxDistance <= 0) {
-          throw ApiError.badRequest('Maximum worker distance (km) must be configured with a positive value before opening recruitment');
-        }
-
-        const effectiveDeadlineInput = data.interestDeadlineAt !== undefined ? data.interestDeadlineAt : requirement.interestDeadlineAt;
-        if (!effectiveDeadlineInput) {
-          throw ApiError.badRequest('An interest deadline is required before opening recruitment');
-        }
-        const deadlineValidation = isValidDeadline(effectiveDeadlineInput);
-        if (!deadlineValidation.valid) {
-          throw ApiError.badRequest(deadlineValidation.error || 'Invalid interest deadline');
-        }
-        const effectiveDeadline = deadlineValidation.date!;
-        this.validateDeadlineBeforeEvent(effectiveDeadline, event, data.reportingTime || requirement.reportingTime);
-      } else if (data.status !== 'draft') {
-        throw ApiError.badRequest(`Status transition to '${data.status}' is not permitted directly`);
-      }
-    }
-
-    // Business rules logic: Cannot modify fields if requirement is cancelled or closed
-    if (requirement.status === 'cancelled' || requirement.status === 'closed') {
-      throw ApiError.badRequest(`Cannot update a work requirement in '${requirement.status}' status`);
-    }
-
-    if (data.requiredCount !== undefined && data.requiredCount < (requirement.assignedWorkers?.length || 0)) {
-      throw ApiError.badRequest(
-        `Required count (${data.requiredCount}) cannot be less than currently assigned count (${requirement.assignedWorkers.length})`
-      );
-    }
-
-    // Protect against modifying eventId
-    const allowedUpdates: Partial<IWorkRequirement> = {};
-    if (data.workerType !== undefined) allowedUpdates.workerType = data.workerType;
-    if (data.requiredCount !== undefined) allowedUpdates.requiredCount = data.requiredCount;
-    if (data.reportingTime !== undefined) {
-      const timeValidation = isValidReportingTime(data.reportingTime);
-      if (!timeValidation.valid) {
-        throw ApiError.badRequest(timeValidation.error || 'Invalid reporting time');
-      }
-      allowedUpdates.reportingTime = data.reportingTime.trim();
-    }
-    if (data.description !== undefined) allowedUpdates.description = data.description;
-    if (data.maxDistanceKm !== undefined) {
-      if (data.maxDistanceKm !== null) {
-        const distValidation = isValidMaxDistanceKm(data.maxDistanceKm);
-        if (!distValidation.valid) throw ApiError.badRequest(distValidation.error!);
-      }
-      allowedUpdates.maxDistanceKm = data.maxDistanceKm;
-    }
-    if (data.interestDeadlineAt !== undefined) {
-      if (data.interestDeadlineAt !== null) {
-        const deadlineValidation = isValidDeadline(data.interestDeadlineAt);
-        if (!deadlineValidation.valid) throw ApiError.badRequest(deadlineValidation.error!);
-        this.validateDeadlineBeforeEvent(deadlineValidation.date!, event, allowedUpdates.reportingTime || requirement.reportingTime);
-        allowedUpdates.interestDeadlineAt = deadlineValidation.date;
-      } else {
-        allowedUpdates.interestDeadlineAt = undefined;
-      }
-    }
-    if (data.status !== undefined) {
-      allowedUpdates.status = data.status;
-      // Record immutable publication timestamp on first transition to open (§6)
-      if (data.status === 'open' && !requirement.interestPublishedAt) {
-        allowedUpdates.interestPublishedAt = new Date();
-      }
-    }
-
-    // Detect material operational field changes to notify relevant participants
-    const changedFields: Record<string, { old: any; new: any }> = {};
-    if (allowedUpdates.workerType && allowedUpdates.workerType !== requirement.workerType) {
-      changedFields.workerType = { old: requirement.workerType, new: allowedUpdates.workerType };
-    }
-    if (allowedUpdates.requiredCount !== undefined && allowedUpdates.requiredCount !== requirement.requiredCount) {
-      changedFields.requiredCount = { old: requirement.requiredCount, new: allowedUpdates.requiredCount };
-    }
-    if (allowedUpdates.reportingTime && allowedUpdates.reportingTime !== requirement.reportingTime) {
-      changedFields.reportingTime = { old: requirement.reportingTime, new: allowedUpdates.reportingTime };
-    }
-    if (allowedUpdates.maxDistanceKm !== undefined && allowedUpdates.maxDistanceKm !== requirement.maxDistanceKm) {
-      changedFields.maxDistanceKm = { old: requirement.maxDistanceKm || 0, new: allowedUpdates.maxDistanceKm };
-    }
-
-    const updated = await this.requirementRepository.updateById(reqId, allowedUpdates);
-    if (!updated) {
-      throw ApiError.notFound('Work requirement not found');
-    }
-
-    // If transitioned to 'cancelled', automatically dispatch cancellation notifications
     if (data.status === 'cancelled') {
-      notificationQueueService.enqueueRequirementCancellation({
-        requirementId: updated._id.toString(),
-      }).catch((err) => {
-        console.error(`⚠️ [WorkRequirementService] Failed to dispatch cancellation notifications for req ${reqId}:`, err);
-      });
+      return this.cancelRequirement(managerId, reqId);
     }
 
-    // If transitioned to 'open', automatically schedule deadline selection job
-    if (data.status === 'open' && updated.interestDeadlineAt) {
+    const eventId = `outbox_upd_${reqId}_${Date.now()}`;
+    const session = await mongoose.startSession();
+    let updated: any = null;
+    let materialChanged = false;
+    let isDraftToOpen = false;
+    let publishedAtIso: string | undefined;
+
+    try {
+      await session.withTransaction(async () => {
+        const requirement = await WorkRequirement.findById(reqId).session(session);
+        if (!requirement) {
+          throw ApiError.notFound('Work requirement not found');
+        }
+
+        await this.validateManagerOwnershipAndEventState(managerId, requirement.eventId.toString(), true);
+
+        const event = await this.eventRepository.findById(requirement.eventId.toString());
+        if (!event) {
+          throw ApiError.notFound('Event not found');
+        }
+
+        const isPast = isEventDatePassed(event.date, event.endTime);
+        if (isPast || event.status === 'completed') {
+          await this.ensureEventCompleted(event);
+          throw ApiError.badRequest('Cannot update work requirement: Event date has already passed and the event is completed.');
+        }
+
+        // Business rules: If changing status
+        if (data.status) {
+          if (data.status === 'open') {
+            if (requirement.status !== 'draft') {
+              throw ApiError.badRequest(`Cannot open recruitment for requirement in '${requirement.status}' status`);
+            }
+
+            // Before transitioning draft -> open, ensure mandatory distance and deadline are provided
+            const effectiveMaxDistance = data.maxDistanceKm !== undefined ? data.maxDistanceKm : requirement.maxDistanceKm;
+            if (effectiveMaxDistance === undefined || effectiveMaxDistance === null || effectiveMaxDistance <= 0) {
+              throw ApiError.badRequest('Maximum worker distance (km) must be configured with a positive value before opening recruitment');
+            }
+
+            const effectiveDeadlineInput = data.interestDeadlineAt !== undefined ? data.interestDeadlineAt : requirement.interestDeadlineAt;
+            if (!effectiveDeadlineInput) {
+              throw ApiError.badRequest('An interest deadline is required before opening recruitment');
+            }
+            const deadlineValidation = isValidDeadline(effectiveDeadlineInput);
+            if (!deadlineValidation.valid) {
+              throw ApiError.badRequest(deadlineValidation.error || 'Invalid interest deadline');
+            }
+            const effectiveDeadline = deadlineValidation.date!;
+            this.validateDeadlineBeforeEvent(effectiveDeadline, event, data.reportingTime || requirement.reportingTime);
+          } else if (data.status !== 'draft') {
+            throw ApiError.badRequest(`Status transition to '${data.status}' is not permitted directly`);
+          }
+        }
+
+        // Business rules logic: Cannot modify fields if requirement is cancelled or closed
+        if (requirement.status === 'cancelled' || requirement.status === 'closed') {
+          throw ApiError.badRequest(`Cannot update a work requirement in '${requirement.status}' status`);
+        }
+
+        if (data.requiredCount !== undefined && data.requiredCount < (requirement.assignedWorkers?.length || 0)) {
+          throw ApiError.badRequest(
+            `Required count (${data.requiredCount}) cannot be less than currently assigned count (${requirement.assignedWorkers.length})`
+          );
+        }
+
+        // Protect against modifying eventId
+        const allowedUpdates: Partial<IWorkRequirement> = {};
+        if (data.workerType !== undefined) allowedUpdates.workerType = data.workerType;
+        if (data.requiredCount !== undefined) allowedUpdates.requiredCount = data.requiredCount;
+        if (data.reportingTime !== undefined) {
+          const timeValidation = isValidReportingTime(data.reportingTime);
+          if (!timeValidation.valid) {
+            throw ApiError.badRequest(timeValidation.error || 'Invalid reporting time');
+          }
+          allowedUpdates.reportingTime = data.reportingTime.trim();
+        }
+        if (data.description !== undefined) allowedUpdates.description = data.description;
+        if (data.maxDistanceKm !== undefined) {
+          if (data.maxDistanceKm !== null) {
+            const distValidation = isValidMaxDistanceKm(data.maxDistanceKm);
+            if (!distValidation.valid) throw ApiError.badRequest(distValidation.error!);
+          }
+          allowedUpdates.maxDistanceKm = data.maxDistanceKm;
+        }
+        if (data.interestDeadlineAt !== undefined) {
+          if (data.interestDeadlineAt !== null) {
+            const deadlineValidation = isValidDeadline(data.interestDeadlineAt);
+            if (!deadlineValidation.valid) throw ApiError.badRequest(deadlineValidation.error!);
+            this.validateDeadlineBeforeEvent(deadlineValidation.date!, event, allowedUpdates.reportingTime || requirement.reportingTime);
+            allowedUpdates.interestDeadlineAt = deadlineValidation.date;
+          } else {
+            allowedUpdates.interestDeadlineAt = undefined;
+          }
+        }
+        if (data.status !== undefined) {
+          allowedUpdates.status = data.status;
+          // Record immutable publication timestamp on first transition to open (§6)
+          if (data.status === 'open' && !requirement.interestPublishedAt) {
+            allowedUpdates.interestPublishedAt = new Date();
+          }
+        }
+
+        // Detect material operational field changes to notify relevant participants
+        const changedFields: Record<string, { old: any; new: any }> = {};
+        if (allowedUpdates.workerType && allowedUpdates.workerType !== requirement.workerType) {
+          changedFields.workerType = { old: requirement.workerType, new: allowedUpdates.workerType };
+        }
+        if (allowedUpdates.requiredCount !== undefined && allowedUpdates.requiredCount !== requirement.requiredCount) {
+          changedFields.requiredCount = { old: requirement.requiredCount, new: allowedUpdates.requiredCount };
+        }
+        if (allowedUpdates.reportingTime && allowedUpdates.reportingTime !== requirement.reportingTime) {
+          changedFields.reportingTime = { old: requirement.reportingTime, new: allowedUpdates.reportingTime };
+        }
+        if (allowedUpdates.maxDistanceKm !== undefined && allowedUpdates.maxDistanceKm !== requirement.maxDistanceKm) {
+          changedFields.maxDistanceKm = { old: requirement.maxDistanceKm || 0, new: allowedUpdates.maxDistanceKm };
+        }
+        if (allowedUpdates.description !== undefined && allowedUpdates.description !== requirement.description) {
+          changedFields.description = { old: requirement.description, new: allowedUpdates.description };
+        }
+
+        updated = await WorkRequirement.findByIdAndUpdate(reqId, allowedUpdates, { new: true, session });
+        if (!updated) {
+          throw ApiError.notFound('Work requirement not found');
+        }
+
+        if (data.status === 'open' && requirement.status === 'draft') {
+          isDraftToOpen = true;
+          publishedAtIso = updated.interestPublishedAt ? updated.interestPublishedAt.toISOString() : new Date().toISOString();
+        }
+
+        // If material changes occurred on active requirement, insert outbox record atomically
+        if (requirement.status !== 'draft' && Object.keys(changedFields).length > 0) {
+          materialChanged = true;
+          await notificationOutboxRepository.create(
+            {
+              eventId,
+              eventType: 'requirement_updated',
+              aggregateType: 'work_requirement',
+              aggregateId: reqId,
+              payload: {
+                requirementId: reqId,
+                changedFields,
+                enqueuedAt: new Date().toISOString(),
+              },
+              status: 'pending',
+              nextAttemptAt: new Date(),
+            },
+            session
+          );
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (!updated) {
+      throw ApiError.internal('Failed to update work requirement');
+    }
+
+    // Outside transaction side effects:
+    if (updated.status === 'open' && updated.interestDeadlineAt) {
       await workerSelectionQueueService.scheduleSelectionJob(
         updated._id.toString(),
         updated.interestDeadlineAt,
@@ -303,23 +346,19 @@ export class WorkRequirementService {
       );
     }
 
-    // Trigger opportunity announcements only on the first valid draft -> open transition (§9)
-    if (data.status === 'open' && requirement.status === 'draft') {
+    if (isDraftToOpen) {
       notificationQueueService.enqueueRequirementAnnouncements({
         requirementId: updated._id.toString(),
-        publishedAt: updated.interestPublishedAt ? updated.interestPublishedAt.toISOString() : new Date().toISOString(),
+        publishedAt: publishedAtIso,
       }).catch((err) => {
         console.error(`⚠️ [WorkRequirementService] Failed to dispatch opportunity announcements for req ${reqId}:`, err);
       });
     }
 
-    // Trigger update notifications when material fields change on an active requirement (not draft or cancelled)
-    if (requirement.status !== 'draft' && Object.keys(changedFields).length > 0) {
-      notificationQueueService.enqueueRequirementUpdate({
-        requirementId: updated._id.toString(),
-        changedFields,
-      }).catch((err) => {
-        console.error(`⚠️ [WorkRequirementService] Failed to dispatch update notifications for req ${reqId}:`, err);
+    if (materialChanged) {
+      // Best-effort latency optimization: trigger immediate dispatch in background without blocking the business response
+      notificationOutboxDispatcherService.triggerImmediateDispatch().catch((err: any) => {
+        console.warn(`⚠️ [WorkRequirementService] Immediate outbox dispatch failed for req ${reqId} (will retry via polling): ${err?.message || err}`);
       });
     }
 
@@ -340,48 +379,92 @@ export class WorkRequirementService {
     }
   }
 
-  private async _legacySendOpportunityAnnouncements(requirementId: string, event: any): Promise<void> {
-    try {
-      const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
-      if (!eligibleWorkerIds || eligibleWorkerIds.length === 0) {
-        return;
-      }
-
-      const req = await this.requirementRepository.findById(requirementId);
-      if (!req) return;
-
-      const eventTitle = event?.title || 'an upcoming event';
-      const reportingTimeInfo = req.reportingTime ? `Reporting time: ${req.reportingTime}.` : '';
-
-      const notificationItems = eligibleWorkerIds.map((workerId) => ({
-        recipientId: workerId,
-        type: 'work_opportunity',
-        title: 'New work opportunity',
-        message: `A new work requirement for ${req.workerType} has been published for ${eventTitle}. ${reportingTimeInfo}`.trim(),
-        resourceType: 'work_requirement',
-        resourceId: requirementId,
-        destinationRoute: '/worker',
-        deduplicationKey: `req_opp_${requirementId}_${workerId}`,
-        metadata: {
-          eventId: event?._id ? event._id.toString() : req.eventId.toString(),
-          workerType: req.workerType,
-          maxDistanceKm: req.maxDistanceKm,
-          interestDeadlineAt: req.interestDeadlineAt,
-        },
-      }));
-
-      await notificationService.createNotificationsBatch(notificationItems);
-    } catch (err: any) {
-      console.error(`⚠️ [WorkRequirementService] Announcement dispatch error for req ${requirementId}:`, err.message);
-    }
-  }
-
+  /**
+   * Cancels a work requirement atomically in a MongoDB multi-document transaction,
+   * inserting a 'requirement_cancelled' outbox event in the same transaction.
+   */
   async cancelRequirement(managerId: string, reqId: string): Promise<IWorkRequirement> {
-    return this.updateRequirement(managerId, reqId, { status: 'cancelled' });
+    if (!mongoose.Types.ObjectId.isValid(reqId)) {
+      throw ApiError.badRequest('Invalid work requirement ID format');
+    }
+
+    const eventId = `outbox_cancel_${reqId}_${Date.now()}`;
+    const session = await mongoose.startSession();
+    let updated: any = null;
+
+    try {
+      await session.withTransaction(async () => {
+        const requirement = await WorkRequirement.findById(reqId).session(session);
+        if (!requirement) {
+          throw ApiError.notFound('Work requirement not found');
+        }
+
+        await this.validateManagerOwnershipAndEventState(managerId, requirement.eventId.toString(), true);
+
+        const event = await this.eventRepository.findById(requirement.eventId.toString());
+        if (!event) {
+          throw ApiError.notFound('Event not found');
+        }
+
+        const isPast = isEventDatePassed(event.date, event.endTime);
+        if (isPast || event.status === 'completed') {
+          await this.ensureEventCompleted(event);
+          throw ApiError.badRequest('Cannot update work requirement: Event date has already passed and the event is completed.');
+        }
+
+        if (requirement.status === 'cancelled') {
+          throw ApiError.badRequest('Work requirement is already cancelled');
+        }
+        if (requirement.status === 'filled' || requirement.status === 'closed') {
+          throw ApiError.badRequest(`Cannot cancel a work requirement in '${requirement.status}' status`);
+        }
+
+        updated = await WorkRequirement.findByIdAndUpdate(
+          reqId,
+          { $set: { status: 'cancelled' } },
+          { new: true, session }
+        );
+
+        if (!updated) {
+          throw ApiError.notFound('Work requirement not found');
+        }
+
+        // Persist outbox event atomically within the same session
+        await notificationOutboxRepository.create(
+          {
+            eventId,
+            eventType: 'requirement_cancelled',
+            aggregateType: 'work_requirement',
+            aggregateId: reqId,
+            payload: {
+              requirementId: reqId,
+              cancelledAt: new Date().toISOString(),
+            },
+            status: 'pending',
+            nextAttemptAt: new Date(),
+          },
+          session
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (!updated) {
+      throw ApiError.internal('Failed to cancel work requirement');
+    }
+
+    // Best-effort latency optimization: trigger immediate dispatch in background without blocking the business response
+    notificationOutboxDispatcherService.triggerImmediateDispatch().catch((err: any) => {
+      console.warn(`⚠️ [WorkRequirementService] Immediate outbox dispatch failed for req ${reqId} (will retry via polling): ${err?.message || err}`);
+    });
+
+    return updated;
   }
 
   /**
-   * Extends the interest deadline for an incompletely staffed requirement.
+   * Extends the interest deadline for an incompletely staffed requirement within a MongoDB multi-document transaction,
+   * inserting a 'deadline_extended' outbox event atomically in the same transaction.
    *
    * Critical business rules:
    * 1. Preserves all previously selected and assigned workers.
@@ -391,84 +474,129 @@ export class WorkRequirementService {
    * 4. Appends to extensionHistory for audit integrity.
    */
   async extendDeadline(managerId: string, reqId: string, newDeadlineStr: string): Promise<IWorkRequirement> {
-    const requirement = await this.getRequirementById(managerId, reqId);
-    const event = await this.eventRepository.findById(requirement.eventId.toString());
-
-    if (requirement.status === 'cancelled' || requirement.status === 'closed') {
-      throw ApiError.badRequest(`Cannot extend deadline for a requirement in '${requirement.status}' status`);
+    if (!mongoose.Types.ObjectId.isValid(reqId)) {
+      throw ApiError.badRequest('Invalid work requirement ID format');
     }
 
-    // If event day has passed, close requirement and disallow extension
-    if (event) {
-      const isPast = isEventDatePassed(event.date, event.endTime);
-      if (isPast || event.status === 'completed') {
-        await this.ensureEventCompleted(event);
-        throw ApiError.badRequest('Cannot extend deadline: Event day has already passed and this work requirement is now closed');
-      }
-    }
-
-    // Verify existing deadline has passed
-    if (requirement.interestDeadlineAt && requirement.interestDeadlineAt.getTime() > Date.now()) {
-      throw ApiError.badRequest('Cannot extend interest deadline while the current window is still active');
-    }
-
-    // Verify requirement is incompletely staffed
-    const existingAssignedCount = requirement.assignedWorkers?.length || 0;
-    if (existingAssignedCount >= requirement.requiredCount) {
-      throw ApiError.badRequest('Work requirement is already fully staffed and cannot be extended');
-    }
-
-    // Validate new deadline
     const deadlineValidation = isValidDeadline(newDeadlineStr);
     if (!deadlineValidation.valid || !deadlineValidation.date) {
       throw ApiError.badRequest(deadlineValidation.error || 'A valid future interest deadline is required');
     }
     const newDeadline = deadlineValidation.date;
-    this.validateDeadlineBeforeEvent(newDeadline, event, requirement.reportingTime);
 
-    const remainingCount = requirement.requiredCount - existingAssignedCount;
-    const previousDeadline = requirement.interestDeadlineAt || new Date();
-    const newRound = (requirement.selectionRound || 1) + 1;
+    const session = await mongoose.startSession();
+    let updated: any = null;
+    let scheduledRound = 1;
 
-    // Preserve existing assigned workers completely!
-    const extensionEntry = {
-      previousDeadline,
-      newDeadline,
-      extendedBy: new mongoose.Types.ObjectId(managerId),
-      extendedAt: new Date(),
-      remainingCount,
-    };
+    try {
+      await session.withTransaction(async () => {
+        const requirement = await WorkRequirement.findById(reqId).session(session);
+        if (!requirement) {
+          throw ApiError.notFound('Work requirement not found');
+        }
 
-    const updated = await WorkRequirement.findByIdAndUpdate(
-      reqId,
-      {
-        $set: {
-          interestDeadlineAt: newDeadline,
-          selectionRound: newRound,
-          status: 'open',
-        },
-        $push: {
-          extensionHistory: extensionEntry,
-        },
-      },
-      { new: true }
-    );
+        await this.validateManagerOwnershipAndEventState(managerId, requirement.eventId.toString(), true);
 
-    if (!updated) {
-      throw ApiError.notFound('Work requirement not found');
+        const event = await this.eventRepository.findById(requirement.eventId.toString());
+        if (!event) {
+          throw ApiError.notFound('Event not found');
+        }
+
+        if (requirement.status === 'cancelled' || requirement.status === 'closed') {
+          throw ApiError.badRequest(`Cannot extend deadline for a requirement in '${requirement.status}' status`);
+        }
+
+        // If event day has passed, close requirement and disallow extension
+        if (event) {
+          const isPast = isEventDatePassed(event.date, event.endTime);
+          if (isPast || event.status === 'completed') {
+            await this.ensureEventCompleted(event);
+            throw ApiError.badRequest('Cannot extend deadline: Event day has already passed and this work requirement is now closed');
+          }
+        }
+
+        // Verify existing deadline has passed
+        if (requirement.interestDeadlineAt && requirement.interestDeadlineAt.getTime() > Date.now()) {
+          throw ApiError.badRequest('Cannot extend interest deadline while the current window is still active');
+        }
+
+        // Verify requirement is incompletely staffed
+        const existingAssignedCount = requirement.assignedWorkers?.length || 0;
+        if (existingAssignedCount >= requirement.requiredCount) {
+          throw ApiError.badRequest('Work requirement is already fully staffed and cannot be extended');
+        }
+
+        this.validateDeadlineBeforeEvent(newDeadline, event, requirement.reportingTime);
+
+        const remainingCount = requirement.requiredCount - existingAssignedCount;
+        const previousDeadline = requirement.interestDeadlineAt || new Date();
+        const newRound = (requirement.selectionRound || 1) + 1;
+        scheduledRound = newRound;
+
+        const eventId = `outbox_ext_${reqId}_round_${newRound}_${Date.now()}`;
+
+        // Preserve existing assigned workers completely!
+        const extensionEntry = {
+          previousDeadline,
+          newDeadline,
+          extendedBy: new mongoose.Types.ObjectId(managerId),
+          extendedAt: new Date(),
+          remainingCount,
+        };
+
+        updated = await WorkRequirement.findByIdAndUpdate(
+          reqId,
+          {
+            $set: {
+              interestDeadlineAt: newDeadline,
+              selectionRound: newRound,
+              status: 'open',
+            },
+            $push: {
+              extensionHistory: extensionEntry,
+            },
+          },
+          { new: true, session }
+        );
+
+        if (!updated) {
+          throw ApiError.notFound('Work requirement not found');
+        }
+
+        // Persist outbox event atomically within the same session
+        await notificationOutboxRepository.create(
+          {
+            eventId,
+            eventType: 'deadline_extended',
+            aggregateType: 'work_requirement',
+            aggregateId: reqId,
+            payload: {
+              requirementId: reqId,
+              selectionRound: newRound,
+              newDeadline: newDeadline.toISOString(),
+              previousDeadline: previousDeadline.toISOString(),
+              enqueuedAt: new Date().toISOString(),
+            },
+            status: 'pending',
+            nextAttemptAt: new Date(),
+          },
+          session
+        );
+      });
+    } finally {
+      await session.endSession();
     }
 
-    // Schedule BullMQ job for the new deadline
-    await workerSelectionQueueService.scheduleSelectionJob(reqId, newDeadline, newRound);
+    if (!updated) {
+      throw ApiError.internal('Failed to extend deadline');
+    }
 
-    // Enqueue deadline extension notification
-    notificationQueueService.enqueueDeadlineExtension({
-      requirementId: reqId,
-      selectionRound: newRound,
-      newDeadline: newDeadline.toISOString(),
-      previousDeadline: previousDeadline.toISOString(),
-    }).catch((err) => {
-      console.error(`⚠️ [WorkRequirementService] Failed to dispatch deadline extension notifications for req ${reqId}:`, err);
+    // Schedule BullMQ job for the new deadline outside transaction
+    await workerSelectionQueueService.scheduleSelectionJob(reqId, newDeadline, scheduledRound);
+
+    // Best-effort latency optimization: trigger immediate dispatch in background without blocking the business response
+    notificationOutboxDispatcherService.triggerImmediateDispatch().catch((err: any) => {
+      console.warn(`⚠️ [WorkRequirementService] Immediate outbox dispatch failed for req ${reqId} (will retry via polling): ${err?.message || err}`);
     });
 
     return updated;
