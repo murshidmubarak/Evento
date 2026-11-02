@@ -11,26 +11,26 @@ export interface PagedNotificationsResult {
 }
 
 export class NotificationRepository {
-  async create(data: Partial<INotification>): Promise<INotification> {
+  async create(data: Partial<INotification>, session?: mongoose.ClientSession): Promise<INotification> {
     if (data.deduplicationKey) {
-      const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey });
+      const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey }, null, { session });
       if (existing) return existing;
     }
 
     try {
       const doc = new Notification(data);
-      return await doc.save();
+      return await doc.save({ session });
     } catch (err: any) {
       // If duplicate key error on deduplicationKey (code 11000)
       if (err.code === 11000 && data.deduplicationKey) {
-        const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey });
+        const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey }, null, { session });
         if (existing) return existing;
       }
       throw err;
     }
   }
 
-  async createManySafe(records: Partial<INotification>[]): Promise<INotification[]> {
+  async createManySafe(records: Partial<INotification>[], session?: mongoose.ClientSession): Promise<INotification[]> {
     if (!records || records.length === 0) return [];
 
     // Filter out duplicates within the batch
@@ -47,7 +47,7 @@ export class NotificationRepository {
 
     try {
       // ordered: false ensures that even if one violates a unique index, others still insert
-      const inserted = await Notification.insertMany(uniqueRecords, { ordered: false });
+      const inserted = await Notification.insertMany(uniqueRecords, { ordered: false, session });
       return inserted as unknown as INotification[];
     } catch (err: any) {
       let saved: INotification[] = [];
@@ -58,7 +58,7 @@ export class NotificationRepository {
         // If all failed or other error, fallback to one-by-one safe insertion
         for (const rec of uniqueRecords) {
           try {
-            const doc = await this.create(rec);
+            const doc = await this.create(rec, session);
             saved.push(doc);
           } catch {
             // Ignore duplicate failures
@@ -76,7 +76,7 @@ export class NotificationRepository {
 
         if (missingKeys.length > 0) {
           try {
-            const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } });
+            const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } }, null, { session });
             saved.push(...existing);
           } catch {
             // Best effort

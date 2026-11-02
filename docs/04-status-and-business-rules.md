@@ -1554,3 +1554,71 @@ Notifications for Work Requirement lifecycle transitions strictly query persiste
   - Manager receives standard completion summary: `Worker selection completed for ${workerType} on ${eventTitle}. All ${requiredCount} position(s) have been filled.`
   - Type: `selection_summary`.
 - **Subsequent Selection Rounds**: Distinct rounds (`selectionRound`) produce distinct outcome notifications; prior round alerts do not block subsequent round notifications. Stale round jobs are rejected.
+
+---
+
+# 9. Web Push Notification Rules (Milestone 3)
+
+## 9.1 Purpose and Architectural Principles
+- Browser and device push notifications extend the existing persistent MongoDB notification system, Transactional Outbox, and Socket.IO real-time delivery.
+- Uses standard W3C Web Push API and VAPID (Voluntary Application Server Identification) authentication without third-party push brokers (no FCM, no OneSignal).
+- Backend is the authoritative source of truth for all push subscriptions, device associations, cryptographic payload signing, delivery attempts, and delivery state tracking.
+- Client cannot forge recipient identifiers or push payloads; public VAPID key is exposed safely via `/api/notifications/push/config`, while `VAPID_PRIVATE_KEY` remains strictly confidential on the backend.
+
+## 9.2 VAPID Configuration & Optionality
+- Centralized environment parser (`backend/src/config/env.ts`) enforces mutual inclusion: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` must either all be set or none.
+- When VAPID configuration is absent:
+  - System operates in gracefully degraded mode: `isPushConfigured() === false`.
+  - In-app persistent notifications, Transactional Outbox, and Socket.IO real-time delivery continue operating with zero disruptions.
+  - Push delivery requests are safely skipped without throwing errors or halting notification creation.
+- One-time key generation via standard Web Push CLI: `npx web-push generate-vapid-keys` (or via Node REPL / environment secret manager). Keys are generated once and never regenerated during application startup.
+
+## 9.3 Device Subscription Model & Cryptographic Security
+- Represented by `PushSubscription` model (`push_subscriptions` collection).
+- Sensitive client encryption keys (`keys.p256dh`, `keys.auth`) are marked `select: false` at schema level and automatically stripped from JSON serialization.
+- Indexed by SHA-256 endpoint hash (`endpointHash`) to enable efficient unique lookups without storing or querying against unbounded raw push service URLs.
+- Multi-device support: An authenticated user can register multiple distinct devices/browsers (e.g. desktop Chrome, mobile Android Chrome, iOS Safari PWA).
+
+## 9.4 Shared-Device and Account-Switch Protection
+- When an existing browser/device is registered by a different authenticated user:
+  - Atomic upsert reassigns device ownership to the newly authenticated `userId`.
+  - The previous user immediately loses delivery access on that device.
+  - Active subscriptions are indexed by `{ userId: 1, status: 1 }`, ensuring subsequent notification dispatches target only the current user's registered devices.
+- **Pre-dispatch Ownership Revalidation Guard**:
+  - Immediately before sending a Web Push payload, the Push Delivery Service queries the current subscription record.
+  - If `subscription.userId !== notification.recipientId`, the delivery is aborted with status `invalid_subscription`, preventing accidental notification leakage on shared workstations.
+
+## 9.5 Durable Push Delivery State Machine & Retries
+- Each notification persisted for a user generates separate, independent `PushDelivery` records for all of that user's active device subscriptions (`notification_push_deliveries` collection).
+- Compound unique index `{ notificationId: 1, subscriptionId: 1 }` guarantees idempotent intent creation.
+- Delivery status transitions:
+  - `pending`: Delivery intent recorded in MongoDB.
+  - `queued`: Claimed by dispatcher via atomic distributed lease and enqueued into BullMQ `notification-push` queue.
+  - `sending`: Active delivery in progress by worker.
+  - `sent`: Successfully accepted by the push service (HTTP 201 Created).
+  - `retry_pending`: Temporary failure (HTTP 429 Rate Limit, HTTP 5xx Server Error, network timeout). Scheduled with exponential backoff: `Math.min(5000 * 2^attempts, 300000)`.
+  - `invalid_subscription`: Permanent client failure (HTTP 404 Not Found, HTTP 410 Gone). Subscription is immediately deactivated (`status: 'inactive'`), no retries attempted.
+  - `dead_letter`: Max retry limit exhausted (default 5 attempts). Available for operational diagnosis.
+- Failure on one device does not block or fail delivery to other devices owned by the same user.
+
+## 9.6 Distributed Lease Locking & Crash Recovery
+- Bounded background polling via `PushDeliveryDispatcherService` runs inside the Unified Worker (`src/workers/pushDeliveryWorker.ts`).
+- Claims pending/retry-due deliveries using atomic `findOneAndUpdate` with instance `leaseToken` and 30-second `leaseExpiresAt`.
+- Crashed or killed workers are automatically recovered: leases expired past 30 seconds are reset to `retry_pending` on the next dispatch cycle.
+- Post-commit triggers execute immediate dispatch after notification creation, providing sub-second push delivery without waiting for poll intervals.
+
+## 9.7 Browser Service Worker & PWA Integration
+- Client Service Worker (`frontend/public/sw.js`) intercepts background push events:
+  - Parses encrypted payload `{ title, body, icon, badge, data: { url, notificationId, type } }`.
+  - Shows persistent native system notification with application branding and tag-based grouping.
+- Notification Click Handling:
+  - Focuses existing open browser tab if already matching the target URL or domain.
+  - Navigates existing tab or opens new window if not open.
+  - Validates destination URLs against internal application origin to prevent open-redirect vulnerabilities.
+  - Emits real-time postMessage `NOTIFICATION_CLICKED` to synchronize in-app notification bell and state.
+- iOS Safari Support:
+  - Requires PWA standalone mode installed via "Add to Home Screen" (`manifest.webmanifest`).
+  - In-app notification settings detect standalone state and guide iOS users to install the web app to enable push notifications.
+- Logout Device Cleanup:
+  - Authenticated logout cleans up the local browser subscription via `DELETE /api/notifications/push/subscriptions/current`, marking the backend subscription inactive.
+

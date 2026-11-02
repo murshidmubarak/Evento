@@ -9,11 +9,11 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 dotenv.config();
 
 const requiredEnvVars = [
-  'MONGODB_URI', 
-  'JWT_SECRET', 
-  'PORT', 
-  'NODE_ENV', 
-  'JWT_EXPIRES_IN', 
+  'MONGODB_URI',
+  'JWT_SECRET',
+  'PORT',
+  'NODE_ENV',
+  'JWT_EXPIRES_IN',
   'PASSWORD_RESET_EXPIRES_IN_MINS',
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
@@ -30,6 +30,19 @@ for (const key of requiredEnvVars) {
   if (!process.env[key]) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
+}
+
+// Group validation for optional VAPID Web Push credentials (Milestone 3)
+// If any VAPID variable is configured, all three must be provided.
+const vapidPublic = process.env.VAPID_PUBLIC_KEY?.trim();
+const vapidPrivate = process.env.VAPID_PRIVATE_KEY?.trim();
+const vapidSubject = process.env.VAPID_SUBJECT?.trim();
+const vapidProvidedCount = [vapidPublic, vapidPrivate, vapidSubject].filter(Boolean).length;
+
+if (vapidProvidedCount > 0 && vapidProvidedCount < 3) {
+  throw new Error(
+    'Incomplete VAPID configuration: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and VAPID_SUBJECT must all be provided together.'
+  );
 }
 
 export const env = {
@@ -85,5 +98,24 @@ export const env = {
   },
   get invitationTokenExpiresInHours(): number {
     return parseInt(process.env.INVITATION_TOKEN_EXPIRES_IN_HOURS || '24', 10);
+  },
+  // VAPID Web Push 
+  vapid: {
+    get isConfigured(): boolean {
+      return !!(
+        process.env.VAPID_PUBLIC_KEY?.trim() &&
+        process.env.VAPID_PRIVATE_KEY?.trim() &&
+        process.env.VAPID_SUBJECT?.trim()
+      );
+    },
+    get publicKey(): string | null {
+      return process.env.VAPID_PUBLIC_KEY?.trim() || null;
+    },
+    get privateKey(): string | null {
+      return process.env.VAPID_PRIVATE_KEY?.trim() || null;
+    },
+    get subject(): string | null {
+      return process.env.VAPID_SUBJECT?.trim() || null;
+    },
   },
 } as const;

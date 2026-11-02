@@ -3,6 +3,9 @@ import { NotificationRepository, type PagedNotificationsResult } from '../reposi
 import { notificationTransport } from '../../../sockets/notification-transport.js';
 import type { INotification } from '../model/notification.model.js';
 import { ApiError } from '../../../utils/ApiError.js';
+import { pushSubscriptionRepository } from '../repository/push-subscription.repository.js';
+import { pushDeliveryRepository } from '../repository/push-delivery.repository.js';
+import { pushDeliveryDispatcherService } from './push-delivery-dispatcher.service.js';
 
 export interface CreateNotificationInput {
   recipientId: string;
@@ -39,7 +42,10 @@ export class NotificationService {
   /**
    * Internal trusted method to create and persist a notification, followed by real-time dispatch.
    */
-  async createNotification(input: CreateNotificationInput): Promise<INotification | null> {
+  async createNotification(
+    input: CreateNotificationInput,
+    session?: mongoose.ClientSession
+  ): Promise<INotification | null> {
     if (!input.recipientId || !mongoose.Types.ObjectId.isValid(input.recipientId)) {
       console.warn('⚠️ [NotificationService] Invalid recipientId format:', input.recipientId);
       return null;
@@ -70,9 +76,22 @@ export class NotificationService {
 
     try {
       // 1. Persist to MongoDB (source of truth)
-      const persisted = await this.repository.create(docData);
+      const persisted = await this.repository.create(docData, session);
 
-      // 2. Attempt real-time delivery (transport errors are caught internally)
+      // 2. Persist durable push delivery intents for active device subscriptions
+      try {
+        const subscriptions = await pushSubscriptionRepository.findActiveByUserId(input.recipientId);
+        if (subscriptions.length > 0) {
+          await pushDeliveryRepository.createIntentsForNotification(persisted, subscriptions, session);
+          setImmediate(() => {
+            pushDeliveryDispatcherService.triggerDispatch().catch(() => {});
+          });
+        }
+      } catch (pushErr: any) {
+        console.warn('⚠️ [NotificationService] Could not persist push delivery intents:', pushErr.message);
+      }
+
+      // 3. Attempt real-time delivery (transport errors are caught internally)
       await notificationTransport.sendNotification(input.recipientId, {
         _id: persisted._id,
         recipientId: persisted.recipientId,
@@ -96,7 +115,11 @@ export class NotificationService {
   /**
    * Creates notifications in bounded batches for broadcasting to multiple recipients (e.g. Work Requirement announcements).
    */
-  async createNotificationsBatch(inputs: CreateNotificationInput[], batchSize = 50): Promise<INotification[]> {
+  async createNotificationsBatch(
+    inputs: CreateNotificationInput[],
+    batchSize = 50,
+    session?: mongoose.ClientSession
+  ): Promise<INotification[]> {
     if (!inputs || inputs.length === 0) return [];
 
     const validRecords: Partial<INotification>[] = [];
@@ -124,8 +147,23 @@ export class NotificationService {
     for (let i = 0; i < validRecords.length; i += batchSize) {
       const chunk = validRecords.slice(i, i + batchSize);
       try {
-        const savedBatch = await this.repository.createManySafe(chunk);
+        const savedBatch = await this.repository.createManySafe(chunk, session);
         allSaved.push(...savedBatch);
+
+        // Persist durable push delivery intents for each recipient's active devices
+        for (const doc of savedBatch) {
+          try {
+            const subs = await pushSubscriptionRepository.findActiveByUserId(doc.recipientId);
+            if (subs.length > 0) {
+              await pushDeliveryRepository.createIntentsForNotification(doc, subs, session);
+            }
+          } catch (pushErr: any) {
+            console.warn('⚠️ [NotificationService] Batch push intent creation warning:', pushErr.message);
+          }
+        }
+        setImmediate(() => {
+          pushDeliveryDispatcherService.triggerDispatch().catch(() => {});
+        });
 
         // Dispatch real-time events for this batch
         for (const doc of savedBatch) {

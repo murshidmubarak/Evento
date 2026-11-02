@@ -1275,3 +1275,83 @@ Resolved the three targeted reliability and test harness issues identified durin
 - Notification Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
 - Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
 - Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+
+---
+
+### [Notification Milestone 3 — Web Push API + VAPID + Service Workers + BullMQ]
+**Date:** 2026-10-31
+**Impact Classification:** Medium (Adds dedicated Web Push capability, new device subscription and push delivery collections, separate BullMQ push queue, and frontend Service Worker integration without altering existing business models, database records, Transactional Outbox, or Socket.IO real-time channels)
+
+**Description:**
+Implemented complete browser and device push notification system for EventOps ERP across three verified stages:
+1. **Part 3A — Device Subscription Management & VAPID**:
+   - Integrated `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in `backend/src/config/env.ts` with mutual inclusion validation and graceful optional degradation when unconfigured.
+   - VAPID keys generated via standard Web Push CLI (`npx web-push generate-vapid-keys`).
+   - Created `PushSubscription` model with SHA-256 `endpointHash` unique index, `{ userId: 1, status: 1 }` index, and sensitive encryption keys (`p256dh`, `auth`) marked `select: false` and stripped in `toJSON()`.
+   - Created `PushSubscriptionRepository` with atomic upsert and shared-device handover logic.
+   - Built secure REST APIs: `GET /api/notifications/push/config`, `POST /api/notifications/push/subscriptions`, `GET /api/notifications/push/subscriptions`, `DELETE /api/notifications/push/subscriptions/current`, and `DELETE /api/notifications/push/subscriptions/:id`.
+2. **Part 3B — Background Push Delivery & BullMQ**:
+   - Created durable `PushDelivery` per-device intent model with compound unique index `{ notificationId: 1, subscriptionId: 1 }`, status state machine (`pending`, `queued`, `sending`, `sent`, `retry_pending`, `invalid_subscription`, `dead_letter`), `dispatchGeneration`, and lease tracking.
+   - Created `PushDeliveryRepository` with atomic lease claiming (`claimDueDeliveries`), lease recovery, and state transitions.
+   - Created dedicated BullMQ queue `notification-push` with concurrency 5, isolated from domain queues.
+   - Created `PushDeliveryService` with standard Web Push payload encryption, VAPID signing, provider response handling (HTTP 201 sent, 404/410 deactivation, 429/5xx exponential backoff, dead-letter transitions), and pre-dispatch shared-device ownership revalidation guard.
+   - Created `PushDeliveryDispatcherService` with distributed lease locking, lease recovery, and post-commit immediate dispatch triggers.
+   - Extended `NotificationService` to automatically persist `PushDelivery` intents for all active subscriptions of the recipient upon notification creation.
+   - Registered `PushDeliveryWorker` as Worker #5 and `PushDeliveryDispatcher` as Worker #6 in `backend/src/workers/worker.ts` with coordinated reverse-order shutdown.
+3. **Part 3C — Browser Service Worker & PWA Integration**:
+   - Created PWA Web Manifest (`frontend/public/manifest.webmanifest`) and linked in `index.html` with mobile metadata.
+   - Created Service Worker (`frontend/public/sw.js`) handling background `push` events with app branding and `notificationclick` navigation with origin verification.
+   - Built client push subscription service (`frontend/src/services/pushSubscriptionService.ts`) with browser detection, permission requesting, VAPID public key conversion, registration, and logout cleanup.
+   - Integrated logout device deactivation in `frontend/src/features/auth/authSlice.ts`.
+   - Built reusable notification preferences modal (`frontend/src/components/common/NotificationSettingsModal.tsx`) with permission status, enable/disable toggle, registered devices list, device removal, and iOS Home Screen guidance.
+   - Integrated settings modal and Service Worker postMessage navigation listener in `NotificationBell.tsx`.
+
+**Components & Files Changed:**
+- Backend:
+  - `backend/src/config/env.ts`
+  - `backend/src/modules/notifications/model/push-subscription.model.ts`
+  - `backend/src/modules/notifications/model/push-delivery.model.ts`
+  - `backend/src/modules/notifications/repository/push-subscription.repository.ts`
+  - `backend/src/modules/notifications/repository/push-delivery.repository.ts`
+  - `backend/src/modules/notifications/repository/notification.repository.ts`
+  - `backend/src/modules/notifications/service/push-subscription.service.ts`
+  - `backend/src/modules/notifications/service/push-delivery.service.ts`
+  - `backend/src/modules/notifications/service/push-delivery-dispatcher.service.ts`
+  - `backend/src/modules/notifications/service/notification.service.ts`
+  - `backend/src/modules/notifications/controller/push-subscription.controller.ts`
+  - `backend/src/modules/notifications/routes/notification.routes.ts`
+  - `backend/src/modules/notifications/queues/push-delivery.queue.ts`
+  - `backend/src/workers/pushDeliveryWorker.ts`
+  - `backend/src/workers/worker.ts`
+  - `backend/tests/pushSubscription.test.ts`
+  - `backend/tests/pushDelivery.test.ts`
+  - `backend/tests/unifiedWorker.test.ts`
+  - `backend/tests/notificationQueue.test.ts`
+- Frontend:
+  - `frontend/public/manifest.webmanifest`
+  - `frontend/public/sw.js`
+  - `frontend/index.html`
+  - `frontend/src/services/pushSubscriptionService.ts`
+  - `frontend/src/features/auth/authSlice.ts`
+  - `frontend/src/components/common/NotificationSettingsModal.tsx`
+  - `frontend/src/components/common/NotificationBell.tsx`
+  - `frontend/src/tests/pushSubscriptionUI.test.tsx`
+- Documentation:
+  - `docs/04-status-and-business-rules.md`
+  - `docs/05-api-design.md`
+  - `docs/06-architecture.md`
+  - `docs/09-change-impact-log.md`
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Push Subscription Test Suite (`backend/tests/pushSubscription.test.ts`): 13/13 passed (100%), exit code 0.
+- Push Delivery Test Suite (`backend/tests/pushDelivery.test.ts`): 14/14 passed (100%), exit code 0.
+- Unified Worker Test Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Outbox Reliability Suite (`backend/tests/notificationOutbox.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Milestone 2 Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Core Notification Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Frontend Test Suite (`npm test`): 94/94 passed across 17 test files (100%), exit code 0.
+- Frontend Production Build (`npm run build`): compiled cleanly in 9.66s, exit code 0.
+

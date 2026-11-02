@@ -23,7 +23,9 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
+import { NotificationSettingsModal } from './NotificationSettingsModal';
 
 export const formatTimeAgo = (timestamp?: string): string => {
   if (!timestamp) return '';
@@ -81,7 +83,22 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ className = 
 
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Listen for Service Worker navigation messages
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_TO_ROUTE' && event.data?.route) {
+        navigate(event.data.route);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [navigate]);
 
   // Initialize Socket.IO connection and initial load
   useEffect(() => {
@@ -183,6 +200,20 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ className = 
               >
                 <CheckCheck size={14} />
                 <span>Mark all read</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  setShowSettingsModal(true);
+                }}
+                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                title="Notification Preferences"
+                aria-label="Notification Preferences"
+                data-testid="notification-preferences-btn"
+              >
+                <Settings size={15} />
               </button>
             </div>
           </div>
@@ -321,6 +352,11 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ className = 
           )}
         </div>
       )}
+      {/* Notification Preferences Modal */}
+      <NotificationSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+      />
     </div>
   );
 };

@@ -1625,3 +1625,91 @@ Update WorkRequirement Doc              Insert NotificationOutbox Doc
    - `redriveDeadLetter(eventId)` resets `status: 'pending'`, `attempts: 0`, and increments `dispatchGeneration`.
 6. **Unified Worker Integration**:
    - Registered as worker #4 in `src/workers/worker.ts`, running bounded background polling and clean reverse-order shutdown on SIGTERM/SIGINT.
+
+---
+
+## 21. Web Push Notification Architecture (Milestone 3)
+
+### Push Notification Flow
+
+```text
+Domain Event / Notification Creation (e.g. Work Requirement, Payment, Quotation)
+                          │
+                          ▼
+        Notification Service (`createNotification` / `createNotificationsBatch`)
+                          │
+                          ├───────────────────────────────────────────┐
+                          │                                           │
+                          ▼                                           ▼
+             MongoDB `notifications`                    Find Active `PushSubscription`s
+             (Durable persistent record)                for recipient user
+                          │                                           │
+                          ▼                                           ▼
+             Socket.IO Real-time Emit                   Persist Durable `PushDelivery`
+             (via Redis pub/sub)                        (status: 'pending', compound unique index)
+                                                                      │
+                                                                      ▼
+                                                        Immediate Dispatch Trigger / Polling
+                                                                      │
+                                                                      ▼
+                                                        Push Delivery Dispatcher
+                                                        (Atomic lease lock on MongoDB)
+                                                                      │
+                                                                      ▼
+                                                        Enqueue to BullMQ `notification-push`
+                                                        (Job: push-delivery, Concurrency: 5)
+                                                                      │
+                                                                      ▼
+                                                        Push Delivery Worker
+                                                        (Pre-dispatch device ownership check)
+                                                                      │
+                                                                      ▼
+                                                        Sign VAPID JWT + Web Push Payload
+                                                        (web-push -> Push Service Provider)
+                                                                      │
+                                       ┌──────────────────────────────┴──────────────────────────────┐
+                                       │                                                             │
+                                HTTP 201 Created                                             HTTP 410 / 404 / 429
+                                       │                                                             │
+                                       ▼                                                             ▼
+                               Mark `sent`                                              Deactivate subscription (410)
+                               Update `lastSuccessfulDeliveryAt`                        or Exponential Backoff (429/5xx)
+                                       │
+                                       ▼
+                             Browser Service Worker
+                             (event: 'push' -> showNotification)
+                                       │
+                                       ▼
+                             User Clicks Notification
+                             (event: 'notificationclick' -> focus/open tab -> postMessage)
+```
+
+### Architectural Components
+1. **PushSubscription Model (`backend/src/modules/notifications/model/push-subscription.model.ts`)**:
+   - Stores device endpoint, encryption keys (`p256dh`, `auth`), browser/OS metadata, and delivery timestamps.
+   - Cryptographic secrecy: `p256dh` and `auth` keys use `select: false` and are omitted from serialized output.
+   - Endpoint lookups use a unique SHA-256 hash index (`endpointHash`).
+   - Supports multi-device registration per user and automatic shared-device ownership handover.
+
+2. **Durable PushDelivery Model (`backend/src/modules/notifications/model/push-delivery.model.ts`)**:
+   - Stores per-device delivery intent with compound unique index `{ notificationId: 1, subscriptionId: 1 }`.
+   - Tracks state machine: `pending` -> `queued` -> `sending` -> `sent` / `retry_pending` / `invalid_subscription` / `dead_letter`.
+   - Isolates delivery failure so a failure on one device does not affect delivery to other devices of the same user.
+
+3. **Dedicated BullMQ Queue (`notification-push`)**:
+   - Independent queue with concurrency 5, isolated from `notification-processing` to prevent push delivery latency from stalling domain notification processing.
+   - Comprehensive error handling: HTTP 404/410 permanently invalidates the device, HTTP 429/5xx applies exponential backoff, and 5 failed attempts transition to `dead_letter`.
+
+4. **Distributed Lease Locking Dispatcher (`PushDeliveryDispatcherService`)**:
+   - Uses atomic `findOneAndUpdate` with instance-unique `leaseToken` and 30-second `leaseExpiresAt` to prevent duplicate concurrent enqueuing across multi-instance clusters.
+   - Automatically recovers expired leases from crashed nodes.
+
+5. **Unified Background Worker Integration**:
+   - Registered as Worker #5 (`Push Delivery Worker`) and Worker #6 (`Push Delivery Dispatcher`) in `src/workers/worker.ts`.
+   - Orchestrated lifecycle with graceful, reverse-order shutdown on SIGTERM/SIGINT.
+
+6. **Browser Service Worker & PWA (`frontend/public/sw.js`)**:
+   - Implements native background push listener and notification click handler.
+   - Deep links directly to relevant in-app views with internal origin validation.
+   - Communicates with open tabs via `BroadcastChannel` / `postMessage` to update UI notification counts in real time.
+

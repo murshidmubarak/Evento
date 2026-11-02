@@ -3303,3 +3303,152 @@ The notification type enum has been extended with four dedicated lifecycle and s
     }
   }
   ```
+
+---
+
+# 17. Web Push Notification APIs (Milestone 3)
+
+## 17.1 Get Public Push Configuration
+**Endpoint**: `GET /api/notifications/push/config`  
+**Access**: Authenticated / Public Safe  
+**Purpose**: Retrieve VAPID public key and application server push availability status. Private key is strictly retained on backend.
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "publicKey": "BNcQ0...safe_base64_vapid_public_key...",
+    "applicationServerKey": "BNcQ0...safe_base64_vapid_public_key..."
+  }
+}
+```
+
+When VAPID credentials are not configured on the server:
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": false,
+    "publicKey": null,
+    "applicationServerKey": null
+  }
+}
+```
+
+---
+
+## 17.2 Register / Update Push Subscription
+**Endpoint**: `POST /api/notifications/push/subscriptions`  
+**Access**: Authenticated (All 4 roles: `admin`, `client`, `event_manager`, `worker`)  
+**Purpose**: Register or update a browser push subscription for the authenticated user. Performs atomic upsert and shared-device reassignment.
+
+### Request Body
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/dK9...",
+  "keys": {
+    "p256dh": "BNcQ0...client_curve_public_key...",
+    "auth": "A9x..."
+  },
+  "device": {
+    "browser": "Chrome",
+    "os": "Windows",
+    "deviceType": "desktop"
+  },
+  "label": "Work Laptop"
+}
+```
+
+### Response `201 Created`
+```json
+{
+  "success": true,
+  "data": {
+    "id": "6724a1b2c3d4e5f6a7b8c9d0",
+    "status": "active",
+    "device": {
+      "browser": "Chrome",
+      "os": "Windows",
+      "deviceType": "desktop"
+    },
+    "label": "Work Laptop",
+    "createdAt": "2026-10-31T12:00:00.000Z",
+    "lastUsedAt": "2026-10-31T12:00:00.000Z"
+  }
+}
+```
+
+### Error Responses
+- `400 Bad Request`: Missing or invalid endpoint, p256dh key, or auth secret.
+- `401 Unauthorized`: Missing or invalid authentication token.
+
+---
+
+## 17.3 List Authenticated User's Subscribed Devices
+**Endpoint**: `GET /api/notifications/push/subscriptions`  
+**Access**: Authenticated  
+**Purpose**: Retrieve metadata for all active push devices registered by the caller. Sensitive keys (`p256dh`, `auth`) and raw endpoints are excluded.
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "6724a1b2c3d4e5f6a7b8c9d0",
+      "device": {
+        "browser": "Chrome",
+        "os": "Windows",
+        "deviceType": "desktop"
+      },
+      "label": "Work Laptop",
+      "status": "active",
+      "createdAt": "2026-10-31T12:00:00.000Z",
+      "lastUsedAt": "2026-10-31T12:30:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## 17.4 Unsubscribe Current Browser Device (Logout / Toggle Off)
+**Endpoint**: `DELETE /api/notifications/push/subscriptions/current`  
+**Access**: Authenticated  
+**Purpose**: Deactivate the browser push subscription currently being used by the caller upon logout or disabling notifications.
+
+### Request Body
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/dK9..."
+}
+```
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Push subscription deactivated successfully."
+}
+```
+
+---
+
+## 17.5 Delete Specific Device Subscription by ID
+**Endpoint**: `DELETE /api/notifications/push/subscriptions/:id`  
+**Access**: Authenticated (Enforces ownership: caller can only delete their own registered devices)  
+**Purpose**: Remove an existing device registration from user profile settings.
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Push subscription removed successfully."
+}
+```
+
+### Error Responses
+- `404 Not Found`: Device not found or does not belong to authenticated user (prevents cross-user ID enumeration/deletion).
+

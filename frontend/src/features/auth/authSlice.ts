@@ -5,6 +5,7 @@ import { getStoredToken, setStoredToken, removeStoredToken } from '../../utils/l
 import { AxiosError } from 'axios';
 import { disconnectSocket } from '../../services/socketClient';
 import { clearNotifications } from '../notifications/notificationSlice';
+import { pushSubscriptionService } from '../../services/pushSubscriptionService';
 
 const initialState: AuthState = {
   user: null,
@@ -82,6 +83,9 @@ export const logout = createAsyncThunk<void, void, { rejectValue: string }>(
   'auth/logout',
   async (_, { dispatch }) => {
     try {
+      // 1. Unsubscribe local browser device push subscription & notify server before session invalidation
+      await pushSubscriptionService.handleLogoutCleanup().catch(() => {});
+      // 2. Call backend logout API
       await apiClient.post('/auth/logout');
     } catch (err) {
       console.error('Logout API failed, continuing local logout', err);
@@ -108,6 +112,7 @@ const authSlice = createSlice({
       state.error = null;
       removeStoredToken();
       disconnectSocket();
+      pushSubscriptionService.handleLogoutCleanup().catch(() => {});
     },
     setUserLocation: (
       state,

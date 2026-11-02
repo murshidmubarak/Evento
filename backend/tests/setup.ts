@@ -17,6 +17,9 @@ process.env.FRONTEND_URL = 'http://localhost:5173';
 process.env.SMTP_USER = '';
 process.env.SMTP_PASS = '';
 process.env.REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+process.env.VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BIaICaseh43MKa_Pkb_OINZJyM730gvSbwszYaDU8boCtpRg7t4FEnGsyflgeYP7IM7Qtaxo29paan_gPwoUZAQ';
+process.env.VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'PCl3l7uWN5dAeeoZ_9QgaXQB34dyf-08rYNphRxmXbg';
+process.env.VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@eventops.com';
 
 // ISOLATE TEST DATABASE:
 // Ensure tests always run against eventops_test so that test cleanup

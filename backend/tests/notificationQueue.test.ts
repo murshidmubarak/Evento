@@ -180,15 +180,17 @@ describe('Dedicated BullMQ Notification Queue & Unified Worker Processing', () =
       );
     });
 
-    it('2. UnifiedWorker orchestrator registers Notification Worker as default worker #3 and Outbox Dispatcher as #4', () => {
+    it('2. UnifiedWorker orchestrator registers Notification Worker as default worker #3, Outbox Dispatcher as #4, Push Worker as #5, and Push Dispatcher as #6', () => {
       const unifiedWorker = new UnifiedWorker();
       const registrations = unifiedWorker.getRegisteredWorkers();
 
-      assert.strictEqual(registrations.length, 4, 'Must have 4 default workers registered');
+      assert.strictEqual(registrations.length, 6, 'Must have 6 default workers registered');
       assert.strictEqual(registrations[0].name, 'Payment Reminder Worker');
       assert.strictEqual(registrations[1].name, 'Worker Selection Worker');
       assert.strictEqual(registrations[2].name, 'Notification Worker');
       assert.strictEqual(registrations[3].name, 'Notification Outbox Dispatcher');
+      assert.strictEqual(registrations[4].name, 'Push Delivery Worker');
+      assert.strictEqual(registrations[5].name, 'Push Delivery Dispatcher');
     });
 
     it('3. startNotificationWorker() returns active handle and cleanly closes', async () => {

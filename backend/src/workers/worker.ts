@@ -29,6 +29,8 @@ import '../modules/work-requirements/model/work-requirement.model.js';
 import '../modules/work-requirements/model/work-response.model.js';
 import '../modules/notifications/model/notification.model.js';
 import '../modules/notifications/model/notification-outbox.model.js';
+import '../modules/notifications/model/push-subscription.model.js';
+import '../modules/notifications/model/push-delivery.model.js';
 
 import {
   startPaymentReminderWorker,
@@ -43,6 +45,8 @@ import {
   NotificationWorkerHandle,
 } from './notificationWorker.js';
 import { notificationOutboxDispatcherService } from '../modules/notifications/service/notification-outbox-dispatcher.service.js';
+import { startPushDeliveryWorker } from './pushDeliveryWorker.js';
+import { pushDeliveryDispatcherService } from '../modules/notifications/service/push-delivery-dispatcher.service.js';
 
 export interface BackgroundWorkerHandle {
   name: string;
@@ -70,18 +74,35 @@ export async function startNotificationOutboxDispatcher(): Promise<BackgroundWor
 }
 
 /**
+ * Explicit starter for the Web Push Delivery Dispatcher (Milestone 3).
+ */
+export async function startPushDeliveryDispatcher(): Promise<BackgroundWorkerHandle> {
+  pushDeliveryDispatcherService.start();
+  return {
+    name: 'Push Delivery Dispatcher',
+    close: async () => {
+      await pushDeliveryDispatcherService.stop();
+    },
+  };
+}
+
+/**
  * Standard registry of background workers started by the Unified Worker.
- * Starts all four independent workloads:
+ * Starts all six independent workloads:
  * 1. Payment Reminder worker (payment-reminder-scan, payment-reminder-email)
  * 2. Worker Selection worker (worker-selection)
  * 3. Notification worker (notification-processing)
  * 4. Notification Outbox Dispatcher (transactional outbox recovery & polling)
+ * 5. Push Delivery Worker (notification-push)
+ * 6. Push Delivery Dispatcher (push delivery intent claiming & polling)
  */
 export const defaultWorkerRegistrations: RegisteredWorker[] = [
   { name: 'Payment Reminder Worker', start: startPaymentReminderWorker },
   { name: 'Worker Selection Worker', start: startWorkerSelectionWorker },
   { name: 'Notification Worker', start: startNotificationWorker },
   { name: 'Notification Outbox Dispatcher', start: startNotificationOutboxDispatcher },
+  { name: 'Push Delivery Worker', start: startPushDeliveryWorker },
+  { name: 'Push Delivery Dispatcher', start: startPushDeliveryDispatcher },
 ];
 
 export class UnifiedWorker {

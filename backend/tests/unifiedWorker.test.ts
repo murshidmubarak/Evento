@@ -51,19 +51,23 @@ describe('Unified Background Worker Architecture', () => {
     }
   });
 
-  it('1. Default registration includes Payment Reminder, Worker Selection, and Notification workers', () => {
+  it('1. Default registration includes Payment Reminder, Worker Selection, Notification, Outbox, and Push workers', () => {
     const worker = new UnifiedWorker();
     const registrations = worker.getRegisteredWorkers();
 
-    assert.equal(registrations.length, 4, 'Must have exactly 4 registered workers by default');
+    assert.equal(registrations.length, 6, 'Must have exactly 6 registered workers by default');
     assert.equal(registrations[0].name, 'Payment Reminder Worker');
     assert.equal(registrations[1].name, 'Worker Selection Worker');
     assert.equal(registrations[2].name, 'Notification Worker');
     assert.equal(registrations[3].name, 'Notification Outbox Dispatcher');
+    assert.equal(registrations[4].name, 'Push Delivery Worker');
+    assert.equal(registrations[5].name, 'Push Delivery Dispatcher');
     assert.equal(typeof registrations[0].start, 'function');
     assert.equal(typeof registrations[1].start, 'function');
     assert.equal(typeof registrations[2].start, 'function');
     assert.equal(typeof registrations[3].start, 'function');
+    assert.equal(typeof registrations[4].start, 'function');
+    assert.equal(typeof registrations[5].start, 'function');
   });
 
   it('2. Extensibility: Can register a future worker (e.g. Audit Worker) before startup', () => {
