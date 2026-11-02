@@ -11,6 +11,7 @@ import { notificationQueueService } from '../../notifications/queues/notificatio
 import { notificationOutboxRepository } from '../../notifications/repository/notification-outbox.repository.js';
 import { notificationOutboxDispatcherService } from '../../notifications/service/notification-outbox-dispatcher.service.js';
 import mongoose from 'mongoose';
+import crypto from 'node:crypto';
 
 export class WorkRequirementService {
   private requirementRepository: WorkRequirementRepository;
@@ -177,7 +178,7 @@ export class WorkRequirementService {
       return this.cancelRequirement(managerId, reqId);
     }
 
-    const eventId = `outbox_upd_${reqId}_${Date.now()}`;
+    const eventId = `outbox_upd_${reqId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const session = await mongoose.startSession();
     let updated: any = null;
     let materialChanged = false;
@@ -388,7 +389,7 @@ export class WorkRequirementService {
       throw ApiError.badRequest('Invalid work requirement ID format');
     }
 
-    const eventId = `outbox_cancel_${reqId}_${Date.now()}`;
+    const eventId = `outbox_cancel_${reqId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const session = await mongoose.startSession();
     let updated: any = null;
 
@@ -533,7 +534,7 @@ export class WorkRequirementService {
         const newRound = (requirement.selectionRound || 1) + 1;
         scheduledRound = newRound;
 
-        const eventId = `outbox_ext_${reqId}_round_${newRound}_${Date.now()}`;
+        const eventId = `outbox_ext_${reqId}_round_${newRound}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
         // Preserve existing assigned workers completely!
         const extensionEntry = {
