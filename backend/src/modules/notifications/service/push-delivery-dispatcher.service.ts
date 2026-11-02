@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { env } from '../../../config/env.js';
 import {
   PushDeliveryRepository,
   pushDeliveryRepository,
@@ -120,7 +121,12 @@ export class PushDeliveryDispatcherService {
         // 1. Recover stale leases
         await this.deliveryRepo.recoverExpiredLeases();
 
-        // 2. Claim batch of due deliveries
+        // 2. Pause dispatching if VAPID is unconfigured on server (unless mock/test mode is active)
+        if (!env.vapid.isConfigured && !this.queueService.getIsMockMode()) {
+          return 0;
+        }
+
+        // 3. Claim batch of due deliveries
         const claimed = await this.deliveryRepo.claimDueDeliveries(
           this.batchSize,
           this.dispatcherId,

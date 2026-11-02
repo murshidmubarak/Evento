@@ -65,6 +65,10 @@ export class PushDeliveryQueueService {
     this.isMockMode = enabled;
   }
 
+  public getIsMockMode(): boolean {
+    return this.isMockMode;
+  }
+
   public setAutoProcessInMock(enabled: boolean): void {
     this.autoProcessInMock = enabled;
   }

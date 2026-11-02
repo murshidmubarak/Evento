@@ -162,12 +162,31 @@ export class PushDeliveryService {
     if (!this.vapidConfigured && !this.mockSender) {
       this.initVapid();
       if (!this.vapidConfigured) {
-        await this.deliveryRepo.markDeadLetter(
-          delivery._id,
-          'configuration',
-          'VAPID credentials are not configured on server'
-        );
-        return this.deliveryRepo.findById(deliveryId);
+        if (!env.vapid.isConfigured) {
+          // Missing application configuration:
+          // Safely pause delivery in pending state without exhausting attemptCount or deactivating the subscription.
+          // When valid configuration becomes available, pending deliveries are recoverable without duplicate records.
+          console.warn(
+            `⏸️ [PushDelivery] VAPID credentials not configured on server. Pausing delivery ${delivery._id}.`
+          );
+          await this.deliveryRepo.markConfigurationPending(
+            delivery._id,
+            'VAPID credentials are not configured on server'
+          );
+          return this.deliveryRepo.findById(deliveryId);
+        } else {
+          // Invalid VAPID credentials provided on server (malformed keys / failed initialization):
+          // Move to dead_letter with 'configuration' category (do NOT deactivate the user's PushSubscription)
+          console.error(
+            `❌ [PushDelivery] Invalid VAPID credentials provided on server for delivery ${delivery._id}.`
+          );
+          await this.deliveryRepo.markDeadLetter(
+            delivery._id,
+            'configuration',
+            'Invalid VAPID credentials provided on server'
+          );
+          return this.deliveryRepo.findById(deliveryId);
+        }
       }
     }
 
@@ -211,6 +230,16 @@ export class PushDeliveryService {
         await this.deliveryRepo.markInvalidSubscription(
           delivery._id,
           `Push service rejected: HTTP ${statusCode}`
+        );
+      }
+      // VAPID authorization failure (HTTP 401 Unauthorized / 403 Forbidden from Push Service)
+      else if (statusCode === 401 || statusCode === 403) {
+        console.error(`❌ [PushDelivery] VAPID authentication rejected by push service (HTTP ${statusCode}): ${errorMessage}`);
+        // Mark delivery dead_letter with 'configuration' category without deactivating user's device subscription
+        await this.deliveryRepo.markDeadLetter(
+          delivery._id,
+          'configuration',
+          `VAPID authentication rejected by push service: HTTP ${statusCode} (${errorMessage})`
         );
       }
       // Temporary errors: HTTP 429 (rate limit), 5xx (server error), network timeouts

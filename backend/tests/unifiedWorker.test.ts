@@ -6,23 +6,15 @@ import { connectDB } from '../src/config/db.js';
 import { env } from '../src/config/env.js';
 import {
   UnifiedWorker,
-  BackgroundWorkerHandle,
-  RegisteredWorker,
-  defaultWorkerRegistrations,
-  startUnifiedWorker,
-  stopUnifiedWorker,
-} from '../src/workers/worker.js';
+  BackgroundWorkerHandle} from '../src/workers/worker.js';
 import {
-  startPaymentReminderWorker,
-  PaymentReminderWorkerHandle,
+  startPaymentReminderWorker
 } from '../src/workers/paymentReminderWorker.js';
 import {
-  startWorkerSelectionWorker,
-  WorkerSelectionWorkerHandle,
+  startWorkerSelectionWorker
 } from '../src/workers/workerSelectionWorker.js';
 import {
-  startNotificationWorker,
-  NotificationWorkerHandle,
+  startNotificationWorker
 } from '../src/workers/notificationWorker.js';
 import { paymentReminderQueueService } from '../src/modules/payments/queues/payment-reminder.queue.js';
 import { workerSelectionQueueService } from '../src/modules/worker-selection/queues/worker-selection.queue.js';
@@ -89,8 +81,16 @@ describe('Unified Background Worker Architecture', () => {
     });
 
     const registrations = worker.getRegisteredWorkers();
-    assert.equal(registrations.length, 5, 'Must have 5 registered workers after addition');
-    assert.equal(registrations[4].name, 'Audit Worker');
+    assert.equal(registrations.length, 7, 'Must have 7 registered workers after addition (6 default + 1 added)');
+    const workerNames = registrations.map((r) => r.name);
+    assert.ok(workerNames.includes('Payment Reminder Worker'), 'Must include Payment Reminder Worker');
+    assert.ok(workerNames.includes('Worker Selection Worker'), 'Must include Worker Selection Worker');
+    assert.ok(workerNames.includes('Notification Worker'), 'Must include Notification Worker');
+    assert.ok(workerNames.includes('Notification Outbox Dispatcher'), 'Must include Notification Outbox Dispatcher');
+    assert.ok(workerNames.includes('Push Delivery Worker'), 'Must include Push Delivery Worker');
+    assert.ok(workerNames.includes('Push Delivery Dispatcher'), 'Must include Push Delivery Dispatcher');
+    assert.ok(workerNames.includes('Audit Worker'), 'Must include Audit Worker');
+    assert.equal(registrations[registrations.length - 1].name, 'Audit Worker');
   });
 
   it('3. Throws when attempting to register a worker after startup has occurred', async () => {

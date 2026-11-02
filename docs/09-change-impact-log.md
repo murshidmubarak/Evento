@@ -1355,3 +1355,19 @@ Implemented complete browser and device push notification system for EventOps ER
 - Frontend Test Suite (`npm test`): 94/94 passed across 17 test files (100%), exit code 0.
 - Frontend Production Build (`npm run build`): compiled cleanly in 9.66s, exit code 0.
 
+---
+
+### [Notification Milestone 3 Final Fixes — Unified Worker Test, Missing VAPID Handling & Documentation]
+**Impact Classification:** Low (Targeted improvements to worker test assertions, VAPID generation script, unconfigured VAPID pause mechanics, shared-device verification, and staging documentation without modifying business logic or API contracts)
+
+**Affected Modules & Files:**
+- `backend/tests/unifiedWorker.test.ts`: Updated worker count assertion from 5 to 7 to match registered default workers plus experimental worker; asserted all 7 worker names explicitly.
+- `backend/package.json`: Added `"vapid:generate": "web-push generate-vapid-keys"` script.
+- `backend/.env.example`: Clarified VAPID generation documentation (`npm run vapid:generate` or `npx web-push generate-vapid-keys`).
+- `backend/src/modules/notifications/repository/push-delivery.repository.ts`: Added `markConfigurationPending` to pause unconfigured deliveries in pending state with delayed retry without penalty to device subscription.
+- `backend/src/modules/notifications/service/push-delivery.service.ts`: Distinguished missing application configuration from invalid VAPID credentials and HTTP 401/403 push service rejections.
+- `backend/src/modules/notifications/service/push-delivery-dispatcher.service.ts`: Added early exit check when VAPID is unconfigured to prevent churn.
+- `backend/tests/pushDelivery.test.ts`: Added explicit assertions for Worker B subscription preservation, Worker A second device delivery, and missing VAPID pause behavior (15/15 tests passing).
+- `docs/04-status-and-business-rules.md`: Added Section 9.8 distinguishing architectural readiness from live AWS staging and physical device testing boundaries.
+
+

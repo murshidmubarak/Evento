@@ -536,6 +536,35 @@ describe('Notification Milestone 3 — Part 3B: Background Push Delivery & BullM
       assert.equal(mockSenderCalled, false, 'Push must NEVER be sent to device reassigned to another account');
       assert.equal(processed?.status, 'invalid_subscription');
       assert.ok(processed?.lastError?.includes('reassigned to another user account'));
+
+      // Verify User 2's new subscription is NOT deactivated by aborting User 1's old delivery
+      const user2Sub = await PushSubscription.findOne({ endpointHash: sub1.endpointHash });
+      assert.equal(user2Sub?.status, 'active', "Worker B's newly registered subscription must remain ACTIVE");
+      assert.equal(user2Sub?.userId.toString(), user2Id, "Subscription must belong to Worker B");
+
+      // Verify User 1's other registered device (sub2) remains unaffected and delivers successfully
+      const sub2 = await PushSubscription.findById(sub2Id);
+      assert.ok(sub2);
+      assert.equal(sub2.status, 'active', "Worker A's other device must remain active");
+
+      const deliveryDevice2 = await PushDelivery.create({
+        notificationId: notifUser1._id,
+        recipientId: notifUser1.recipientId,
+        subscriptionId: sub2._id,
+        endpointHash: sub2.endpointHash,
+        deliveryKey: `${notifUser1._id}:${sub2._id}`,
+        status: 'pending',
+      });
+
+      let sub2MockSenderCalled = false;
+      pushDeliveryService.setMockSender(async () => {
+        sub2MockSenderCalled = true;
+        return { statusCode: 201, body: '', headers: {} };
+      });
+
+      const processedDevice2 = await pushDeliveryService.processDelivery(deliveryDevice2._id.toString());
+      assert.equal(sub2MockSenderCalled, true, "Worker A's second device must still receive delivery");
+      assert.equal(processedDevice2?.status, 'sent', "Worker A's second device delivery must be marked sent");
     });
 
     it('7. startPushDeliveryWorker() initializes handle and cleanly shuts down', async () => {
@@ -543,6 +572,56 @@ describe('Notification Milestone 3 — Part 3B: Background Push Delivery & BullM
       assert.ok(handle);
       assert.equal(handle.name, 'push-delivery-worker');
       await handle.close();
+    });
+
+    it('8. Missing VAPID configuration pauses delivery in pending state without deactivating subscription', async () => {
+      pushDeliveryService.setMockSender(null);
+
+      const originalVapidPublic = process.env.VAPID_PUBLIC_KEY;
+      const originalVapidPrivate = process.env.VAPID_PRIVATE_KEY;
+      const originalVapidSubject = process.env.VAPID_SUBJECT;
+
+      try {
+        delete process.env.VAPID_PUBLIC_KEY;
+        delete process.env.VAPID_PRIVATE_KEY;
+        delete process.env.VAPID_SUBJECT;
+
+        const notif = await Notification.create({
+          recipientId: new mongoose.Types.ObjectId(user1Id),
+          type: 'general',
+          title: 'Test Notification',
+          message: 'Paused until configured',
+        });
+
+        const sub = await PushSubscription.findById(sub2Id);
+        assert.ok(sub);
+
+        const delivery = await PushDelivery.create({
+          notificationId: notif._id,
+          recipientId: notif.recipientId,
+          subscriptionId: sub._id,
+          endpointHash: sub.endpointHash,
+          deliveryKey: `${notif._id}:${sub._id}`,
+          status: 'pending',
+        });
+
+        // Trigger unconfigured state
+        pushDeliveryService.initVapid();
+
+        const processed = await pushDeliveryService.processDelivery(delivery._id.toString());
+        assert.equal(processed?.status, 'pending', 'Must remain pending when VAPID is unconfigured');
+        assert.equal(processed?.lastErrorCategory, 'configuration');
+        assert.ok(processed?.lastError?.includes('not configured'));
+
+        // Subscription must NOT be deactivated
+        const recheckedSub = await PushSubscription.findById(sub2Id);
+        assert.equal(recheckedSub?.status, 'active', 'Subscription must not be deactivated for configuration failure');
+      } finally {
+        process.env.VAPID_PUBLIC_KEY = originalVapidPublic;
+        process.env.VAPID_PRIVATE_KEY = originalVapidPrivate;
+        process.env.VAPID_SUBJECT = originalVapidSubject;
+        pushDeliveryService.initVapid();
+      }
     });
   });
 });

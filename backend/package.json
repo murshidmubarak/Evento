@@ -22,7 +22,8 @@
     "worker:push": "tsx src/workers/pushDeliveryWorker.ts",
     "worker:push:prod": "node dist/workers/pushDeliveryWorker.js",
     "seed": "tsx seed.ts",
-    "admin:create": "tsx src/scripts/createAdmin.ts"
+    "admin:create": "tsx src/scripts/createAdmin.ts",
+    "vapid:generate": "web-push generate-vapid-keys"
   },
   "keywords": [],
   "author": "",

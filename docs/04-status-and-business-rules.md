@@ -1622,3 +1622,20 @@ Notifications for Work Requirement lifecycle transitions strictly query persiste
 - Logout Device Cleanup:
   - Authenticated logout cleans up the local browser subscription via `DELETE /api/notifications/push/subscriptions/current`, marking the backend subscription inactive.
 
+## 9.8 Production Readiness, Deployment & Verification Boundaries
+- **Architecture Readiness vs. Deployment Verification**:
+  - The software architecture, data schemas, BullMQ queue mechanics, error handling, and security models are fully implemented and verified in the automated test suite.
+  - Actual cloud deployment onto AWS ECS/ALB/CloudFront remains a staging/production verification milestone that must be confirmed after staging deployment.
+- **Physical Browser & Device Testing Boundary**:
+  - Unit and integration tests verify delivery state transitions and mocked Web Push provider handshakes.
+  - Physical receipt of push alerts on physical iOS (16.4+), Android Chrome, and desktop macOS/Windows remains `NOT TESTED` until executed against the live HTTPS staging domain.
+- **iOS & iPadOS Home Screen Requirement**:
+  - In accordance with Apple WebKit specifications (iOS 16.4+), Web Push notifications cannot be received in standard Safari browser tabs.
+  - The user MUST add the web application to their Home Screen via Safari Share -> "Add to Home Screen" and launch EventOps as an installed standalone PWA.
+- **VAPID Key Generation & Secrets Management**:
+  - VAPID keys may be generated once via `npm run vapid:generate` (or `npx web-push generate-vapid-keys`).
+  - Production secrets (`VAPID_PRIVATE_KEY`) must NEVER be committed to Git or bundled into frontend assets. They must be provisioned through AWS Secrets Manager or AWS Systems Manager Parameter Store.
+- **Missing vs. Invalid Configuration Distinctions**:
+  - *Missing Configuration*: When `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, or `VAPID_SUBJECT` are absent, deliveries are paused in `pending` status without penalty to the device subscription or exhaustion of retry attempts, allowing automatic recovery when configuration is supplied.
+  - *Invalid Configuration*: Malformed or rejected VAPID keys transition deliveries to `dead_letter` with `configuration` error category without deactivating user subscriptions.
+

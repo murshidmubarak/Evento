@@ -229,6 +229,32 @@ export class PushDeliveryRepository {
   }
 
   /**
+   * Pauses delivery when server VAPID credentials are not configured.
+   * Keeps the record in 'pending' status without exhausting retry attemptCount,
+   * releasing any active lease lock so it is cleanly recovered once configuration is supplied.
+   */
+  async markConfigurationPending(
+    id: mongoose.Types.ObjectId | string,
+    reason: string,
+    nextAttemptAt: Date = new Date(Date.now() + 60000)
+  ): Promise<void> {
+    await PushDelivery.updateOne(
+      { _id: id },
+      {
+        $set: {
+          status: 'pending',
+          lastErrorCategory: 'configuration',
+          lastError: reason.slice(0, 500),
+          nextAttemptAt,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
+        $inc: { attemptCount: -1 },
+      }
+    );
+  }
+
+  /**
    * Recovers any expired leases from crashed dispatcher or worker processes.
    */
   async recoverExpiredLeases(): Promise<number> {
