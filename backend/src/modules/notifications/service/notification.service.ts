@@ -182,6 +182,7 @@ export class NotificationService {
         }
       } catch (batchErr: any) {
         console.error('❌ [NotificationService] Error in batch notification insertion:', batchErr.message);
+        throw batchErr;
       }
     }
 

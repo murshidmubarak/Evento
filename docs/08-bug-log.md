@@ -773,3 +773,59 @@ Fixed / Verified
 1. Always submit BullMQ jobs with their specific typed job names to preserve queue observability and monitoring contracts.
 2. Background background-worker dispatchers must expose awaitable in-flight cycle promises to eliminate race conditions between immediate post-commit triggers and test harnesses.
 3. When asserting against notification counts for a specific business event, filter queries by `type` to prevent legitimate orthogonal notifications from failing the test.
+
+---
+
+## BUG-016 — Swallowed Batch Insertion Errors & Premature Outbox Acknowledgment on Partial Persistence
+
+### Date
+
+2026-11-04
+
+### Feature / Module
+
+Notifications / Work Requirement Updates / Outbox Processing (`notification.service.ts`, `notification.repository.ts`, `notification.queue.ts`)
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+In `createNotificationsBatch()` (`backend/src/modules/notifications/service/notification.service.ts`), a `try/catch` block caught batch insertion errors, logged them to `console.error`, but never re-threw them. If a subsequent batch chunk failed during an operational work requirement update (Open -> Open), `createNotificationsBatch()` returned partial results without throwing. Consequently, `processRequirementUpdate()` continued execution and invoked `notificationOutboxRepository.markProcessed()`. The Outbox event was marked `processed` prematurely, permanently losing un-persisted notifications without triggering BullMQ retries.
+
+Additionally, in `notification.repository.ts`, `createManySafe()` used an overly broad catch block in its fallback insertion loop that caught all errors generically without verifying MongoDB error code 11000, and did not verify that all expected unique records were accounted for before returning.
+
+### Root Cause
+
+1. `createNotificationsBatch` lacked error propagation: it swallowed `batchErr` instead of re-throwing it to halt the notification pipeline.
+2. `createManySafe` did not inspect writeErrors to distinguish duplicate-key violations (11000) from non-duplicate errors (e.g. document validation failure, timeout, disconnection), and silently returned partial arrays without throwing when unresolved records existed.
+3. `processRequirementUpdate` lacked an explicit guard ensuring `saved.length >= notificationItems.length` prior to calling `notificationOutboxRepository.markProcessed()`.
+
+### Solution
+
+1. In `backend/src/modules/notifications/service/notification.service.ts`, updated `createNotificationsBatch()` to re-throw `batchErr` immediately upon batch failure (`throw batchErr;`).
+2. In `backend/src/modules/notifications/repository/notification.repository.ts`, refined `createManySafe()`:
+   - Evaluated `writeErrors` across driver formats (`we?.code ?? we?.err?.code ?? we?.errorResponse?.code`) to verify all errors are code 11000; non-duplicate write errors immediately throw.
+   - Guarded fallback insertion loop to strictly catch only code 11000 and re-throw all other database errors.
+   - Verified that `saved.length === uniqueRecords.length` after resolving existing duplicates, throwing an error if any records failed to persist or resolve.
+3. In `backend/src/modules/notifications/queues/notification.queue.ts`, added a pre-acknowledgment guard in `processRequirementUpdate()`:
+   ```typescript
+   if (saved.length < notificationItems.length) {
+     throw new Error(
+       `[NotificationProcessor] Partial notification persistence for req ${requirementId}: expected ${notificationItems.length}, resolved ${saved.length}`
+     );
+   }
+   ```
+4. Added 12 comprehensive unit and integration test scenarios in `backend/tests/notificationUpdateReliability.test.ts`.
+
+### Rule
+
+1. Never swallow persistence errors in notification batch loops. Always propagate errors so job queues can detect failure and trigger exponential retries.
+2. Only MongoDB duplicate-key errors (code 11000) may be safely skipped during idempotent notification insertion. All validation, schema, and network errors must be propagated.
+3. Outbox events must only be acknowledged as `processed` after verifying that 100% of required recipient notifications were successfully persisted.
+

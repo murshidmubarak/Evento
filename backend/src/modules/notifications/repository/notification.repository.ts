@@ -50,24 +50,50 @@ export class NotificationRepository {
       const inserted = await Notification.insertMany(uniqueRecords, { ordered: false, session });
       return inserted as unknown as INotification[];
     } catch (err: any) {
+      const writeErrors: any[] =
+        err.writeErrors ||
+        err.errorResponse?.writeErrors ||
+        (err.result?.getWriteErrors && err.result.getWriteErrors()) ||
+        [];
+      const isDuplicateCode = (code?: number) => code === 11000;
+      const getWriteErrorCode = (we: any) => we?.code ?? we?.err?.code ?? we?.errorResponse?.code;
+      const hasNonDuplicateWriteError = writeErrors.length > 0 && writeErrors.some((we: any) => !isDuplicateCode(getWriteErrorCode(we)));
+
+      // If there are genuine non-duplicate write errors, propagate immediately
+      if (hasNonDuplicateWriteError) {
+        throw err;
+      }
+
+      // If the error is not a duplicate-key bulk error and has no writeErrors, propagate immediately
+      const rootCode = err.code ?? err.errorResponse?.code;
+      if (!isDuplicateCode(rootCode) && writeErrors.length === 0) {
+        throw err;
+      }
+
       let saved: INotification[] = [];
       // insertMany with ordered:false returns insertedDocs in err.insertedDocs
-      if (err.code === 11000 && err.insertedDocs) {
+      if (err.insertedDocs && Array.isArray(err.insertedDocs) && err.insertedDocs.length > 0) {
         saved = err.insertedDocs as INotification[];
       } else {
-        // If all failed or other error, fallback to one-by-one safe insertion
+        // Fallback to one-by-one insertion, strictly ignoring ONLY genuine duplicate-key errors (11000)
         for (const rec of uniqueRecords) {
           try {
             const doc = await this.create(rec, session);
             saved.push(doc);
-          } catch {
-            // Ignore duplicate failures
+          } catch (createErr: any) {
+            const isDuplicate = createErr.code === 11000 || createErr?.errorResponse?.code === 11000;
+            if (isDuplicate) {
+              // Ignore genuine duplicate key error
+            } else {
+              // Propagate any non-duplicate database or validation error
+              throw createErr;
+            }
           }
         }
       }
 
       // If some records already existed in MongoDB, load them by deduplicationKey
-      // so caller has complete records for real-time delivery on retries (§7)
+      // so caller has complete records for real-time delivery and verification (§7)
       if (saved.length < uniqueRecords.length) {
         const savedKeys = new Set(saved.map((s) => s.deduplicationKey).filter(Boolean));
         const missingKeys = uniqueRecords
@@ -75,13 +101,16 @@ export class NotificationRepository {
           .filter((k): k is string => Boolean(k) && !savedKeys.has(k));
 
         if (missingKeys.length > 0) {
-          try {
-            const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } }, null, { session });
-            saved.push(...existing);
-          } catch {
-            // Best effort
-          }
+          const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } }, null, { session });
+          saved.push(...existing);
         }
+      }
+
+      // Verify that all requested unique records are accounted for
+      if (saved.length < uniqueRecords.length) {
+        throw new Error(
+          `[NotificationRepository] Failed to persist all notifications: expected ${uniqueRecords.length}, resolved ${saved.length}`
+        );
       }
 
       return saved;

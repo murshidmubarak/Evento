@@ -51,12 +51,14 @@ export interface RequirementCancellationJobData {
   requirementId: string;
   cancelledAt?: string;
   enqueuedAt?: string;
+  outboxEventId?: string;
 }
 
 export interface RequirementUpdateJobData {
   requirementId: string;
   changedFields: Record<string, { old: any; new: any }>;
   enqueuedAt?: string;
+  outboxEventId?: string;
 }
 
 export interface DeadlineExtensionJobData {
@@ -65,6 +67,7 @@ export interface DeadlineExtensionJobData {
   newDeadline: string;
   previousDeadline?: string;
   enqueuedAt?: string;
+  outboxEventId?: string;
 }
 
 export interface OutboxNotificationJobData {
@@ -799,8 +802,8 @@ export class NotificationQueueService {
       `✅ [NotificationProcessor] Cancellation notifications complete for req ${requirementId}: ${saved.length} notification(s) dispatched (${assignedWorkerIds.length} assigned, ${interestedWorkerIds.length} interested).`
     );
 
-    if ((data as any).outboxEventId) {
-      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    if (data.outboxEventId) {
+      await notificationOutboxRepository.markProcessed(data.outboxEventId);
     }
 
     return {
@@ -922,8 +925,8 @@ export class NotificationQueueService {
     }
 
     if (recipientIds.length === 0) {
-      if ((data as any).outboxEventId) {
-        await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
       }
       return { scenario, notifiedCount: 0 };
     }
@@ -962,8 +965,14 @@ export class NotificationQueueService {
       `✅ [NotificationProcessor] Update notifications dispatched for req ${requirementId} (Scenario ${scenario}): ${saved.length}/${recipientIds.length} worker(s) notified.`
     );
 
-    if ((data as any).outboxEventId) {
-      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    if (saved.length < notificationItems.length) {
+      throw new Error(
+        `[NotificationProcessor] Partial notification persistence for req ${requirementId}: expected ${notificationItems.length}, resolved ${saved.length}`
+      );
+    }
+
+    if (data.outboxEventId) {
+      await notificationOutboxRepository.markProcessed(data.outboxEventId);
     }
 
     return { scenario, notifiedCount: saved.length };
@@ -1029,8 +1038,8 @@ export class NotificationQueueService {
 
     if (recipientIds.length === 0) {
       console.log(`ℹ️ [NotificationProcessor] No interested or eligible workers found for extension on req ${requirementId}.`);
-      if ((data as any).outboxEventId) {
-        await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
       }
       return { notifiedCount: 0, eligibleCount: 0 };
     }
@@ -1066,8 +1075,8 @@ export class NotificationQueueService {
       `✅ [NotificationProcessor] Deadline extension notifications dispatched for req ${requirementId}: ${saved.length}/${recipientIds.length} worker(s) notified.`
     );
 
-    if ((data as any).outboxEventId) {
-      await notificationOutboxRepository.markProcessed((data as any).outboxEventId);
+    if (data.outboxEventId) {
+      await notificationOutboxRepository.markProcessed(data.outboxEventId);
     }
 
     return {

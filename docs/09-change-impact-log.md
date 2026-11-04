@@ -1370,4 +1370,27 @@ Implemented complete browser and device push notification system for EventOps ER
 - `backend/tests/pushDelivery.test.ts`: Added explicit assertions for Worker B subscription preservation, Worker A second device delivery, and missing VAPID pause behavior (15/15 tests passing).
 - `docs/04-status-and-business-rules.md`: Added Section 9.8 distinguishing architectural readiness from live AWS staging and physical device testing boundaries.
 
+---
+
+### [Open -> Open Work Requirement Notification Reliability Fix]
+**Date:** 2026-11-04
+**Impact Classification:** Medium (Targeted bug fix in notification persistence error propagation, bulk write deduplication handling, and Outbox acknowledgment protection without altering API contracts, database schemas, or Draft -> Open flows)
+
+**Affected Modules & Files:**
+- `backend/src/modules/notifications/service/notification.service.ts`: Updated `createNotificationsBatch()` to re-throw batch persistence errors rather than silently swallowing them.
+- `backend/src/modules/notifications/repository/notification.repository.ts`: Refined `createManySafe()` to safely ignore ONLY genuine duplicate key errors (11000) across driver bulk write error formats, re-throw all validation and network errors, and enforce complete persistence resolution.
+- `backend/src/modules/notifications/queues/notification.queue.ts`: Added post-persistence count guard in `processRequirementUpdate()` ensuring `markProcessed()` is only called after 100% of required notifications are persisted.
+- `backend/tests/notificationUpdateReliability.test.ts`: Added 12 comprehensive unit and integration tests covering multi-batch failures, transient errors, duplicate key tolerance, partial persistence recovery, and dead-letter routing.
+- `docs/08-bug-log.md`: Logged BUG-016.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Notification Update Reliability Suite (`backend/tests/notificationUpdateReliability.test.ts`): 10/10 passed (100%), exit code 0.
+- Notification Outbox Suite (`backend/tests/notificationOutbox.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Milestone 2 Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+
+
 
