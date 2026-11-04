@@ -829,3 +829,65 @@ Additionally, in `notification.repository.ts`, `createManySafe()` used an overly
 2. Only MongoDB duplicate-key errors (code 11000) may be safely skipped during idempotent notification insertion. All validation, schema, and network errors must be propagated.
 3. Outbox events must only be acknowledged as `processed` after verifying that 100% of required recipient notifications were successfully persisted.
 
+---
+
+## BUG-017 — Missing PushDelivery Intent Recovery for Existing Notifications and Legacy Recovery Error Cascade
+
+### Date
+
+2026-11-04
+
+### Feature / Module
+
+Notifications / Web Push Delivery / Legacy Recovery (`notification.service.ts`, `push-delivery.repository.ts`, `push-subscription.repository.ts`, `notification.queue.ts`, `notificationWorker.ts`)
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. In `notification.service.ts`, `createNotificationsBatch()` skipped PushDelivery intent creation whenever `(doc as any).isExisting` was true. If a server crashed or an error occurred between notification creation and push delivery intent persistence, the missing PushDelivery intents were never recovered upon retry or legacy reconciliation. Furthermore, push intent persistence errors were caught with only a warning, masking genuine persistence failures.
+2. In `push-delivery.repository.ts`, `createIntentsForNotification()` caught all errors indiscriminately without verifying MongoDB duplicate-key code 11000, masking schema/network failures.
+3. In `notification.queue.ts`, `scanAndRecoverPendingNotifications()` wrapped the entire legacy recovery loop in an outer try/catch without per-requirement isolation. If one legacy requirement encountered an error during reconciliation, the entire scanner aborted, leaving subsequent legacy requirements unprocessed and skipping selection-summary recovery.
+
+### Root Cause
+
+1. Conflation of real-time WebSocket emission (which should skip pre-existing notifications to avoid duplicate user popups) with durable PushDelivery intent persistence (which should verify/persist intents for all records idempotently).
+2. Swallowing errors in `createNotificationsBatch()`'s push loop instead of propagating them for BullMQ retry.
+3. Lack of error inspection in `pushDeliveryRepository.createIntentsForNotification()`.
+4. Absence of per-requirement `try/catch` and recurring scheduled recovery in `NotificationQueueService`.
+
+### Solution
+
+1. In `backend/src/modules/notifications/service/notification.service.ts`:
+   - Dispatched Socket.IO only for newly created notifications (`if ((doc as any).isExisting) continue;`).
+   - Allowed PushDelivery intent verification and creation to run for ALL notifications (including `isExisting: true`).
+   - Propagated genuine PushDelivery errors by throwing `pushErr` so BullMQ can trigger retries.
+   - Passed `session` consistently across `createManySafe`, `findActiveByUserId`, and `createIntentsForNotification`.
+2. In `backend/src/modules/notifications/repository/push-delivery.repository.ts`:
+   - Upfront deduplication of unique `deliveryKey` (`${notificationId}:${subscriptionId}`).
+   - Strict error inspection on `insertMany({ ordered: false })`: non-11000 errors immediately throw.
+   - Code 11000 duplicate errors safely retrieve existing documents and verify complete resolution.
+3. In `backend/src/modules/notifications/repository/push-subscription.repository.ts`:
+   - Added optional `session?: ClientSession` to `findActiveByUserId`.
+4. In `backend/src/modules/notifications/queues/notification.queue.ts`:
+   - Added per-requirement `try/catch` in `executeScanAndRecover()` for open legacy announcements. Failed requirements log errors, skip outbox backfill, and remain eligible for future recovery without blocking subsequent requirements.
+   - Added per-requirement `try/catch` for completed selection summaries.
+   - Added `startPeriodicRecovery(intervalMs)` and `stopPeriodicRecovery()` with overlap prevention (`isScanningRecovery`).
+   - Guaranteed clean timer clearing in `close()`.
+5. In `backend/src/workers/notificationWorker.ts`:
+   - Started periodic recovery scheduler with configurable interval (default 60s in production, stopped cleanly on worker close).
+6. Added 14 unit and integration test scenarios in `backend/tests/notificationLegacyAndPushReliability.test.ts`.
+
+### Rule
+
+1. Do not skip durable push delivery intent verification for existing notification records. Real-time broadcast emission and durable storage have different idempotency semantics: suppress real-time socket events for existing records, but verify and persist durable delivery intents idempotently.
+2. Only MongoDB duplicate key code 11000 may be handled as idempotent success in push delivery intent persistence; all other errors must propagate.
+3. Scanners iterating over independent aggregates (e.g. legacy work requirements) must isolate errors per item so one bad document cannot starve or abort the remainder of the recovery cycle.
+
+

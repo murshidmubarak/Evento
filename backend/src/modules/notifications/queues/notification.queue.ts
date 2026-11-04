@@ -20,7 +20,7 @@ import { WorkRequirement } from '../../work-requirements/model/work-requirement.
 import { workerOpportunityService } from '../../work-requirements/service/worker-opportunity.service.js';
 import { workResponseRepository } from '../../work-requirements/repository/work-response.repository.js';
 import { notificationOutboxRepository } from '../repository/notification-outbox.repository.js';
-import type { INotificationOutbox, OutboxEventType } from '../model/notification-outbox.model.js';
+import { NotificationOutbox, type INotificationOutbox, type OutboxEventType } from '../model/notification-outbox.model.js';
 
 export const NOTIFICATION_QUEUE_NAME = 'notification-processing';
 
@@ -35,6 +35,7 @@ export interface RequirementAnnouncementJobData {
   requirementId: string;
   publishedAt?: string;
   enqueuedAt?: string;
+  outboxEventId?: string;
 }
 
 export interface SelectionCompletionJobData {
@@ -129,6 +130,11 @@ export class NotificationQueueService {
   private queue: Queue<any> | null = null;
   private worker: Worker<any> | null = null;
   private sharedRedisConnection: Redis | null = null;
+
+  // Periodic legacy recovery state
+  private recoveryTimer: NodeJS.Timeout | null = null;
+  private isScanningRecovery: boolean = false;
+  private activeRecoveryPromise: Promise<number> | null = null;
 
   // Test Isolation: In-memory queue for tests when Redis is not running
   private isMockMode: boolean = process.env.NODE_ENV === 'test' || !env.redisUrl;
@@ -474,6 +480,15 @@ export class NotificationQueueService {
         dispatchGeneration: event.dispatchGeneration,
         enqueuedAt: event.payload?.enqueuedAt || enqueuedAt,
       };
+    } else if (event.eventType === 'requirement_published') {
+      jobName = JOB_REQUIREMENT_ANNOUNCEMENT;
+      jobData = {
+        ...event.payload,
+        outboxEventId: event.eventId,
+        eventType: event.eventType,
+        dispatchGeneration: event.dispatchGeneration,
+        enqueuedAt: event.payload?.enqueuedAt || enqueuedAt,
+      };
     }
 
     if (this.isMockMode) {
@@ -491,6 +506,10 @@ export class NotificationQueueService {
           } else if (jobName === JOB_DEADLINE_EXTENSION) {
             this.processDeadlineExtension(jobData).catch((err) => {
               console.error('⚠️ [NotificationQueue Mock] Deadline extension processing error:', err);
+            });
+          } else if (jobName === JOB_REQUIREMENT_ANNOUNCEMENT) {
+            this.processRequirementAnnouncements(jobData).catch((err) => {
+              console.error('⚠️ [NotificationQueue Mock] Announcement processing error:', err);
             });
           } else {
             this.processOutboxEvent(jobData).catch((err) => {
@@ -530,18 +549,27 @@ export class NotificationQueueService {
 
     if (!mongoose.Types.ObjectId.isValid(requirementId)) {
       console.warn(`⚠️ [NotificationProcessor] Invalid requirement ID format: ${requirementId}`);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
+      }
       return { eligibleCount: 0, notifiedCount: 0 };
     }
 
     const req = await WorkRequirement.findById(requirementId).populate('eventId');
     if (!req) {
       console.warn(`⚠️ [NotificationProcessor] Requirement ${requirementId} not found, skipping.`);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
+      }
       return { eligibleCount: 0, notifiedCount: 0 };
     }
 
     // Lifecycle check: skip stale jobs if requirement was draft, cancelled, or closed
     if (req.status === 'draft' || req.status === 'cancelled') {
       console.log(`ℹ️ [NotificationProcessor] Requirement ${requirementId} is in status '${req.status}', skipping announcement.`);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
+      }
       return { eligibleCount: 0, notifiedCount: 0 };
     }
 
@@ -549,6 +577,9 @@ export class NotificationQueueService {
     const eligibleWorkerIds = await workerOpportunityService.findEligibleWorkersForOpportunity(requirementId);
     if (!eligibleWorkerIds || eligibleWorkerIds.length === 0) {
       console.log(`ℹ️ [NotificationProcessor] No eligible workers found for requirement ${requirementId}.`);
+      if (data.outboxEventId) {
+        await notificationOutboxRepository.markProcessed(data.outboxEventId);
+      }
       return { eligibleCount: 0, notifiedCount: 0 };
     }
 
@@ -577,6 +608,16 @@ export class NotificationQueueService {
     console.log(
       `✅ [NotificationProcessor] Announcement complete for req ${requirementId}: ${saved.length}/${eligibleWorkerIds.length} worker notification(s) dispatched.`
     );
+
+    if (saved.length < notificationItems.length) {
+      throw new Error(
+        `[NotificationProcessor] Partial notification persistence for req ${requirementId}: expected ${notificationItems.length}, resolved ${saved.length}`
+      );
+    }
+
+    if (data.outboxEventId) {
+      await notificationOutboxRepository.markProcessed(data.outboxEventId);
+    }
 
     return {
       eligibleCount: eligibleWorkerIds.length,
@@ -1109,13 +1150,16 @@ export class NotificationQueueService {
     }
 
     if (eventType === 'requirement_cancelled') {
-      await this.processRequirementCancellation(payload);
+      await this.processRequirementCancellation({ ...payload, outboxEventId });
     } else if (eventType === 'requirement_updated') {
-      await this.processRequirementUpdate(payload);
+      await this.processRequirementUpdate({ ...payload, outboxEventId });
     } else if (eventType === 'deadline_extended') {
-      await this.processDeadlineExtension(payload);
+      await this.processDeadlineExtension({ ...payload, outboxEventId });
+    } else if (eventType === 'requirement_published') {
+      await this.processRequirementAnnouncements({ ...payload, outboxEventId });
     } else {
       console.warn(`⚠️ [NotificationProcessor] Unknown outbox event type: ${eventType}`);
+      return { status: 'unknown_event_type', outboxEventId };
     }
 
     await notificationOutboxRepository.markProcessed(outboxEventId);
@@ -1127,10 +1171,64 @@ export class NotificationQueueService {
   // ─── Startup Recovery & Enqueue Resilience ──────────────────────────────────
 
   /**
+   * Starts periodic background scan to reconcile legacy requirements and missed summaries.
+   */
+  public startPeriodicRecovery(intervalMs = 60000): void {
+    if (this.recoveryTimer) return;
+    console.log(`⏰ [NotificationQueue] Starting periodic legacy recovery (Interval: ${intervalMs}ms)`);
+
+    this.recoveryTimer = setInterval(async () => {
+      try {
+        await this.scanAndRecoverPendingNotifications();
+      } catch (err: any) {
+        console.error('⚠️ [NotificationQueue] Periodic legacy recovery error:', err.message);
+      }
+    }, intervalMs);
+
+    if (this.recoveryTimer.unref) {
+      this.recoveryTimer.unref();
+    }
+  }
+
+  /**
+   * Stops periodic recovery timer cleanly.
+   */
+  public stopPeriodicRecovery(): void {
+    if (this.recoveryTimer) {
+      clearInterval(this.recoveryTimer);
+      this.recoveryTimer = null;
+      console.log('🛑 [NotificationQueue] Periodic legacy recovery stopped.');
+    }
+  }
+
+  public getIsScanningRecovery(): boolean {
+    return this.isScanningRecovery;
+  }
+
+  /**
    * Recovers any pending announcements or selection summaries that were missed due to
-   * worker downtime or transient Redis unavailability (§9).
+   * worker downtime, service restarts, or transient errors (§9).
+   * Prevents overlapping executions and isolates errors per requirement.
    */
   public async scanAndRecoverPendingNotifications(): Promise<number> {
+    if (this.isScanningRecovery) {
+      console.log('ℹ️ [NotificationQueue] Recovery scan already in progress. Skipping overlapping execution.');
+      if (this.activeRecoveryPromise) {
+        return this.activeRecoveryPromise;
+      }
+      return 0;
+    }
+
+    this.isScanningRecovery = true;
+    this.activeRecoveryPromise = this.executeScanAndRecover().finally(() => {
+      this.isScanningRecovery = false;
+      this.activeRecoveryPromise = null;
+    });
+
+    return this.activeRecoveryPromise;
+  }
+
+  private async executeScanAndRecover(): Promise<number> {
     let recoveredCount = 0;
 
     // 1. Recover unannounced open requirements
@@ -1141,23 +1239,62 @@ export class NotificationQueueService {
       });
 
       for (const req of openReqs) {
-        // Check if opportunity announcement exists
-        const exists = await Notification.exists({
-          resourceId: req._id.toString(),
-          type: 'work_opportunity',
-        });
+        const reqId = req._id.toString();
 
-        if (!exists) {
-          console.log(`🔎 [NotificationQueue] Found unannounced open requirement ${req._id}, recovering announcements...`);
+        try {
+          // Check if an outbox record already exists for this requirement publication
+          const outboxExists = await NotificationOutbox.exists({
+            aggregateId: reqId,
+            eventType: 'requirement_published',
+          });
+
+          if (outboxExists) {
+            // Handled or actively managed by Transactional Outbox pipeline
+            continue;
+          }
+
+          // Legacy requirement without publication Outbox record:
+          // Do NOT use Notification.exists() as proof of complete delivery to ensure partial announcements are healed.
+          console.log(`🔎 [NotificationQueue] Found legacy open requirement ${reqId} without Outbox record, reconciling announcements...`);
           await this.processRequirementAnnouncements({
-            requirementId: req._id.toString(),
+            requirementId: reqId,
             publishedAt: req.interestPublishedAt ? req.interestPublishedAt.toISOString() : undefined,
           });
-          recoveredCount++;
+
+          // Backfill processed outbox record ONLY after complete resolution to prevent future redundant processing
+          const legacyEventId = `outbox_pub_legacy_${reqId}`;
+          try {
+            await notificationOutboxRepository.create({
+              eventId: legacyEventId,
+              eventType: 'requirement_published',
+              aggregateType: 'work_requirement',
+              aggregateId: reqId,
+              payload: {
+                requirementId: reqId,
+                publishedAt: req.interestPublishedAt ? req.interestPublishedAt.toISOString() : new Date().toISOString(),
+                enqueuedAt: new Date().toISOString(),
+              },
+              status: 'processed',
+              processedAt: new Date(),
+              nextAttemptAt: new Date(),
+            });
+            recoveredCount++;
+          } catch (outboxErr: any) {
+            // If concurrent scan already inserted this unique eventId, safely ignore
+            if (outboxErr?.code === 11000) {
+              recoveredCount++;
+            } else {
+              throw outboxErr;
+            }
+          }
+        } catch (itemErr: any) {
+          // Failure on an individual legacy requirement must NOT abort recovery of subsequent requirements.
+          // The failed requirement will NOT receive an outbox record and remains eligible for future recovery attempts.
+          console.error(`⚠️ [NotificationQueue] Error reconciling legacy requirement ${reqId}:`, itemErr.message);
         }
       }
     } catch (annErr: any) {
-      console.error('⚠️ [NotificationQueue] Recovery error checking announcements:', annErr.message);
+      console.error('⚠️ [NotificationQueue] Recovery error querying open requirements:', annErr.message);
     }
 
     // 2. Recover un-notified selection summaries
@@ -1167,20 +1304,24 @@ export class NotificationQueueService {
       });
 
       for (const req of completedReqs) {
-        const round = req.selectionRound || 1;
-        const exists = await Notification.exists({
-          resourceId: req._id.toString(),
-          type: 'selection_summary',
-          deduplicationKey: { $regex: `round${round}` },
-        });
-
-        if (!exists) {
-          console.log(`🔎 [NotificationQueue] Found completed selection for req ${req._id} lacking summary, recovering...`);
-          await this.processSelectionCompletion({
-            requirementId: req._id.toString(),
-            selectionRound: round,
+        try {
+          const round = req.selectionRound || 1;
+          const exists = await Notification.exists({
+            resourceId: req._id.toString(),
+            type: 'selection_summary',
+            deduplicationKey: { $regex: `round${round}` },
           });
-          recoveredCount++;
+
+          if (!exists) {
+            console.log(`🔎 [NotificationQueue] Found completed selection for req ${req._id} lacking summary, recovering...`);
+            await this.processSelectionCompletion({
+              requirementId: req._id.toString(),
+              selectionRound: round,
+            });
+            recoveredCount++;
+          }
+        } catch (selItemErr: any) {
+          console.error(`⚠️ [NotificationQueue] Error reconciling selection summary for req ${req._id}:`, selItemErr.message);
         }
       }
     } catch (selErr: any) {
@@ -1264,9 +1405,13 @@ export class NotificationQueueService {
   }
 
   /**
-   * Clean shutdown of BullMQ workers, queues, and Redis connections.
+   * Clean shutdown of BullMQ workers, queues, periodic recovery, and Redis connections.
    */
   public async close(): Promise<void> {
+    this.stopPeriodicRecovery();
+    if (this.activeRecoveryPromise) {
+      await this.activeRecoveryPromise.catch(() => {});
+    }
     if (this.worker) {
       await this.worker.close();
       this.worker = null;

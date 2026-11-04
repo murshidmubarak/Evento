@@ -1394,3 +1394,62 @@ Implemented complete browser and device push notification system for EventOps ER
 
 
 
+
+
+---
+
+### [Draft -> Open Work Requirement Transactional Outbox Recovery]
+**Date:** 2026-11-04
+**Impact Classification:** Medium (Extended Transactional Outbox pattern to cover initial publication announcements from Draft -> Open, replacing weak direct post-commit enqueue with durable MongoDB transaction atomicity and scheduled dispatcher recovery)
+
+**Affected Modules & Files:**
+- `backend/src/modules/notifications/model/notification-outbox.model.ts`: Extended `OutboxEventType` type union and Mongoose schema enum to include `'requirement_published'`.
+- `backend/src/modules/work-requirements/service/work-requirement.service.ts`: Switched Draft -> Open to atomically persist a `requirement_published` outbox event inside `session.withTransaction()`, generated stable event identity outside callback, removed direct post-commit `enqueueRequirementAnnouncements()`, and triggered immediate best-effort outbox polling.
+- `backend/src/modules/notifications/queues/notification.queue.ts`: Mapped `'requirement_published'` outbox events to typed `JOB_REQUIREMENT_ANNOUNCEMENT` jobs with `outboxEventId`, updated `processRequirementAnnouncements()` to verify 100% persistence before acknowledging outbox, gracefully handled zero eligible workers and cancelled requirements, and updated `scanAndRecoverPendingNotifications()` to reconcile all intended recipients on legacy open requirements without relying on all-or-nothing `Notification.exists()`, backfilling Outbox records strictly after full resolution.
+- `backend/src/modules/notifications/repository/notification.repository.ts`: Marked pre-existing duplicate records with `isExisting: true` during safe batch retrieval.
+- `backend/src/modules/notifications/service/notification.service.ts`: Skipped real-time Socket.IO emission and push delivery intent creation for pre-existing notifications during batch recovery reconciliation.
+- `backend/tests/notificationDraftToOpenReliability.test.ts`: Added 17 comprehensive unit and integration tests (covering 18 distinct scenarios) including partial legacy notification healing, zero/partial/all legacy recipients, concurrent scan deduplication, push/socket suppression for existing records, and outbox failure rollbacks.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Frontend Production Build (`npm run build`): compiled cleanly in 7.40s, exit code 0.
+- Draft -> Open Reliability Suite (`backend/tests/notificationDraftToOpenReliability.test.ts`): 17/17 passed (100%), exit code 0.
+- Open -> Open Update Reliability Suite (`backend/tests/notificationUpdateReliability.test.ts`): 10/10 passed (100%), exit code 0.
+- Outbox Infrastructure Suite (`backend/tests/notificationOutbox.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Milestone 2 Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Core Notifications Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Total sequential suite run: 85/85 passed (100%), exit code 0.
+
+---
+
+### [Legacy Recovery & PushDelivery Reliability Hardening]
+**Date:** 2026-11-04
+**Impact Classification:** Medium (Hardened PushDelivery intent persistence for existing notifications and isolated per-requirement errors with recurring recovery in legacy notification scanners)
+
+**Affected Modules & Files:**
+- `backend/src/modules/notifications/service/notification.service.ts`: Preserved real-time Socket.IO suppression for `isExisting: true` notifications while enabling PushDelivery intent verification/creation for all records; re-threw genuine push persistence errors for BullMQ retries; passed session consistently across batch persistence operations.
+- `backend/src/modules/notifications/repository/push-delivery.repository.ts`: Added upfront deduplication on `deliveryKey`; strictly propagated non-11000 errors on `insertMany({ ordered: false })`; retrieved existing records and verified complete resolution on duplicate key code 11000.
+- `backend/src/modules/notifications/repository/push-subscription.repository.ts`: Added optional `session?: ClientSession` to `findActiveByUserId`.
+- `backend/src/modules/notifications/queues/notification.queue.ts`: Implemented per-requirement `try/catch` in `executeScanAndRecover()` for open requirements and selection summaries; added `startPeriodicRecovery(intervalMs)`, `stopPeriodicRecovery()`, and overlap prevention via `isScanningRecovery`.
+- `backend/src/workers/notificationWorker.ts`: Started periodic legacy recovery scheduler on worker startup (default 60s in production); cleanly cleared recovery timers on worker shutdown.
+- `backend/tests/notificationLegacyAndPushReliability.test.ts`: Added 14 unit and integration test scenarios covering existing notification push recovery, duplicate suppression, error propagation, per-requirement legacy isolation, periodic recovery, and worker shutdown.
+- `docs/08-bug-log.md`: Logged BUG-017.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Frontend Production Build (`npm run build`): compiled cleanly in 6.12s, exit code 0.
+- Legacy & Push Reliability Suite (`backend/tests/notificationLegacyAndPushReliability.test.ts`): 12/12 passed (100%), exit code 0.
+- Draft -> Open Reliability Suite (`backend/tests/notificationDraftToOpenReliability.test.ts`): 18/18 passed (100%), exit code 0.
+- Open -> Open Update Reliability Suite (`backend/tests/notificationUpdateReliability.test.ts`): 12/12 passed (100%), exit code 0.
+- Outbox Infrastructure Suite (`backend/tests/notificationOutbox.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Queue Suite (`backend/tests/notificationQueue.test.ts`): 9/9 passed (100%), exit code 0.
+- Notification Milestone 2 Suite (`backend/tests/notificationMilestone2.test.ts`): 19/19 passed (100%), exit code 0.
+- Core Notifications Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
+- Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Total full regression suite run: 97/97 passed (100%), exit code 0.

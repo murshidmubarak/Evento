@@ -178,7 +178,8 @@ export class WorkRequirementService {
       return this.cancelRequirement(managerId, reqId);
     }
 
-    const eventId = `outbox_upd_${reqId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const publishEventId = `outbox_pub_${reqId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const updateEventId = `outbox_upd_${reqId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const session = await mongoose.startSession();
     let updated: any = null;
     let materialChanged = false;
@@ -307,6 +308,24 @@ export class WorkRequirementService {
         if (data.status === 'open' && requirement.status === 'draft') {
           isDraftToOpen = true;
           publishedAtIso = updated.interestPublishedAt ? updated.interestPublishedAt.toISOString() : new Date().toISOString();
+
+          // Persist requirement_published outbox event atomically within the same session
+          await notificationOutboxRepository.create(
+            {
+              eventId: publishEventId,
+              eventType: 'requirement_published',
+              aggregateType: 'work_requirement',
+              aggregateId: reqId,
+              payload: {
+                requirementId: reqId,
+                publishedAt: publishedAtIso,
+                enqueuedAt: new Date().toISOString(),
+              },
+              status: 'pending',
+              nextAttemptAt: new Date(),
+            },
+            session
+          );
         }
 
         // If material changes occurred on active requirement, insert outbox record atomically
@@ -314,7 +333,7 @@ export class WorkRequirementService {
           materialChanged = true;
           await notificationOutboxRepository.create(
             {
-              eventId,
+              eventId: updateEventId,
               eventType: 'requirement_updated',
               aggregateType: 'work_requirement',
               aggregateId: reqId,
@@ -347,16 +366,7 @@ export class WorkRequirementService {
       );
     }
 
-    if (isDraftToOpen) {
-      notificationQueueService.enqueueRequirementAnnouncements({
-        requirementId: updated._id.toString(),
-        publishedAt: publishedAtIso,
-      }).catch((err) => {
-        console.error(`⚠️ [WorkRequirementService] Failed to dispatch opportunity announcements for req ${reqId}:`, err);
-      });
-    }
-
-    if (materialChanged) {
+    if (isDraftToOpen || materialChanged) {
       // Best-effort latency optimization: trigger immediate dispatch in background without blocking the business response
       notificationOutboxDispatcherService.triggerImmediateDispatch().catch((err: any) => {
         console.warn(`⚠️ [WorkRequirementService] Immediate outbox dispatch failed for req ${reqId} (will retry via polling): ${err?.message || err}`);

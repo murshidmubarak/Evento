@@ -14,7 +14,10 @@ export class NotificationRepository {
   async create(data: Partial<INotification>, session?: mongoose.ClientSession): Promise<INotification> {
     if (data.deduplicationKey) {
       const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey }, null, { session });
-      if (existing) return existing;
+      if (existing) {
+        Object.defineProperty(existing, 'isExisting', { value: true, writable: true, enumerable: true });
+        return existing;
+      }
     }
 
     try {
@@ -24,7 +27,10 @@ export class NotificationRepository {
       // If duplicate key error on deduplicationKey (code 11000)
       if (err.code === 11000 && data.deduplicationKey) {
         const existing = await Notification.findOne({ deduplicationKey: data.deduplicationKey }, null, { session });
-        if (existing) return existing;
+        if (existing) {
+          Object.defineProperty(existing, 'isExisting', { value: true, writable: true, enumerable: true });
+          return existing;
+        }
       }
       throw err;
     }
@@ -102,6 +108,9 @@ export class NotificationRepository {
 
         if (missingKeys.length > 0) {
           const existing = await Notification.find({ deduplicationKey: { $in: missingKeys } }, null, { session });
+          existing.forEach((doc) => {
+            Object.defineProperty(doc, 'isExisting', { value: true, writable: true, enumerable: true });
+          });
           saved.push(...existing);
         }
       }

@@ -3,7 +3,8 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export type OutboxEventType =
   | 'requirement_cancelled'
   | 'requirement_updated'
-  | 'deadline_extended';
+  | 'deadline_extended'
+  | 'requirement_published';
 
 export type OutboxEventStatus =
   | 'pending'
@@ -46,7 +47,12 @@ const notificationOutboxSchema = new Schema<INotificationOutbox>(
     eventType: {
       type: String,
       required: true,
-      enum: ['requirement_cancelled', 'requirement_updated', 'deadline_extended'],
+      enum: [
+        'requirement_cancelled',
+        'requirement_updated',
+        'deadline_extended',
+        'requirement_published',
+      ],
       index: true,
     },
     aggregateType: {

@@ -21,32 +21,74 @@ export class PushDeliveryRepository {
       return [];
     }
 
-    const records: Partial<IPushDelivery>[] = subscriptions.map((sub) => ({
-      notificationId: notification._id,
-      recipientId: notification.recipientId,
-      subscriptionId: sub._id,
-      endpointHash: sub.endpointHash,
-      deliveryKey: `${notification._id.toString()}:${sub._id.toString()}`,
-      status: 'pending' as PushDeliveryStatus,
-      dispatchGeneration: 1,
-      attemptCount: 0,
-      maxAttempts: 5,
-      nextAttemptAt: new Date(),
-    }));
+    const seenKeys = new Set<string>();
+    const uniqueRecords: Partial<IPushDelivery>[] = [];
+
+    for (const sub of subscriptions) {
+      const deliveryKey = `${notification._id.toString()}:${sub._id.toString()}`;
+      if (seenKeys.has(deliveryKey)) continue;
+      seenKeys.add(deliveryKey);
+
+      uniqueRecords.push({
+        notificationId: notification._id,
+        recipientId: notification.recipientId,
+        subscriptionId: sub._id,
+        endpointHash: sub.endpointHash,
+        deliveryKey,
+        status: 'pending' as PushDeliveryStatus,
+        dispatchGeneration: 1,
+        attemptCount: 0,
+        maxAttempts: 5,
+        nextAttemptAt: new Date(),
+      });
+    }
+
+    if (uniqueRecords.length === 0) {
+      return [];
+    }
 
     try {
-      const inserted = await PushDelivery.insertMany(records, {
+      const inserted = await PushDelivery.insertMany(uniqueRecords, {
         ordered: false,
         session,
       });
       return inserted as unknown as IPushDelivery[];
     } catch (err: any) {
-      if (err.code === 11000 && err.insertedDocs) {
-        return err.insertedDocs as IPushDelivery[];
+      const writeErrors: any[] =
+        err.writeErrors ||
+        err.errorResponse?.writeErrors ||
+        (err.result?.getWriteErrors && err.result.getWriteErrors()) ||
+        [];
+      const isDuplicateCode = (code?: number) => code === 11000;
+      const getWriteErrorCode = (we: any) => we?.code ?? we?.err?.code ?? we?.errorResponse?.code;
+      const hasNonDuplicateWriteError =
+        writeErrors.length > 0 && writeErrors.some((we: any) => !isDuplicateCode(getWriteErrorCode(we)));
+
+      // Propagate genuine non-duplicate errors (e.g., validation, connection timeout, server error)
+      if (hasNonDuplicateWriteError) {
+        throw err;
       }
-      // If some failed due to duplicate keys, retrieve existing/saved documents
-      const deliveryKeys = records.map((r) => r.deliveryKey as string);
-      return PushDelivery.find({ deliveryKey: { $in: deliveryKeys } }, null, { session }).exec();
+
+      const rootCode = err.code ?? err.errorResponse?.code;
+      if (!isDuplicateCode(rootCode) && writeErrors.length === 0) {
+        throw err;
+      }
+
+      // If caused by duplicate keys (11000), retrieve the existing or inserted documents
+      const deliveryKeys = uniqueRecords.map((r) => r.deliveryKey as string);
+      const query = PushDelivery.find({ deliveryKey: { $in: deliveryKeys } });
+      if (session) {
+        query.session(session);
+      }
+      const resolved = await query.exec();
+
+      if (resolved.length < uniqueRecords.length) {
+        throw new Error(
+          `[PushDeliveryRepository] Incomplete push delivery intent resolution: expected ${uniqueRecords.length}, resolved ${resolved.length}`
+        );
+      }
+
+      return resolved;
     }
   }
 

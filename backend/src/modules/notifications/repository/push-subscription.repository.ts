@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { ClientSession } from 'mongoose';
 import {
   PushSubscription,
   type IPushSubscription,
@@ -62,12 +62,17 @@ export class PushSubscriptionRepository {
    */
   async findActiveByUserId(
     userId: string | mongoose.Types.ObjectId,
-    includeKeys = false
+    includeKeys = false,
+    session?: ClientSession
   ): Promise<IPushSubscription[]> {
     const query = PushSubscription.find({
       userId: typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId,
       status: 'active',
     }).sort({ updatedAt: -1 });
+
+    if (session) {
+      query.session(session);
+    }
 
     if (includeKeys) {
       query.select('+keys.p256dh +keys.auth');

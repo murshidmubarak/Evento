@@ -150,23 +150,9 @@ export class NotificationService {
         const savedBatch = await this.repository.createManySafe(chunk, session);
         allSaved.push(...savedBatch);
 
-        // Persist durable push delivery intents for each recipient's active devices
+        // 1. Dispatch real-time events for this batch (skip pre-existing notifications to prevent duplicates)
         for (const doc of savedBatch) {
-          try {
-            const subs = await pushSubscriptionRepository.findActiveByUserId(doc.recipientId);
-            if (subs.length > 0) {
-              await pushDeliveryRepository.createIntentsForNotification(doc, subs, session);
-            }
-          } catch (pushErr: any) {
-            console.warn('⚠️ [NotificationService] Batch push intent creation warning:', pushErr.message);
-          }
-        }
-        setImmediate(() => {
-          pushDeliveryDispatcherService.triggerDispatch().catch(() => {});
-        });
-
-        // Dispatch real-time events for this batch
-        for (const doc of savedBatch) {
+          if ((doc as any).isExisting) continue;
           notificationTransport.sendNotification(doc.recipientId.toString(), {
             _id: doc._id,
             recipientId: doc.recipientId,
@@ -180,6 +166,22 @@ export class NotificationService {
             createdAt: doc.createdAt,
           }).catch(() => {});
         }
+
+        // 2. Persist durable push delivery intents for each recipient's active devices (including existing notifications)
+        for (const doc of savedBatch) {
+          try {
+            const subs = await pushSubscriptionRepository.findActiveByUserId(doc.recipientId, false, session);
+            if (subs.length > 0) {
+              await pushDeliveryRepository.createIntentsForNotification(doc, subs, session);
+            }
+          } catch (pushErr: any) {
+            console.error('❌ [NotificationService] Batch push intent creation failure:', pushErr.message);
+            throw pushErr;
+          }
+        }
+        setImmediate(() => {
+          pushDeliveryDispatcherService.triggerDispatch().catch(() => {});
+        });
       } catch (batchErr: any) {
         console.error('❌ [NotificationService] Error in batch notification insertion:', batchErr.message);
         throw batchErr;
