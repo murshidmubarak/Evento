@@ -25,6 +25,7 @@ import {
 import { notificationService } from '../src/modules/notifications/service/notification.service.js';
 import { pushDeliveryRepository } from '../src/modules/notifications/repository/push-delivery.repository.js';
 import { pushDeliveryService } from '../src/modules/notifications/service/push-delivery.service.js';
+import { pushDeliveryDispatcherService } from '../src/modules/notifications/service/push-delivery-dispatcher.service.js';
 import {
   PushDelivery,
 } from '../src/modules/notifications/model/push-delivery.model.js';
@@ -50,6 +51,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
   let redisProbe: Redis | null = null;
   let liveQueue: Queue | null = null;
   let liveWorker: Worker | null = null;
+  const trackedRedisConnections: Redis[] = [];
 
   let requirementService: WorkRequirementService;
   let managerId: string;
@@ -63,6 +65,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
     testQueueCount++;
     const queueName = `test-notif-queue-${Date.now()}-${testQueueCount}`;
     const conn = notificationQueueService.createRedisClient();
+    trackedRedisConnections.push(conn);
     const queue = new Queue(queueName, {
       connection: conn as any,
       defaultJobOptions: {
@@ -115,12 +118,18 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
   });
 
   after(async () => {
+    for (const conn of trackedRedisConnections) {
+      try {
+        await conn.quit().catch(() => conn.disconnect());
+      } catch {}
+    }
+    trackedRedisConnections.length = 0;
     if (liveWorker) {
-      await liveWorker.close();
+      await liveWorker.close().catch(() => {});
       liveWorker = null;
     }
     if (liveQueue) {
-      await liveQueue.close();
+      await liveQueue.close().catch(() => {});
       liveQueue = null;
     }
     if (redisProbe) {
@@ -128,7 +137,9 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
       redisProbe = null;
     }
     notificationQueueService.stopPeriodicRecovery();
-    await notificationQueueService.close();
+    await notificationQueueService.close().catch(() => {});
+    await notificationOutboxDispatcherService.stop().catch(() => {});
+    await pushDeliveryDispatcherService.stop().catch(() => {});
     await mongoose.disconnect();
   });
 
@@ -142,9 +153,17 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
       await liveQueue.close().catch(() => {});
       liveQueue = null;
     }
+    for (const conn of trackedRedisConnections) {
+      try {
+        await conn.quit().catch(() => conn.disconnect());
+      } catch {}
+    }
+    trackedRedisConnections.length = 0;
     (notificationQueueService as any).queue = null;
     (notificationQueueService as any).worker = null;
     await notificationQueueService.close().catch(() => {});
+    await notificationOutboxDispatcherService.stop().catch(() => {});
+    await pushDeliveryDispatcherService.stop().catch(() => {});
     notificationQueueService.setMockMode(true);
   });
 
@@ -344,6 +363,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
 
     // Start real BullMQ worker on isolated test queue
     const wConn = notificationQueueService.createRedisClient();
+    trackedRedisConnections.push(wConn);
     const worker = new Worker(
       queueName,
       async (job: Job) => {
@@ -447,6 +467,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
     const qConn = notificationQueueService.createRedisClient();
     const w1Conn = notificationQueueService.createRedisClient();
     const w2Conn = notificationQueueService.createRedisClient();
+    trackedRedisConnections.push(qConn, w1Conn, w2Conn);
 
     const queue = new Queue(stalledQueueName, { connection: qConn as any });
     await queue.waitUntilReady();
@@ -572,9 +593,8 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
     });
     assert.ok(outbox, 'requirement_updated Outbox event must be created in MongoDB');
 
-    await notificationOutboxDispatcherService.triggerImmediateDispatch();
-
     const wConn = notificationQueueService.createRedisClient();
+    trackedRedisConnections.push(wConn);
     const worker = new Worker(
       queueName,
       async (job: Job) => {
@@ -588,7 +608,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
     liveWorker = worker;
 
     try {
-      await new Promise<void>((resolve, reject) => {
+      const completionPromise = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('BullMQ worker timed out on requirement_updated')), 8000);
         worker.on('completed', (job: Job) => {
           if (job.name === JOB_REQUIREMENT_UPDATE && job.data.requirementId === openReq._id.toString()) {
@@ -602,11 +622,15 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
         });
       });
 
+      await notificationOutboxDispatcherService.triggerImmediateDispatch();
+      await completionPromise;
+
       const updatedOutbox = await NotificationOutbox.findById(outbox._id);
       assert.ok(updatedOutbox);
       assert.strictEqual(updatedOutbox.status, 'processed');
     } finally {
-      await worker.close();
+      await worker.close().catch(() => {});
+      liveWorker = null;
       await qConn.quit().catch(() => {});
       await wConn.quit().catch(() => {});
     }
@@ -671,6 +695,7 @@ describe('Real Redis & BullMQ Integration Suite (Adaptive)', () => {
     };
 
     const wConn = notificationQueueService.createRedisClient();
+    trackedRedisConnections.push(wConn);
     const worker = new Worker(
       queueName,
       async (job: Job) => {
