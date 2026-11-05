@@ -36,6 +36,7 @@ export interface NotificationWorkerHandle {
 
 export interface StartNotificationWorkerOptions {
   autoConnectDB?: boolean;
+  recoveryIntervalMs?: number;
 }
 
 /**
@@ -80,12 +81,19 @@ export async function startNotificationWorker(
     console.error('⚠️ [NotificationWorker] Warning during startup scan:', scanErr.message);
   }
 
+  // 5. Start periodic background recovery for any failed or legacy requirements
+  const recoveryIntervalMs = options?.recoveryIntervalMs ?? (env.nodeEnv === 'test' ? 0 : 60000);
+  if (recoveryIntervalMs > 0) {
+    notificationQueueService.startPeriodicRecovery(recoveryIntervalMs);
+  }
+
   console.log('🎯 [NotificationWorker] Ready and awaiting notification jobs.');
 
   return {
     name: 'notification-worker',
     close: async () => {
       console.log('🛑 [NotificationWorker] Closing notification worker and resources...');
+      notificationQueueService.stopPeriodicRecovery();
       await notificationQueueService.close();
       console.log('✅ [NotificationWorker] Notification queue and worker closed.');
 

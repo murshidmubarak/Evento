@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
-    "test": "tsx --import ./tests/setup.ts --test --test-concurrency=1 tests/**/*.test.ts",
+    "test": "tsx --import ./tests/setup.ts --test --test-timeout=30000 --test-concurrency=1 tests/**/*.test.ts",
     "worker": "tsx src/workers/worker.ts",
     "worker:dev": "tsx watch src/workers/worker.ts",
     "worker:prod": "node dist/workers/worker.js",
