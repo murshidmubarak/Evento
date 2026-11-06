@@ -890,4 +890,58 @@ Fixed / Verified
 2. Only MongoDB duplicate key code 11000 may be handled as idempotent success in push delivery intent persistence; all other errors must propagate.
 3. Scanners iterating over independent aggregates (e.g. legacy work requirements) must isolate errors per item so one bad document cannot starve or abort the remainder of the recovery cycle.
 
+---
+
+## BUG-018 — GitHub Actions CI Standalone MongoDB Rejection of Multi-Document ACID Transactions
+
+### Date
+
+2026-11-06
+
+### Feature / Module
+
+CI/CD Pipeline / Work Requirement Outbox Hardening / `.github/workflows/ci.yml`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+In GitHub Actions CI workflow (e.g. CI run #24), all backend tests executing multi-document ACID transactions via `session.withTransaction()` (including `WorkRequirementService.updateRequirement()`, `cancelRequirement()`, and `extendDeadline()`) failed with:
+```text
+Error [MongoServerError]: Transaction numbers are only allowed on a replica set member or mongos
+  code: 20,
+  codeName: 'IllegalOperation'
+```
+This caused 32 test failures across 9 test suites while passing on local environments configured with replica sets.
+
+### Root Cause
+
+The native GitHub Actions `services.mongodb` container runs `mongod` in standalone mode. MongoDB strictly enforces that multi-document ACID transactions (`session.withTransaction()` / `session.startTransaction()`) are only permitted on a replica set member or mongos. GitHub Actions `services:` containers cannot pass runtime command options (e.g. `--replSet rs0`) or execute post-start commands like `rs.initiate()`.
+
+### Solution
+
+1. Removed `services.mongodb` from `.github/workflows/ci.yml`.
+2. Added a dedicated setup step `Start MongoDB 8.0 Single-Node Replica Set` running:
+   ```bash
+   docker run -d --name mongodb -p 27017:27017 \
+     -e GLIBC_TUNABLES="glibc.pthread.rseq=1" \
+     mongo:8.0 --replSet rs0 --bind_ip_all
+   ```
+3. Initialized single-node replica set `rs0` with `127.0.0.1:27017` and polled until `db.hello().isWritablePrimary` became true.
+4. Updated CI test connection URI to `mongodb://127.0.0.1:27017/eventops_test?replicaSet=rs0&directConnection=true`.
+5. Added post-job teardown step `docker stop mongodb && docker rm mongodb` with `if: always()`.
+
+### Rule
+
+1. All environments running multi-document ACID transactions or Transactional Outbox patterns must run MongoDB as a replica set (`--replSet rs0`).
+2. Single-node replica sets in CI must explicitly initialize member configuration with `127.0.0.1:27017` and verify primary election before test suites execute.
+3. Always retain `GLIBC_TUNABLES="glibc.pthread.rseq=1"` when launching MongoDB 8.0 containers on Ubuntu runners to prevent tcmalloc SIGSEGV crashes.
+
+
 

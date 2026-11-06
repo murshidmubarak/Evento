@@ -1453,3 +1453,19 @@ Implemented complete browser and device push notification system for EventOps ER
 - Core Notifications Suite (`backend/tests/notifications.test.ts`): 11/11 passed (100%), exit code 0.
 - Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
 - Total full regression suite run: 97/97 passed (100%), exit code 0.
+
+---
+
+### [CI Pipeline MongoDB Replica Set for Outbox Transactions]
+**Date:** 2026-11-06
+**Impact Classification:** Low (CI pipeline infrastructure update in `.github/workflows/ci.yml` enabling replica set for MongoDB ACID transactions without touching production code)
+
+**Affected Modules & Files:**
+- `.github/workflows/ci.yml`: Replaced native `services.mongodb` with a single-node replica set (`rs0`) container with `GLIBC_TUNABLES="glibc.pthread.rseq=1"`, initiated replica set via `mongosh`, updated `MONGODB_URI` / `MONGODB_TEST_URI` connection parameters (`?replicaSet=rs0&directConnection=true`), and added graceful container teardown hook.
+- `docs/08-bug-log.md`: Logged BUG-018.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Preserves test database isolation strictly against `eventops_test`.
+

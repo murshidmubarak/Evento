@@ -17,17 +17,6 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      mongodb:
-        image: mongo:8.0
-        env:
-          GLIBC_TUNABLES: "glibc.pthread.rseq=1"
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       redis:
         image: redis:7-alpine
         ports:
@@ -41,6 +30,43 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Start MongoDB 8.0 Single-Node Replica Set
+        run: |
+          docker run -d --name mongodb -p 27017:27017 \
+            -e GLIBC_TUNABLES="glibc.pthread.rseq=1" \
+            mongo:8.0 --replSet rs0 --bind_ip_all
+          echo "Waiting for MongoDB daemon to respond to ping..."
+          for i in {1..30}; do
+            if docker exec mongodb mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -q 1; then
+              break
+            fi
+            sleep 1
+          done
+          echo "Initiating replica set rs0..."
+          docker exec mongodb mongosh --quiet --eval '
+            var status;
+            try { status = rs.status(); } catch (e) {}
+            if (!status || status.ok !== 1) {
+              rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "127.0.0.1:27017" }] });
+            }
+          '
+          echo "Waiting for replica set primary to be elected..."
+          PRIMARY_READY=0
+          for i in {1..30}; do
+            IS_PRIMARY=$(docker exec mongodb mongosh --quiet --eval 'db.hello().isWritablePrimary' 2>/dev/null || true)
+            if [ "$IS_PRIMARY" = "true" ]; then
+              echo "✅ MongoDB 8.0 Replica Set rs0 is ready and primary!"
+              PRIMARY_READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$PRIMARY_READY" -ne 1 ]; then
+            echo "❌ Failed to elect primary in MongoDB replica set within 30 seconds"
+            docker logs mongodb
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,8 +88,8 @@ jobs:
         env:
           NODE_ENV: test
           PORT: 5000
-          MONGODB_URI: mongodb://127.0.0.1:27017/eventops_test
-          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/eventops_test
+          MONGODB_URI: mongodb://127.0.0.1:27017/eventops_test?replicaSet=rs0&directConnection=true
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/eventops_test?replicaSet=rs0&directConnection=true
           REDIS_URL: redis://127.0.0.1:6379
           JWT_SECRET: ci_test_jwt_secret_key_minimum_32_characters
           JWT_EXPIRES_IN: 1d
@@ -87,6 +113,12 @@ jobs:
       - name: Build backend production bundle
         working-directory: backend
         run: npm run build
+
+      - name: Teardown MongoDB container
+        if: always()
+        run: |
+          docker stop mongodb 2>/dev/null || true
+          docker rm mongodb 2>/dev/null || true
 
   frontend-ci:
     name: Frontend (Lint, Test, Build)
