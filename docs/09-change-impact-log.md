@@ -1469,3 +1469,52 @@ Implemented complete browser and device push notification system for EventOps ER
 - Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
 - Preserves test database isolation strictly against `eventops_test`.
 
+---
+
+### [Milestone 4 — Phase 4.1: Attendance Models, Validation & Repositories]
+**Date:** 2026-11-06
+**Impact Classification:** Low (Additive domain models, validation middlewares, and repositories for Exception-Based Attendance under `backend/src/modules/attendance/`; zero breaking changes to existing models, APIs, or business logic)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/model/attendance-session.model.ts`: Created `AttendanceSession` model managing event-level attendance lifecycle (`checkin_in_progress`, `checkin_finalized`, `checkout_finalized`, `cancelled`), finalization timestamps, finishing time configurations, idempotency audit subdocuments, and unique index on `eventId`.
+- `backend/src/modules/attendance/model/attendance.model.ts`: Created `Attendance` model with snapshots (`reportingTimeSnapshot`, `applicableNormalFinishTimeSnapshot`), check-in / check-out timestamps, timestamp provenance sources (`system_default`, `manager_actual`), integer minute durations (`delayMinutes`, `earlyDepartureMinutes`, `overtimeMinutes`, `durationMinutes`), operational statuses, verification statuses, immutable `corrections[]` audit trail, compound unique index on `{ eventId: 1, workerId: 1 }`, and query indexes.
+- `backend/src/modules/attendance/repository/attendance-session.repository.ts`: Created `AttendanceSessionRepository` with atomic `getOrCreateSession` upsert hardened against race collisions by safely catching E11000 duplicate key errors, `atomicFinalizeCheckIn` state precondition locking, `atomicFinalizeCheckOut` state precondition locking, and lifecycle status transition methods.
+- `backend/src/modules/attendance/repository/attendance.repository.ts`: Created `AttendanceRepository` with high-performance `bulkUpsertAttendances` using MongoDB `bulkWrite` with `updateOne(upsert: true)`, ID and compound lookups, paginated worker queries, `addCorrection` with audit push, and `getEventAttendanceSummary` metric aggregation.
+- `backend/src/modules/attendance/validation/attendance.validation.ts`: Created time parsing utility `isValidTimeString` (supporting 24h `HH:mm`, optional seconds `:ss`, 12h `hh:mm AM/PM`, `00:xx AM`, and ISO strings) and validation middlewares (`validateCheckInFinalization`, `validateCheckOutFinalization`, `validateAttendanceCorrection`, `validateAttendanceVerification`) strictly verifying mutual exclusivity and format rules.
+- `backend/src/workers/worker.ts`: Confirmed existing unified background workers remain completely undisturbed; removed premature model imports so worker architecture stays isolated to background queues.
+- `backend/tests/attendanceModelsAndRepositories.test.ts`: Added 27 unit and integration test scenarios across 7 test suites validating models, repositories, concurrent upsert safety, E11000 recovery, idempotency persistence, and validation rules.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Phase 4.1 Test Suite (`backend/tests/attendanceModelsAndRepositories.test.ts`): 27/27 passed (100%), exit code 0.
+- Unified Worker Suite (`backend/tests/unifiedWorker.test.ts`): 10/10 passed (100%), exit code 0.
+- Database Safety: Executed strictly against `eventops_test` with automatic database drop on teardown. Real database `eventops` untouched.
+
+---
+
+### [Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services & APIs]
+**Date:** 2026-11-06
+**Impact Classification:** Low (Additive services, controllers, and routes for Event Manager exception-based check-in finalization; mounted under `/api/attendance`; zero changes to existing cancellation logic or unrelated domains)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/service/attendance.service.ts`: Implemented `AttendanceService` featuring:
+  - `getSession`: validates event ownership, checks event status, and retrieves or creates session.
+  - `getRoster`: reads embedded assignments from `WorkRequirement.assignedWorkers`, merges with existing attendance records, derives reporting time snapshots, and computes timing guard eligibility.
+  - `finalizeCheckIn`: validates exceptions, enforces mandatory `Idempotency-Key` header, verifies timing guard against latest assigned reporting timestamp, executes MongoDB multi-document transaction for atomic bulk upsert and session state finalization, and handles replay/conflict idempotency.
+- `backend/src/modules/attendance/controller/attendance.controller.ts`: Implemented `AttendanceController` exposing `getSession`, `getRoster`, and `finalizeCheckIn` wrapped in `catchAsync` with `ApiResponse` standard envelopes.
+- `backend/src/modules/attendance/routes/attendance.routes.ts`: Created attendance router protected by `authenticate` and `authorize('admin', 'event_manager')` with `validateCheckInFinalization` payload validation.
+- `backend/src/app.ts`: Mounted `/api/attendance` router.
+- `backend/tests/attendanceCheckIn.test.ts`: Created comprehensive integration test suite with 24 tests across 7 suites verifying authentication/authorization, session initialization, roster retrieval, check-in finalization, timing guard, and idempotency replays.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Phase 4.2 Test Suite (`backend/tests/attendanceCheckIn.test.ts`): 24/24 passed (100%), exit code 0.
+- Phase 4.1 Test Suite (`backend/tests/attendanceModelsAndRepositories.test.ts`): 27/27 passed (100%), exit code 0.
+- Combined Attendance Regression: 51/51 passed (100%), exit code 0.
+- Database Safety: All tests executed strictly against `eventops_test` and cleaned up at teardown. Real database `eventops` untouched.
+- Cancellation and Worker processes: Preserved 100% without modification.
+
