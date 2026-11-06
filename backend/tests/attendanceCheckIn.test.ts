@@ -288,7 +288,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
     it('returns 401 Unauthorized when Authorization header is missing', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${eventAId}/session`);
       assert.strictEqual(res.status, 401);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.strictEqual(data.success, false);
       assert.ok(data.message.includes('missing'));
     });
@@ -313,7 +313,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerBToken}` },
       });
       assert.strictEqual(res.status, 403);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('do not have permission'));
     });
 
@@ -323,7 +323,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.strictEqual(data.success, true);
       assert.strictEqual(data.data.eventId, eventAId);
     });
@@ -333,7 +333,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${adminToken}` },
       });
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.strictEqual(data.success, true);
     });
   });
@@ -348,7 +348,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res1.status, 200);
-      const data1 = await res1.json();
+      const data1 = (await res1.json()) as any;
       assert.strictEqual(data1.data.checkInFinalized, false);
       assert.strictEqual(data1.data.checkOutFinalized, false);
       assert.strictEqual(data1.data.lifecycleStatus, 'checkin_in_progress');
@@ -358,7 +358,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res2.status, 200);
-      const data2 = await res2.json();
+      const data2 = (await res2.json()) as any;
       assert.strictEqual(data2.data._id, data1.data._id);
     });
 
@@ -366,7 +366,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
       const calls = Array(4).fill(null).map(() =>
         fetch(`http://127.0.0.1:${port}/api/attendance/events/${eventAId}/session`, {
           headers: { Authorization: `Bearer ${managerAToken}` },
-        }).then((r) => r.json())
+        }).then((r) => r.json() as Promise<any>)
       );
 
       const results = await Promise.all(calls);
@@ -397,7 +397,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('cancelled events'));
     });
   });
@@ -411,7 +411,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
 
       assert.strictEqual(data.success, true);
       assert.strictEqual(data.data.eventId, eventAId);
@@ -454,7 +454,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.strictEqual(data.data.canFinalizeCheckIn, false);
     });
   });
@@ -473,7 +473,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         body: JSON.stringify({}),
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('Idempotency-Key'));
     });
 
@@ -491,7 +491,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         }),
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('not in the assigned roster'));
     });
 
@@ -509,7 +509,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         }),
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       const hasError =
         data.message.includes('both late and absent') ||
         (data.error?.errors && data.error.errors.some((e: string) => e.includes('both late and absent')));
@@ -530,7 +530,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         }),
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('must be later than reporting time'));
     });
 
@@ -546,7 +546,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         body: JSON.stringify({}),
       });
       assert.strictEqual(res.status, 400);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('Cannot finalize check-in before the latest reporting time'));
     });
 
@@ -572,7 +572,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
       });
 
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.strictEqual(data.success, true);
       assert.strictEqual(data.data.totalProcessed, 4);
       assert.strictEqual(data.data.onTimeCount, 2);
@@ -653,7 +653,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         body: JSON.stringify(payload),
       });
       assert.strictEqual(res1.status, 200);
-      const data1 = await res1.json();
+      const data1 = (await res1.json()) as any;
 
       // 2. Replay with identical key & payload (e.g. client network retry after lost connection)
       const res2 = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${eventAId}/finalize-checkin`, {
@@ -666,7 +666,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         body: JSON.stringify(payload),
       });
       assert.strictEqual(res2.status, 200);
-      const data2 = await res2.json();
+      const data2 = (await res2.json()) as any;
 
       // Committed results must be identical
       assert.strictEqual(data2.data.totalProcessed, data1.data.totalProcessed);
@@ -708,7 +708,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         }),
       });
       assert.strictEqual(resConflict.status, 409);
-      const data = await resConflict.json();
+      const data = (await resConflict.json()) as any;
       assert.ok(data.message.includes('Idempotency key collision') || data.message.includes('different payload'));
     });
 
@@ -736,7 +736,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
       });
 
       assert.strictEqual(res.status, 409);
-      const data = await res.json();
+      const data = (await res.json()) as any;
       assert.ok(data.message.includes('already been finalized'));
     });
   });
@@ -765,7 +765,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
         headers: { Authorization: `Bearer ${managerAToken}` },
       });
       assert.strictEqual(res.status, 200);
-      const data = await res.json();
+      const data = (await res.json()) as any;
 
       assert.strictEqual(data.data.session.checkInFinalized, true);
       assert.strictEqual(data.data.canFinalizeCheckIn, false);
