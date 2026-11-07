@@ -162,8 +162,8 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
     });
 
     // 3. Create Events
-    // Event A: Started earlier today (timing guard passes)
-    const earlierToday = new Date(Date.now() - 4 * 60 * 60 * 1000); // 4 hours ago
+    // Event A: Started yesterday (timing guard passes regardless of time-of-day)
+    const earlierToday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const eA = await Event.create({
       clientId,
       eventManagerId: managerAId,

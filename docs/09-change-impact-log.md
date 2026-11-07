@@ -1518,3 +1518,204 @@ Implemented complete browser and device push notification system for EventOps ER
 - Database Safety: All tests executed strictly against `eventops_test` and cleaned up at teardown. Real database `eventops` untouched.
 - Cancellation and Worker processes: Preserved 100% without modification.
 
+---
+
+### [Milestone 4 — Phase 4.3: Event Manager Check-in Frontend Integration]
+**Date:** 2026-11-07
+**Impact Classification:** Low (Additive frontend integration connecting Phase 4.2 attendance backend APIs to the Event Manager portal; zero breaking changes to existing models, APIs, cancellation logic, or background workers)
+
+**Affected Modules & Files:**
+- `frontend/src/features/attendance/attendance.types.ts`: Created TypeScript domain models matching Phase 4.2 backend responses (`AttendanceSession`, `AttendanceRosterResponse`, `AttendanceRosterItem`, `FinalizeCheckInPayload`, `FinalizeCheckInSummary`, `WorkerCheckInExceptionType`).
+- `frontend/src/features/attendance/attendanceApi.ts`: Created API client methods (`getSession`, `getRoster`, `finalizeCheckIn`) with strict reliance on `import.meta.env.VITE_API_URL` and `Idempotency-Key` header injection; included time normalization and delay calculation utilities (`parseTimeToMinutes`, `calculateDelayMinutes`).
+- `frontend/src/components/manager/attendance/AttendanceTimingBanner.tsx`: Built dynamic operational timing barrier banner explaining earliest finalization availability based on the latest scheduled worker shift, and locking/unlocking action buttons.
+- `frontend/src/components/manager/attendance/AttendanceSummaryCards.tsx`: Built 6-metric responsive summary card component displaying Total Assigned, Default Present, Late Arrivals, Absent, Latest Shift, and Check-in State.
+- `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`: Created interactive exception management table with quick search, category filter chips (All, Present, Late, Absent), worker role filters, segmented exception toggles, inline actual arrival time inputs with live delay preview, and format validation.
+- `frontend/src/components/manager/attendance/ReviewCheckinModal.tsx`: Created finalization confirmation dialog displaying breakdown counts, the mandatory system-generated default timestamp audit disclaimer, detailed late/absent exception lists, generated `Idempotency-Key`, and retry mechanism preserving identical key and payload.
+- `frontend/src/components/manager/attendance/FinalizedAttendanceView.tsx`: Created read-only finalized view displaying finalized banner, commitment timestamp, and table with official recorded check-in times, provenance source badges (`system_default`, `manager_actual`, `not_recorded`), and arrival statuses (`On Time`, `Late`, `Absent`).
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Created container workspace managing state orchestration, loading/error states, initial roster and session retrieval, exception tracking, idempotency hashing, and seamless transition to finalized view upon successful completion.
+- `frontend/src/pages/manager/ManagerEventDetails.tsx`: Integrated Attendance tab and Quick Attendance Overview banner for confirmed, in-progress, and completed events.
+- `frontend/src/tests/attendanceCheckInUI.test.tsx`: Created comprehensive Vitest/React Testing Library test suite (14 tests) verifying tab navigation, initial roster loading, timing barrier enforcement, exception selection, arrival time validation, confirmation modal disclaimer, idempotency key generation and retry reuse, read-only finalized view, and error handling.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Frontend Production Build (`npm run build`): compiled cleanly in 13.77s, 0 errors, exit code 0.
+- Frontend Lint (`npm run lint`): 0 errors, exit code 0.
+- Frontend Phase 4.3 Suite (`frontend/src/tests/attendanceCheckInUI.test.tsx`): 14/14 passed (100%), exit code 0.
+- Full Frontend Regression Suite: 18 test files, 108/108 tests passed (100%), exit code 0.
+- Backend Type Check (`npm run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm run build`): compiled cleanly, exit code 0.
+- Preliminary Event Status Check: Confirmed `in_progress` is an established, valid status in `Event.status` schema and across existing backend services.
+- Scope Boundaries: Checkout UI, overtime processing, and worker self-service were NOT implemented. Cancellation logic and Unified Worker were completely untouched.
+
+---
+
+### [Milestone 4 — Phase 4.4: Exception-Based Checkout Backend & Frontend Integration]
+**Date:** 2026-11-07
+**Impact Classification:** Medium (Additive checkout functionality connecting to Phase 4.2 check-in APIs and extending Phase 4.3 attendance workspace; atomic MongoDB multi-document transactions with idempotency replay safety; zero breaking changes to existing models, Event lifecycle, cancellation logic, or background workers)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/service/attendance.service.ts`: Implemented `finalizeCheckOut()` and updated `getRoster()`:
+  - Validates session check-in finalization precondition (`checkInFinalized === true && checkOutFinalized === false`).
+  - Implements hybrid finishing-time resolution: `applicableNormalFinish = requirementOverrides[reqId] ?? defaultFinishTime`.
+  - Calculates exact working durations in integer minutes: `durationMinutes = (checkOut - checkIn) / 60000`.
+  - Accurately computes `earlyDepartureMinutes = (applicableFinish - checkOut) / 60000` and `overtimeMinutes = (checkOut - applicableFinish) / 60000`, including cross-midnight shifts.
+  - Automatically excludes absent workers from checkout (`checkOut: null`, `durationMinutes: 0`, `departureStatus: 'not_recorded'`).
+  - Implements transaction safety: executes bulk upsert and atomic checkout locking within a MongoDB multi-document session with automatic rollback on error.
+  - Enforces mandatory `Idempotency-Key` header with SHA-256 payload hashing for deterministic replays and 409 conflict detection.
+- `backend/src/modules/attendance/controller/attendance.controller.ts`: Added `finalizeCheckOut` controller method with envelope response.
+- `backend/src/modules/attendance/routes/attendance.routes.ts`: Mounted `POST /events/:eventId/finalize-checkout` protected by `authenticate`, `authorize('admin', 'event_manager')`, and `validateCheckOutFinalization`.
+- `backend/tests/attendanceCheckOut.test.ts`: Created comprehensive 24-test integration test suite covering RBAC, timing guards, finishing-time resolution, exceptions, integer minute durations, overnight shift calculations, idempotency replays/conflicts, and roster reflection.
+- `frontend/src/features/attendance/attendance.types.ts`: Extended types with `RequirementFinishOverrideInput`, `EarlyDepartureExceptionInput`, `OvertimeExceptionInput`, `FinalizeCheckOutPayload`, `FinalizeCheckOutSummary`, `AttendanceRequirementOverride`, and checkout roster properties.
+- `frontend/src/features/attendance/attendanceApi.ts`: Added `finalizeCheckOut()` method, duration formatting helpers, and timezone-aware operational date helpers (`getOperationalDateString`, `isOvernightCheckout` with default `Asia/Kolkata`).
+- `frontend/src/components/manager/attendance/CheckoutFinishingTimeCard.tsx`: Created finishing time configuration card with mandatory event default input, optional requirement-level overrides, and resolved schedule summary.
+- `frontend/src/components/manager/attendance/CheckoutRosterTable.tsx`: Created checkout roster table with segmented toggle `[Normal]`, `[Early Departure]`, `[Overtime]`, absent exclusion badge, live duration preview, and validation.
+- `frontend/src/components/manager/attendance/ReviewCheckoutModal.tsx`: Created review confirmation modal with metrics breakdown, finishing time audit notice, idempotency key tracking, and Section 12 409 conflict handling.
+- `frontend/src/components/manager/attendance/FinalizedAttendanceView.tsx`: Enhanced to display dual-phase finalization (check-in and checkout) with arrival and departure timestamps, provenance badges, filter tabs, and duration metrics; corrected overnight `[+1 Day]` badge resolution using timezone-aware `isOvernightCheckout` (`Asia/Kolkata`).
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Created 3-stage lifecycle stepper (Check-in Pending, Checkout Stage Active, Complete Attendance Archive), seamlessly integrating Check-in Workspace, Checkout Workspace, and Check-in Baseline historical view.
+- `frontend/src/tests/attendanceCheckOutUI.test.tsx`: Created 13 UI tests verifying rendering, finishing time validation, requirement overrides, roster exception toggles, modal disclaimers, successful commit, 409 conflict branches, and Asia/Kolkata timezone-aware overnight `[+1 Day]` display regression.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm --prefix backend run build`): compiled cleanly, exit code 0.
+- Backend Phase 4.4 Suite (`backend/tests/attendanceCheckOut.test.ts`): 24/24 passed (100%), exit code 0.
+- Backend Phase 4.2 Suite (`backend/tests/attendanceCheckIn.test.ts`): 24/24 passed (100%), exit code 0.
+- Backend Phase 4.1 Suite (`backend/tests/attendanceModelsAndRepositories.test.ts`): 27/27 passed (100%), exit code 0.
+- Total Backend Attendance Tests: 75/75 passed (100%), exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly (`tsc -b && vite build`), 0 errors, exit code 0.
+- Frontend Lint (`npm --prefix frontend run lint`): 0 errors, exit code 0.
+- Frontend Phase 4.4 Suite (`frontend/src/tests/attendanceCheckOutUI.test.tsx`): 13/13 passed (100%), exit code 0.
+- Frontend Phase 4.3 Suite (`frontend/src/tests/attendanceCheckInUI.test.tsx`): 14/14 passed (100%), exit code 0.
+- Full Frontend Regression Suite: 19 test files, 121/121 tests passed (100%), exit code 0.
+- Database Safety: All tests executed strictly against `eventops_test` and dropped upon completion. Real database `eventops` remained completely untouched.
+- Scope Boundaries: Wage calculations, payroll processing, and worker self-checkout were NOT implemented. Cancellation and Unified Worker remained completely untouched.
+
+---
+
+### [Milestone 4 — Phase 4.5: Attendance Corrections, Absence Reversal & Final Manager Approval]
+**Date:** 2026-11-07
+**Impact Classification:** Medium (Attendance audit trail corrections, absence reversal workflow, and final manager sign-off/verification; atomic MongoDB multi-document transactions with approval state invalidation cascade; zero breaking changes to existing models, Event lifecycle, or cancellation logic)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/model/attendance.model.ts`: Extended `IAttendanceCorrection` with `previousArrivalStatus`, `previousDepartureStatus`, `newArrivalStatus`, `newDepartureStatus`; added `verificationStatus` to `IAttendance` schema with enum `['pending_review', 'approved', 'rejected']`, `verifiedBy`, and `verifiedAt`.
+- `backend/src/modules/attendance/model/attendance-session.model.ts`: Extended `IAttendanceSession` with `verificationStatus?: 'pending_review' | 'approved' | 'rejected'`, `verifiedBy?: Types.ObjectId`, `verifiedAt?: Date`, and `rejectionReason?: string`.
+- `backend/src/modules/attendance/repository/attendance.repository.ts`: Added `updateVerificationStatusByEvent()` and `resetVerificationStatusByEvent()` supporting event-wide atomic approval updates and approval reset cascades.
+- `backend/src/modules/attendance/repository/attendance-session.repository.ts`: Added `updateVerificationStatus()` and `resetVerificationStatus()` for session verification lifecycle management.
+- `backend/src/modules/attendance/validation/attendance.validation.ts`: Enhanced `validateAttendanceCorrection` (supporting `:attendanceId` and `:id`, validating reason min length 5, arrival and departure status enums, time formats) and `validateAttendanceVerification` (requiring action `'approve' | 'reject'` and min 5-character rejection reason).
+- `backend/src/modules/attendance/service/attendance.service.ts`:
+  - Implemented `correctAttendance()`: handles absence reversal (to On Time vs Late; pre-checkout vs post-checkout with actual checkout time or `applyDefaultCheckout: true`), check-in/checkout timestamp corrections with overnight shift handling, integer metric recalculations, audit trail generation, and automatic invalidation/reset of approval state to `pending_review` across session and records in an ACID transaction.
+  - Implemented `verifyAttendance()`: verifies check-in and checkout finalization preconditions, checks for incomplete attendance records, atomically persists `approved` or `rejected` status with mandatory reason.
+  - Updated `getRoster()`: exposes verification fields and corrections audit history.
+- `backend/src/modules/attendance/controller/attendance.controller.ts`: Added `correctAttendance` and `verifyAttendance` controller endpoints.
+- `backend/src/modules/attendance/routes/attendance.routes.ts`: Mounted `PATCH /records/:attendanceId/correct` and `POST /events/:eventId/verify`.
+- `backend/tests/attendanceCorrectionAndApproval.test.ts`: Created comprehensive 17-test integration test suite covering RBAC, reason validation, check-in/checkout timestamp corrections, delay/duration recalculations, absence reversal (pre- and post-checkout), approval precondition enforcement, rejection reasons, Admin overrides, and automatic approval invalidation cascades.
+- `frontend/src/features/attendance/attendance.types.ts`: Added `AttendanceCorrection`, `CorrectAttendancePayload`, `VerifyAttendancePayload`, `AttendanceVerificationSummary`; updated `AttendanceSession` and `AttendanceRosterItem`.
+- `frontend/src/features/attendance/attendanceApi.ts`: Added `correctAttendance()` and `verifyAttendance()` API client methods.
+- `frontend/src/components/manager/attendance/CorrectionModal.tsx`: Created correction modal supporting absence reversal (On Time vs Late, default vs actual finish), live duration preview, mandatory reason validation (min 5 chars), and approval re-review warning.
+- `frontend/src/components/manager/attendance/VerificationModal.tsx`: Created modal for approval confirmation (operational breakdown summary) and rejection (mandatory 5-character reason).
+- `frontend/src/components/manager/attendance/FinalizedAttendanceView.tsx`: Integrated verification status banners (Pending Review, Approved, Rejected), action buttons (`Approve Attendance`, `Reject Attendance`), per-worker verification status pill, correction count indicator, and `Correct` action button on each worker row.
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Integrated correction and verification state management, opening respective modals and refreshing session/roster data on completion.
+- `frontend/src/tests/attendanceCorrectionAndApprovalUI.test.tsx`: Created 10 UI tests verifying banners, approval modal, rejection validation, non-absent correction, absence reversal (on-time and late), and full workspace integration flow.
+- `docs/08-bug-log.md`: Documented BUG-020.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm --prefix backend run build`): compiled cleanly, exit code 0.
+- Backend Phase 4.5 Suite (`backend/tests/attendanceCorrectionAndApproval.test.ts`): 17/17 passed (100%), exit code 0.
+- Backend Phase 4.4 Suite (`backend/tests/attendanceCheckOut.test.ts`): 24/24 passed (100%), exit code 0.
+- Backend Phase 4.2 Suite (`backend/tests/attendanceCheckIn.test.ts`): 24/24 passed (100%), exit code 0.
+- Backend Phase 4.1 Suite (`backend/tests/attendanceModelsAndRepositories.test.ts`): 27/27 passed (100%), exit code 0.
+- Total Backend Attendance Tests: 92/92 passed (100%), exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 8.75s, 0 errors, exit code 0.
+- Frontend Lint (`npm --prefix frontend run lint`): 0 errors, exit code 0.
+- Frontend Phase 4.5 Suite (`frontend/src/tests/attendanceCorrectionAndApprovalUI.test.tsx`): 10/10 passed (100%), exit code 0.
+- Frontend Phase 4.4 Suite (`frontend/src/tests/attendanceCheckOutUI.test.tsx`): 13/13 passed (100%), exit code 0.
+- Frontend Phase 4.3 Suite (`frontend/src/tests/attendanceCheckInUI.test.tsx`): 14/14 passed (100%), exit code 0.
+- Database Safety: All tests executed strictly against isolated test database `eventops_test` and dropped upon completion. Real database `eventops` remained completely untouched.
+- Scope Boundaries: Wage & Earnings, overtime payments, payroll, break deductions, worker self-check-in/self-checkout, client approval, and GPS tracking were NOT implemented.
+
+---
+
+### [Milestone 4 — Attendance Workflow Refinement: Category-wise Normal Finishing Times, Immediate Check-in Persistence & Post-Finalization Corrections]
+**Date:** 2026-11-07
+**Impact Classification:** Medium (Attendance lifecycle refinement extending category-wise finishing times, immediate individual worker check-in persistence prior to batch finalization, and post-finalization attendance correction transitions to absent with approval state invalidation cascade; zero breaking changes to existing models, Event lifecycle, or cancellation logic)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/model/attendance-session.model.ts`: Extended `IAttendanceSession` and schema with `categoryFinishTimes` (`[{ workerType: string, normalFinishTime: string, normalFinishDate?: Date }]`).
+- `backend/src/modules/attendance/repository/attendance-session.repository.ts`: Updated `getOrCreateSession` and `atomicFinalizeCheckOut` to support and persist `categoryFinishTimes`.
+- `backend/src/modules/attendance/repository/attendance.repository.ts`: Added `upsertIndividualCheckIn(eventId, workerId, updateData, session)` using atomic `findOneAndUpdate` with isolated `$setOnInsert` for `{ eventId, workerId }`.
+- `backend/src/modules/attendance/validation/attendance.validation.ts`:
+  - Added `validateIndividualCheckIn`: enforces valid `:eventId`, `:workerId`, `arrivalStatus` (`'on_time' | 'late' | 'absent'`), and mandatory `actualArrivalTime` for late arrivals.
+  - Updated `validateCheckOutFinalization`: accepts `categoryFinishTimes` and/or `actualNormalFinishTime`, validating format of each category finishing time.
+  - Updated `validateAttendanceCorrection`: allows `arrivalStatus: 'absent'`.
+- `backend/src/modules/attendance/service/attendance.service.ts`:
+  - Implemented `recordWorkerCheckIn()`: validates event ownership and non-finalized check-in, resolves scheduled reporting time from `WorkRequirement`, validates arrival timestamps with overnight rollover handling, calculates `delayMinutes`, and atomically upserts `Attendance` into MongoDB.
+  - Updated `finalizeCheckIn()`: preserves previously confirmed individual check-in records (`existingAttMap`), applies default On Time only to unrecorded workers, and calculates accurate summary counts.
+  - Updated `finalizeCheckOut()`: processes `categoryFinishTimes`, resolves applicable finish time/date per worker from category finish times, handles overnight shifts (`finMins <= repMins`), snapshots `applicableNormalFinishTimeSnapshot` and `applicableNormalFinishDate`, and persists category finish times to session.
+  - Updated `correctAttendance()`: handles transitions Present/Late $\rightarrow$ Absent (nullifies check-in, checkout, duration, delay), Late $\rightarrow$ Present (`system_default`), Late $\rightarrow$ Late, and resolves applicable finish time using `categoryFinishTimes`.
+  - Updated `getEventRoster()`: returns `categoryFinishTimes` in `session`.
+- `backend/src/modules/attendance/controller/attendance.controller.ts`: Added `recordWorkerCheckIn` controller endpoint.
+- `backend/src/modules/attendance/routes/attendance.routes.ts`: Mounted `POST /events/:eventId/workers/:workerId/checkin`.
+- `backend/tests/attendanceCategoryAndImmediateCheckIn.test.ts`: Created 19 integration tests covering immediate check-in persistence (Present, Late, Absent), idempotency & updating before finalization, batch finalization preserving confirmed states, category finish times & overnight shift calculations, post-finalization transitions (Present $\rightarrow$ Absent, Absent $\rightarrow$ Present, Late $\rightarrow$ Late), immutable audit log, and approval invalidation cascade.
+- `frontend/src/features/attendance/attendance.types.ts`: Added `CategoryFinishTime`, `CategoryFinishTimeInput`, `IndividualCheckInPayload`; updated `AttendanceSession`, `AttendanceRosterResponse.session`, `FinalizeCheckOutPayload`, `CorrectAttendancePayload`.
+- `frontend/src/features/attendance/attendanceApi.ts`: Added `recordWorkerCheckIn(eventId, workerId, payload)` API client method.
+- `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`: Added `onSaveWorkerCheckIn` prop, `handleConfirmAndSave`, `handleCancelDraft`, saved badges (`Saved On-Time`, `Saved Late`, `Saved Absent`), row error handling, and inline "Confirm and Save" & "Cancel" buttons.
+- `frontend/src/components/manager/attendance/CheckoutFinishingTimeCard.tsx`: Added Category-Wise Normal Finishing Times section with input per distinct category (`distinctCategories`), "Apply to all categories" shortcut, validation, and error display.
+- `frontend/src/components/manager/attendance/CheckoutRosterTable.tsx`: Updated to accept `categoryFinishTimes` and resolve/display applicable category finish time per worker with `+1 Day` overnight indicator.
+- `frontend/src/components/manager/attendance/ReviewCheckoutModal.tsx`: Updated to accept `categoryFinishTimes` and calculate applicable finish time per worker according to priority (Override > Category Finish > Default Finish).
+- `frontend/src/components/manager/attendance/CorrectionModal.tsx`: Updated with `markAsAbsent` state, "Target Attendance Status" selector (On Time, Late, Mark as Absent), Absent warning notice, approval invalidation alert, and submission handling for absent transitions.
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Hooked up `categoryFinishTimes` state, loaded from session, passed to child components, updated payload hash and finalization validation.
+- `frontend/src/tests/attendanceCategoryAndImmediateCheckInUI.test.tsx`: Created 11 UI tests verifying draft mode vs confirm & save, immediate save calls, category finish time inputs per distinct category, "Apply to all categories", and correction modal transitions to absent with approval invalidation notice.
+- `docs/08-bug-log.md`: Documented BUG-021.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Backend Compilation (`npm --prefix backend run build`): compiled cleanly, exit code 0.
+- Backend Full Suite (`npm --prefix backend test`): 679/679 passed (100%), 116 suites, exit code 0.
+- Frontend Full Suite (`npm --prefix frontend test -- --run`): 142/142 passed (100%), 21 test files, exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly, exit code 0.
+- Database Safety: All tests executed strictly against isolated test database `eventops_test` and dropped upon completion. Real database `eventops` remained completely untouched.
+- Scope Boundaries: Wage calculations, payroll processing, worker self-check-in/self-checkout, client approval, and GPS tracking were NOT implemented.
+
+---
+
+### [Milestone 4 — EventAttendanceWorkspace Synchronization & Finishing-Time Priority Alignment]
+**Date:** 2026-11-07
+**Impact Classification:** Low/Medium (Frontend state synchronization on initial load/refresh in `EventAttendanceWorkspace.tsx`, category vs requirement override finishing-time priority unification across `CheckoutRosterTable.tsx`, `ReviewCheckoutModal.tsx`, and `attendance.service.ts`, and row error cleanup in `AttendanceRosterTable.tsx`)
+
+**Affected Modules & Files:**
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`:
+  - Synchronized `checkInExceptions` state from `rost.roster` during `loadAttendanceData` for all workers with committed database attendance records while preserving active manual drafts.
+  - Refined `isFinishingTimeConfigured`: when event default finish time is empty, verified that every active category present in the roster has a valid finish time configured before enabling finalization review.
+  - Filtered out empty/blank strings in `requirementOverrides` before constructing the finalization payload.
+  - Safely passed `session || rosterData?.session` in historical baseline view and fallback finish time in `CorrectionModal`.
+  - Destructured `eventTitle` and `eventDate` from props to satisfy linter and prevent unused prop warnings.
+- `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`:
+  - Reset `workerRowError` upon changing arrival time or selecting a new exception status.
+  - Pre-populated existing check-in timestamp from database when switching to Late.
+- `frontend/src/components/manager/attendance/CheckoutRosterTable.tsx`:
+  - Unified applicable finish time priority: `Requirement Override > Category Normal Finish > Event Default Finish`.
+  - Added visual provenance badges (`Override`, `Category`) in the Applicable Normal Finish Time column.
+- `frontend/src/components/manager/attendance/CorrectionModal.tsx`:
+  - Added safety guard preventing submission when `worker.attendanceId` is missing.
+- `backend/src/modules/attendance/service/attendance.service.ts`:
+  - Unified applicable finish time priority in `finalizeCheckOut()` and `correctAttendance()` to strictly evaluate `requirementOverrideMap` before `categoryFinishMap`.
+- `frontend/src/tests/attendanceCategoryAndImmediateCheckInUI.test.tsx`:
+  - Fixed TypeScript interface mismatches by adding `isAssigned: true` and adhering to `AttendanceRosterRequirementItem`.
+- `docs/08-bug-log.md`: Documented BUG-022.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 5.3s, 0 errors, exit code 0.
+- Frontend Full Suite (`npm --prefix frontend test -- --run`): 142/142 passed (100%), 21 test files, exit code 0.
+- Database Safety: Real database `eventops` remained completely untouched. All tests executed with zero persistent artifacts.
+
+
+
+
+
+
+

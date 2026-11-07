@@ -220,6 +220,42 @@ export class AttendanceRepository {
   }
 
   /**
+   * Atomically upserts an individual worker attendance record by { eventId, workerId }.
+   */
+  async upsertIndividualCheckIn(
+    eventId: string,
+    workerId: string,
+    updateData: Partial<IAttendance>,
+    session?: ClientSession
+  ): Promise<IAttendance | null> {
+    if (!mongoose.Types.ObjectId.isValid(eventId) || !mongoose.Types.ObjectId.isValid(workerId)) {
+      return null;
+    }
+
+    const filter = {
+      eventId: new mongoose.Types.ObjectId(eventId),
+      workerId: new mongoose.Types.ObjectId(workerId),
+    };
+
+    const { eventId: _eId, workerId: _wId, ...cleanUpdateData } = updateData as any;
+
+    const query = Attendance.findOneAndUpdate(
+      filter,
+      {
+        $set: cleanUpdateData,
+        $setOnInsert: {
+          eventId: filter.eventId,
+          workerId: filter.workerId,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    if (session) query.session(session);
+
+    return query.exec();
+  }
+
+  /**
    * Appends an immutable correction record and applies updated field values.
    */
   async addCorrection(
@@ -238,6 +274,66 @@ export class AttendanceRepository {
     const query = Attendance.findByIdAndUpdate(id, updateDoc, { new: true });
     if (session) query.session(session);
     return query.exec();
+  }
+
+  /**
+   * Bulk updates the verification status for all attendance records of an event.
+   */
+  async updateVerificationStatusByEvent(
+    eventId: string,
+    verificationStatus: 'pending_review' | 'approved' | 'rejected',
+    verifiedBy?: mongoose.Types.ObjectId | null,
+    rejectionReason?: string | null,
+    session?: ClientSession
+  ): Promise<any> {
+    if (!mongoose.Types.ObjectId.isValid(eventId)) return { matchedCount: 0, modifiedCount: 0 };
+
+    const updateDoc: any = {
+      $set: {
+        verificationStatus,
+        verifiedBy: verifiedBy || null,
+        verifiedAt: verifiedBy ? new Date() : null,
+        rejectionReason: rejectionReason || null,
+      },
+    };
+
+    const options: Record<string, unknown> = {};
+    if (session) options.session = session;
+
+    return Attendance.updateMany(
+      { eventId: new mongoose.Types.ObjectId(eventId) },
+      updateDoc,
+      options
+    );
+  }
+
+  /**
+   * Resets verification status for all attendance records of an event to 'pending_review'.
+   * Used when any record correction invalidates an event-level approval.
+   */
+  async resetVerificationStatusByEvent(
+    eventId: string,
+    session?: ClientSession
+  ): Promise<any> {
+    if (!mongoose.Types.ObjectId.isValid(eventId)) return { matchedCount: 0, modifiedCount: 0 };
+
+    const updateDoc: any = {
+      $set: {
+        verificationStatus: 'pending_review',
+        verifiedBy: null,
+        verifiedAt: null,
+        rejectionReason: null,
+      },
+    };
+
+    const options: Record<string, unknown> = {};
+    if (session) options.session = session;
+
+    return Attendance.updateMany(
+      { eventId: new mongoose.Types.ObjectId(eventId) },
+      updateDoc,
+      options
+    );
   }
 
   /**
