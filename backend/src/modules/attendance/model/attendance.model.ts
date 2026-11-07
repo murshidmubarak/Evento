@@ -13,9 +13,13 @@ export interface IAttendanceCorrection {
   previousValue?: string;
   previousSource?: TimestampSource;
   previousStatus?: string;
+  previousArrivalStatus?: string;
+  previousDepartureStatus?: string;
   newValue?: string;
   newSource?: TimestampSource;
   newStatus?: string;
+  newArrivalStatus?: string;
+  newDepartureStatus?: string;
   reason: string;
 }
 
@@ -76,9 +80,13 @@ const attendanceCorrectionSchema = new Schema<IAttendanceCorrection>(
     previousValue: { type: String },
     previousSource: { type: String, enum: ['manager_actual', 'system_default', 'not_recorded'] },
     previousStatus: { type: String },
+    previousArrivalStatus: { type: String },
+    previousDepartureStatus: { type: String },
     newValue: { type: String },
     newSource: { type: String, enum: ['manager_actual', 'system_default', 'not_recorded'] },
     newStatus: { type: String },
+    newArrivalStatus: { type: String },
+    newDepartureStatus: { type: String },
     reason: { type: String, required: true, minlength: 5, trim: true },
   },
   { _id: false }

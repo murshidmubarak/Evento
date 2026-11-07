@@ -20,6 +20,12 @@ export interface IRequirementFinishOverride {
   normalFinishDate: Date;   // Full UTC timestamp on the event calendar day (or next day)
 }
 
+export interface ICategoryFinishTime {
+  workerType: string;
+  normalFinishTime: string; // e.g. "21:00" or "09:00 PM"
+  normalFinishDate: Date;   // Full UTC timestamp on the event calendar day (or next day)
+}
+
 export interface IAttendanceSession extends Document {
   eventId: Types.ObjectId;
 
@@ -32,6 +38,7 @@ export interface IAttendanceSession extends Document {
   // Normal work finishing-time configuration
   actualNormalFinishTime?: string; // Event default (e.g. "19:00")
   actualNormalFinishDate?: Date;   // Full UTC timestamp
+  categoryFinishTimes: ICategoryFinishTime[]; // Category-wise finishing times
   requirementFinishOverrides: IRequirementFinishOverride[];
 
   // Checkout stage
@@ -42,6 +49,12 @@ export interface IAttendanceSession extends Document {
 
   // Overall lifecycle
   lifecycleStatus: AttendanceLifecycleStatus;
+
+  // Final Event Manager Verification & Approval stage
+  verificationStatus?: 'pending_review' | 'approved' | 'rejected';
+  verifiedBy?: Types.ObjectId;
+  verifiedAt?: Date;
+  rejectionReason?: string;
 
   createdAt: Date;
   updatedAt: Date;
@@ -67,6 +80,15 @@ const requirementFinishOverrideSchema = new Schema<IRequirementFinishOverride>(
   { _id: false }
 );
 
+const categoryFinishTimeSchema = new Schema<ICategoryFinishTime>(
+  {
+    workerType: { type: String, required: true, trim: true },
+    normalFinishTime: { type: String, required: true, trim: true },
+    normalFinishDate: { type: Date, required: true },
+  },
+  { _id: false }
+);
+
 const attendanceSessionSchema = new Schema<IAttendanceSession>(
   {
     eventId: {
@@ -83,6 +105,10 @@ const attendanceSessionSchema = new Schema<IAttendanceSession>(
 
     actualNormalFinishTime: { type: String, trim: true },
     actualNormalFinishDate: { type: Date },
+    categoryFinishTimes: {
+      type: [categoryFinishTimeSchema],
+      default: [],
+    },
     requirementFinishOverrides: {
       type: [requirementFinishOverrideSchema],
       default: [],
@@ -99,6 +125,16 @@ const attendanceSessionSchema = new Schema<IAttendanceSession>(
       default: 'checkin_in_progress',
       index: true,
     },
+
+    verificationStatus: {
+      type: String,
+      enum: ['pending_review', 'approved', 'rejected'],
+      default: 'pending_review',
+      index: true,
+    },
+    verifiedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    verifiedAt: { type: Date },
+    rejectionReason: { type: String, trim: true },
   },
   { timestamps: true }
 );

@@ -5,6 +5,7 @@ import {
   type AttendanceLifecycleStatus,
   type IFinalizationIdempotency,
   type IRequirementFinishOverride,
+  type ICategoryFinishTime,
 } from '../model/attendance-session.model.js';
 
 export class AttendanceSessionRepository {
@@ -43,6 +44,7 @@ export class AttendanceSessionRepository {
             checkInFinalized: false,
             checkOutFinalized: false,
             lifecycleStatus: 'checkin_in_progress',
+            categoryFinishTimes: [],
             requirementFinishOverrides: [],
           },
         },
@@ -132,8 +134,9 @@ export class AttendanceSessionRepository {
   async atomicFinalizeCheckOut(
     eventId: string,
     finishTimeData: {
-      actualNormalFinishTime: string;
-      actualNormalFinishDate: Date;
+      actualNormalFinishTime?: string;
+      actualNormalFinishDate?: Date;
+      categoryFinishTimes?: ICategoryFinishTime[];
       requirementFinishOverrides?: IRequirementFinishOverride[];
     },
     checkOutRecord: IFinalizationIdempotency,
@@ -151,6 +154,7 @@ export class AttendanceSessionRepository {
         $set: {
           actualNormalFinishTime: finishTimeData.actualNormalFinishTime,
           actualNormalFinishDate: finishTimeData.actualNormalFinishDate,
+          categoryFinishTimes: finishTimeData.categoryFinishTimes || [],
           requirementFinishOverrides: finishTimeData.requirementFinishOverrides || [],
           checkOutFinalized: true,
           checkOutFinalizedAt: checkOutRecord.finalizedAt || new Date(),
@@ -178,6 +182,59 @@ export class AttendanceSessionRepository {
     const query = AttendanceSession.findOneAndUpdate(
       { eventId: new mongoose.Types.ObjectId(eventId) },
       { $set: { lifecycleStatus: status } },
+      { new: true }
+    );
+    if (session) query.session(session);
+    return query.exec();
+  }
+
+  /**
+   * Updates verification status for an attendance session.
+   */
+  async updateVerificationStatus(
+    eventId: string,
+    verificationStatus: 'pending_review' | 'approved' | 'rejected',
+    verifiedBy?: mongoose.Types.ObjectId | null,
+    rejectionReason?: string | null,
+    session?: ClientSession
+  ): Promise<IAttendanceSession | null> {
+    if (!mongoose.Types.ObjectId.isValid(eventId)) return null;
+
+    const query = AttendanceSession.findOneAndUpdate(
+      { eventId: new mongoose.Types.ObjectId(eventId) },
+      {
+        $set: {
+          verificationStatus,
+          verifiedBy: verifiedBy || null,
+          verifiedAt: verifiedBy ? new Date() : null,
+          rejectionReason: rejectionReason || null,
+        },
+      },
+      { new: true }
+    );
+    if (session) query.session(session);
+    return query.exec();
+  }
+
+  /**
+   * Resets verification status for an attendance session to 'pending_review'.
+   */
+  async resetVerificationStatus(
+    eventId: string,
+    session?: ClientSession
+  ): Promise<IAttendanceSession | null> {
+    if (!mongoose.Types.ObjectId.isValid(eventId)) return null;
+
+    const query = AttendanceSession.findOneAndUpdate(
+      { eventId: new mongoose.Types.ObjectId(eventId) },
+      {
+        $set: {
+          verificationStatus: 'pending_review',
+          verifiedBy: null,
+          verifiedAt: null,
+          rejectionReason: null,
+        },
+      },
       { new: true }
     );
     if (session) query.session(session);

@@ -34,6 +34,27 @@ export class AttendanceController {
   });
 
   /**
+   * POST /api/attendance/events/:eventId/workers/:workerId/checkin
+   * Records individual worker check-in immediately upon confirmation.
+   */
+  recordWorkerCheckIn = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId, workerId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.recordWorkerCheckIn(
+      userId,
+      userRole,
+      eventId,
+      workerId,
+      req.body
+    );
+
+    new ApiResponse(200, 'Worker check-in recorded successfully', result).send(res);
+  });
+
+  /**
    * POST /api/attendance/events/:eventId/finalize-checkin
    * Executes manager exception-based check-in finalization with idempotency.
    */
@@ -57,6 +78,76 @@ export class AttendanceController {
     );
 
     new ApiResponse(200, 'Check-in finalized successfully', result).send(res);
+  });
+
+  /**
+   * POST /api/attendance/events/:eventId/finalize-checkout
+   * Executes manager exception-based checkout finalization with idempotency.
+   */
+  finalizeCheckOut = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const idempotencyKey = (req.headers['idempotency-key'] || req.headers['x-idempotency-key']) as string;
+
+    if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+      throw ApiError.badRequest('Idempotency-Key header is required');
+    }
+
+    const result = await attendanceService.finalizeCheckOut(
+      userId,
+      userRole,
+      eventId,
+      idempotencyKey.trim(),
+      req.body
+    );
+
+    new ApiResponse(200, 'Checkout finalized successfully', result).send(res);
+  });
+
+  /**
+   * PATCH /api/attendance/records/:attendanceId/correct
+   * Executes attendance correction, absence reversal, and automatic recalculations.
+   */
+  correctAttendance = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const attendanceId = req.params.attendanceId || req.params.id;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.correctAttendance(
+      userId,
+      userRole,
+      attendanceId,
+      req.body
+    );
+
+    new ApiResponse(200, 'Attendance corrected successfully', result).send(res);
+  });
+
+  /**
+   * POST /api/attendance/events/:eventId/verify
+   * Approves or rejects complete event attendance.
+   */
+  verifyAttendance = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.verifyAttendance(
+      userId,
+      userRole,
+      eventId,
+      req.body
+    );
+
+    new ApiResponse(
+      200,
+      `Attendance ${result.verificationStatus === 'approved' ? 'approved' : 'rejected'} successfully`,
+      result
+    ).send(res);
   });
 }
 

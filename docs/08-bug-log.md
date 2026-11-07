@@ -943,5 +943,181 @@ The native GitHub Actions `services.mongodb` container runs `mongod` in standalo
 2. Single-node replica sets in CI must explicitly initialize member configuration with `127.0.0.1:27017` and verify primary election before test suites execute.
 3. Always retain `GLIBC_TUNABLES="glibc.pthread.rseq=1"` when launching MongoDB 8.0 containers on Ubuntu runners to prevent tcmalloc SIGSEGV crashes.
 
+---
+
+## BUG-019 — Attendance Test Runner Premature Teardown and Shift Timing Guard Flakiness
+
+### Date
+
+2026-11-07
+
+### Feature / Module
+
+Milestone 4 — Phase 4.4 / Attendance Integration Tests / `backend/tests/attendanceCheckOut.test.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. Running `backend/tests/attendanceCheckOut.test.ts` failed with:
+   ```text
+   Error [ApiError]: Cannot finalize check-in before the latest reporting time (09:30)
+   ```
+2. Subsequent tests were cancelled with `test did not finish before its parent and was cancelled`, and the test runner hung indefinitely.
+
+### Root Cause
+
+1. Shift Timing Guard: The fixture initialized the test event date with `new Date(Date.now() - 6 * 3600 * 1000)`. When executed in early morning UTC hours (e.g. 06:30 UTC), the event date was today, and the 09:30 reporting time was in the future relative to the current UTC clock, triggering the business timing guard (`Cannot finalize check-in before latest reporting time`).
+2. Test Runner Premature Teardown: A duplicate `after()` hook had been inadvertently placed at line 328 immediately after the `before()` block. It called `mongoose.disconnect()` before any test cases ran, severing the database connection and leaving child tests hanging/cancelled.
+
+### Solution
+
+1. Adjusted event date fixture in `attendanceCheckOut.test.ts` to `new Date(Date.now() - 24 * 60 * 60 * 1000)` (yesterday), guaranteeing the shift reporting time is always in the past regardless of timezone or time of day execution.
+2. Removed duplicate premature `after()` hook from line 328, consolidating teardown into the single suite-level `after()` hook at the bottom of the file that closes the HTTP test server and cleanly disconnects Mongoose.
+
+### Rule
+
+1. Attendance test fixtures that test check-in finalization or historical shifts must use a past date at least 24 hours prior to prevent time-of-day clock races against the shift timing guard.
+2. Node.js native test runner suites (`node:test`) must have exactly one root-level `after()` hook at the file termination that closes servers and disconnects database connections.
+
+---
+
+## BUG-020 — Attendance Daytime Shift Checkout Rollover and On-Time Absence Reversal Form Validation
+
+### Date
+
+2026-11-07
+
+### Feature / Module
+
+Milestone 4 — Phase 4.5 / Attendance Corrections & Final Manager Approval / `backend/src/modules/attendance/service/attendance.service.ts` & `frontend/src/components/manager/attendance/CorrectionModal.tsx`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. When correcting checkout time on a daytime event (e.g. 10:00 AM to 06:00 PM), entering a checkout time earlier than check-in time (e.g. 08:00 AM) did not return HTTP 400 Bad Request, but was unexpectedly rolled forward +24 hours into the next calendar day as overtime.
+2. In the frontend `CorrectionModal`, reversing an absent worker to "On Time" (arrival time equal to or earlier than reporting time) rendered the arrival time input as invalid and disabled the "Confirm & Apply Correction" button.
+
+### Root Cause
+
+1. In `attendance.service.ts`, `correctAttendance()` contained a condition `if (finMins <= repMins || checkoutDate.getTime() <= checkInDate.getTime())`. For daytime shifts where `finMins > repMins`, the secondary clause `checkoutDate <= checkInDate` erroneously matched and advanced the checkout date by 24 hours rather than rejecting the invalid timestamp.
+2. In `CorrectionModal.tsx`, arrival time validation was delegating to `calculateDelayMinutes()`, which was originally implemented in Phase 4.3 strictly for late exceptions and therefore returned `{ isValid: false }` whenever `diff <= 0` (on time or early).
+
+### Solution
+
+1. In `attendance.service.ts`, restricted the 24-hour rollover logic strictly to overnight shifts where `finMins <= repMins`, ensuring daytime shift checkout times earlier than arrival time immediately fail with HTTP 400 (`Checkout time must be later than check-in arrival time`).
+2. In `CorrectionModal.tsx`, updated the live `arrivalValidation` memo to evaluate `diff = arrMins - repMins`: when `diff <= 0`, it returns `{ isValid: true, delayMinutes: 0, previewText: 'On Time (0 min delay)' }`, correctly allowing on-time arrival inputs.
+
+### Rule
+
+1. Cross-midnight shift day rollovers must only be applied when the shift's finish time is overnight relative to reporting time (`finMins <= repMins`). Daytime shifts must strictly reject checkout timestamps earlier than check-in timestamps.
+2. Attendance correction modals must allow both on-time and late arrival times as valid inputs when modifying check-in or reversing absences.
+
+---
+
+## BUG-021 — Attendance Upsert Field Conflict in MongoDB and Incomplete Absent Nullification
+
+### Date
+
+2026-11-07
+
+### Feature / Module
+
+Milestone 4 — Attendance Workflow Refinement: Category Finish Times, Immediate Check-in Persistence & Post-Finalization Corrections / `backend/src/modules/attendance/repository/attendance.repository.ts` & `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. When invoking `upsertIndividualCheckIn()`, MongoDB returned error: `MongoServerError: Updating the path 'eventId' would create a conflict at 'eventId'`.
+2. When performing an attendance correction transitioning a worker from Present/Late to Absent, check-in and checkout timestamps remained present in the returned document and database rather than being cleared to `null`.
+3. In `CheckoutFinishingTimeCard.tsx`, helper text contained the exact substring "normal work finishing time" and category input placeholder duplicated event default placeholder `"e.g. 17:00 or 05:00 PM"`, causing React Testing Library ambiguous multiple-element matches.
+
+### Root Cause
+
+1. In `attendance.repository.ts`, `Attendance.findOneAndUpdate` was constructed with both `$set: updateData` (which contained `eventId` and `workerId`) and `$setOnInsert: { eventId, workerId }`. MongoDB strictly disallows the same path in both `$set` and `$setOnInsert`.
+2. In `attendance.service.ts`, `updatedFields.checkIn = undefined` and `updatedFields.checkOut = undefined` were assigned when transitioning to Absent. MongoDB `$set` omits `undefined` properties, preventing the fields from being updated or unset in the database.
+3. In `CheckoutFinishingTimeCard.tsx`, helper paragraph text for category finishing times contained the exact phrase "normal work finishing time", matching the regex `/Normal Work Finishing Time/i` intended strictly for the card header.
+
+### Solution
+
+1. In `attendance.repository.ts`, destructured and removed `eventId` and `workerId` from `cleanUpdateData`, ensuring only `$setOnInsert` targets the compound unique key fields.
+2. In `attendance.service.ts`, explicitly assigned `updatedFields.checkIn = null as any` and `updatedFields.checkOut = null as any`, ensuring MongoDB clears timestamps when marking a record absent.
+3. In `CheckoutFinishingTimeCard.tsx`, updated the helper text phrasing to "Each distinct worker category can have its own scheduled end time" and customized category input placeholder to `"Category finish (e.g. 23:00)"`.
+
+### Rule
+
+1. When constructing atomic MongoDB `findOneAndUpdate` operations with `upsert: true`, never include paths in `$set` that are also specified in `$setOnInsert`.
+2. To clear database timestamps or optional fields in MongoDB via `$set`, explicitly assign `null` rather than `undefined`.
+
+---
+
+## BUG-022 — EventAttendanceWorkspace Initial Exception Desynchronization & Finishing-Time Priority Mismatch
+
+### Date
+
+2026-11-07
+
+### Feature / Module
+
+Milestone 4 — Exception-Based Attendance Workspace / `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`, `AttendanceRosterTable.tsx`, `CheckoutRosterTable.tsx` & `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. In `EventAttendanceWorkspace.tsx`, workers who had previously confirmed and saved check-in records in the database (e.g. marked Late or Absent) reverted to displaying "On Time" in the UI upon page refresh or modal closure, causing live metric cards to under-count exceptions and batch finalization to omit confirmed exceptions from its payload.
+2. In `CheckoutRosterTable.tsx` and `backend/src/modules/attendance/service/attendance.service.ts`, category normal finish times took precedence over requirement overrides, conflicting with `ReviewCheckoutModal.tsx` and the established business rule that requirement-specific overrides take precedence over general category finish times.
+3. In `AttendanceRosterTable.tsx`, inline row save errors remained permanently visible under the row even after the manager edited arrival time or toggled exception status.
+4. `tsc -b frontend` failed with TypeScript errors TS2741 and TS2353 in `attendanceCategoryAndImmediateCheckInUI.test.tsx` due to missing `isAssigned: true` and obsolete requirement fields.
+
+### Root Cause
+
+1. `loadAttendanceData()` updated `rosterData` and `session`, but did not populate `checkInExceptions` state from the returned `rost.roster` records. Any worker with unrecorded local draft state defaulted to `{ type: 'present' }`.
+2. In `CheckoutRosterTable.tsx` and `attendance.service.ts`, `categoryFinishTimes` was evaluated before `requirementOverrideMap`, causing specific requirement overrides to be ignored when category finish times were set.
+3. `handleArrivalTimeChange()` and `handleSelectType()` in `AttendanceRosterTable.tsx` did not reset `workerRowError` when the user modified inputs for that worker.
+4. Test fixtures in `attendanceCategoryAndImmediateCheckInUI.test.tsx` did not supply `isAssigned: true` required by `AttendanceRosterItem`.
+
+### Solution
+
+1. In `EventAttendanceWorkspace.tsx`, updated `loadAttendanceData()` to initialize `checkInExceptions` for all workers with saved records in `rost.roster` while preserving any active uncommitted drafts.
+2. Unified the applicable finishing-time evaluation order across frontend and backend: `Requirement Override > Category Normal Finish > Event Default Finish`.
+3. In `AttendanceRosterTable.tsx`, cleared `workerRowError` upon exception type selection or arrival time modification, and pre-populated existing check-in time when switching to Late.
+4. Updated test fixtures in `attendanceCategoryAndImmediateCheckInUI.test.tsx` to conform to `AttendanceRosterItem` and `AttendanceRosterRequirementItem` interfaces.
+
+### Rule
+
+1. Whenever server roster data is fetched or refreshed, local exception state must synchronize committed database statuses while preserving active drafts.
+2. Finishing-time hierarchy must strictly remain: `Requirement Override > Category Normal Finish > Event Default Finish`.
+
+
+
+
+
 
 

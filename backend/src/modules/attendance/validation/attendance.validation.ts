@@ -132,6 +132,52 @@ export const validateCheckInFinalization = (req: Request, _res: Response, next: 
 };
 
 /**
+ * Validates individual worker check-in payload.
+ */
+export const validateIndividualCheckIn = (req: Request, _res: Response, next: NextFunction): void => {
+  const { eventId, workerId } = req.params;
+  const errors: string[] = [];
+
+  if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+    errors.push('Invalid event ID format');
+  }
+  if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
+    errors.push('Invalid worker ID format');
+  }
+
+  const { arrivalStatus, actualArrivalTime, status } = req.body;
+
+  const validArrivalStatuses = ['on_time', 'late', 'absent'];
+  if (!arrivalStatus || !validArrivalStatuses.includes(arrivalStatus)) {
+    errors.push(`arrivalStatus is required and must be one of: ${validArrivalStatuses.join(', ')}`);
+  }
+
+  if (arrivalStatus === 'late') {
+    if (!actualArrivalTime) {
+      errors.push('actualArrivalTime is required when arrivalStatus is late');
+    } else {
+      const timeCheck = isValidTimeString(actualArrivalTime);
+      if (!timeCheck.valid) {
+        errors.push(`actualArrivalTime: ${timeCheck.error}`);
+      }
+    }
+  }
+
+  if (status !== undefined && status !== null) {
+    const validStatuses = ['checked_in', 'absent'];
+    if (!validStatuses.includes(status)) {
+      errors.push(`status must be one of: ${validStatuses.join(', ')}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
  * Validates checkout finalization payload.
  */
 export const validateCheckOutFinalization = (req: Request, _res: Response, next: NextFunction): void => {
@@ -144,15 +190,57 @@ export const validateCheckOutFinalization = (req: Request, _res: Response, next:
 
   const {
     actualNormalFinishTime,
+    categoryFinishTimes,
     requirementFinishOverrides,
     earlyDepartureExceptions,
     overtimeExceptions,
   } = req.body;
 
-  // actualNormalFinishTime is required
-  const finishTimeCheck = isValidTimeString(actualNormalFinishTime);
-  if (!finishTimeCheck.valid) {
-    errors.push(`actualNormalFinishTime: ${finishTimeCheck.error}`);
+  // Validate finish time: either categoryFinishTimes or actualNormalFinishTime must be provided
+  const hasCategoryTimes = Array.isArray(categoryFinishTimes) && categoryFinishTimes.length > 0;
+  const hasDefaultFinishTime =
+    actualNormalFinishTime !== undefined &&
+    actualNormalFinishTime !== null &&
+    typeof actualNormalFinishTime === 'string' &&
+    actualNormalFinishTime.trim() !== '';
+
+  if (!hasCategoryTimes && !hasDefaultFinishTime) {
+    errors.push('Either categoryFinishTimes or actualNormalFinishTime is required');
+  }
+
+  if (hasDefaultFinishTime) {
+    const finishTimeCheck = isValidTimeString(actualNormalFinishTime);
+    if (!finishTimeCheck.valid) {
+      errors.push(`actualNormalFinishTime: ${finishTimeCheck.error}`);
+    }
+  }
+
+  // Validate optional categoryFinishTimes
+  if (categoryFinishTimes !== undefined && categoryFinishTimes !== null) {
+    if (!Array.isArray(categoryFinishTimes)) {
+      errors.push('categoryFinishTimes must be an array');
+    } else {
+      const seenCategories = new Set<string>();
+      categoryFinishTimes.forEach((cat, index) => {
+        if (!cat || typeof cat !== 'object') {
+          errors.push(`categoryFinishTimes[${index}] must be an object`);
+          return;
+        }
+        const { workerType, normalFinishTime } = cat;
+        if (!workerType || typeof workerType !== 'string' || !workerType.trim()) {
+          errors.push(`categoryFinishTimes[${index}].workerType must be a non-empty string`);
+        } else if (seenCategories.has(workerType.trim().toLowerCase())) {
+          errors.push(`Duplicate workerType '${workerType}' in categoryFinishTimes`);
+        } else {
+          seenCategories.add(workerType.trim().toLowerCase());
+        }
+
+        const timeCheck = isValidTimeString(normalFinishTime);
+        if (!timeCheck.valid) {
+          errors.push(`categoryFinishTimes[${index}].normalFinishTime: ${timeCheck.error}`);
+        }
+      });
+    }
   }
 
   // Validate optional requirementFinishOverrides
@@ -261,14 +349,22 @@ export const validateCheckOutFinalization = (req: Request, _res: Response, next:
  * Validates manual attendance correction payload.
  */
 export const validateAttendanceCorrection = (req: Request, _res: Response, next: NextFunction): void => {
-  const { id } = req.params;
+  const attendanceId = req.params.attendanceId || req.params.id;
   const errors: string[] = [];
 
-  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+  if (!attendanceId || !mongoose.Types.ObjectId.isValid(attendanceId)) {
     errors.push('Invalid attendance record ID format');
   }
 
-  const { reason, status, actualArrivalTime, actualCheckoutTime } = req.body;
+  const {
+    reason,
+    status,
+    actualArrivalTime,
+    actualCheckoutTime,
+    arrivalStatus,
+    departureStatus,
+    applyDefaultCheckout,
+  } = req.body;
 
   // Reason is mandatory with minimum 5 characters
   if (!reason || typeof reason !== 'string' || reason.trim().length < 5) {
@@ -280,6 +376,29 @@ export const validateAttendanceCorrection = (req: Request, _res: Response, next:
     const validStatuses = ['not_started', 'checked_in', 'checked_out', 'absent'];
     if (!validStatuses.includes(status)) {
       errors.push(`Invalid status '${status}'. Must be one of: ${validStatuses.join(', ')}`);
+    }
+  }
+
+  // Optional arrivalStatus validation
+  if (arrivalStatus !== undefined && arrivalStatus !== null) {
+    const validArrivalStatuses = ['on_time', 'late', 'absent'];
+    if (!validArrivalStatuses.includes(arrivalStatus)) {
+      errors.push(`Invalid arrivalStatus '${arrivalStatus}'. Must be one of: ${validArrivalStatuses.join(', ')}`);
+    }
+  }
+
+  // Optional departureStatus validation
+  if (departureStatus !== undefined && departureStatus !== null) {
+    const validDepartureStatuses = ['normal', 'early_departure', 'overtime'];
+    if (!validDepartureStatuses.includes(departureStatus)) {
+      errors.push(`Invalid departureStatus '${departureStatus}'. Must be one of: ${validDepartureStatuses.join(', ')}`);
+    }
+  }
+
+  // Optional applyDefaultCheckout validation
+  if (applyDefaultCheckout !== undefined && applyDefaultCheckout !== null) {
+    if (typeof applyDefaultCheckout !== 'boolean') {
+      errors.push('applyDefaultCheckout must be a boolean');
     }
   }
 

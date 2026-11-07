@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { managerApi, type ManagerEvent } from '../../features/manager/managerApi';
 import { ReadOnlyMap } from '../../components/common/ReadOnlyMap';
 import { WorkRequirementsSection } from '../../components/manager/WorkRequirementsSection';
+import { EventAttendanceWorkspace } from '../../components/manager/attendance/EventAttendanceWorkspace';
 import {
   ArrowLeft,
   Calendar,
@@ -20,6 +21,7 @@ import {
   Compass,
   Briefcase,
   ArrowRight,
+  UserCheck,
 } from 'lucide-react';
 
 export const ManagerEventDetails: React.FC = () => {
@@ -31,15 +33,21 @@ export const ManagerEventDetails: React.FC = () => {
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const activeTab = searchParams.get('tab') === 'requirements' ? 'requirements' : 'overview';
+  const tabParam = searchParams.get('tab');
+  const activeTab: 'overview' | 'requirements' | 'attendance' =
+    tabParam === 'requirements'
+      ? 'requirements'
+      : tabParam === 'attendance'
+      ? 'attendance'
+      : 'overview';
 
-  const setTab = (tab: 'overview' | 'requirements') => {
+  const setTab = (tab: 'overview' | 'requirements' | 'attendance') => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (tab === 'requirements') {
-        next.set('tab', 'requirements');
-      } else {
+      if (tab === 'overview') {
         next.delete('tab');
+      } else {
+        next.set('tab', tab);
       }
       return next;
     });
@@ -248,6 +256,18 @@ export const ManagerEventDetails: React.FC = () => {
             <Briefcase size={15} />
             Work Requirements
           </button>
+          <button
+            type="button"
+            onClick={() => setTab('attendance')}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              activeTab === 'attendance'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            <UserCheck size={15} />
+            Attendance
+          </button>
         </div>
       </div>
 
@@ -258,9 +278,41 @@ export const ManagerEventDetails: React.FC = () => {
           eventTitle={event.title}
           eventStatus={event.status}
         />
+      ) : activeTab === 'attendance' ? (
+        /* Exception-Based Attendance Workspace */
+        <EventAttendanceWorkspace
+          eventId={event._id}
+          eventTitle={event.title}
+          eventDate={event.date}
+          eventStatus={event.status}
+        />
       ) : (
         /* Event Overview Main Grid */
         <div className="space-y-6">
+          {/* Quick Attendance Banner (for confirmed, in_progress, and completed events) */}
+          {(event.status === 'confirmed' || event.status === 'in_progress' || event.status === 'completed') && (
+            <div className="bg-gradient-to-br from-blue-50/80 to-indigo-50/50 rounded-2xl border border-blue-200/80 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-wider">
+                  <UserCheck size={15} className="text-blue-700" />
+                  Exception-Based Attendance & Check-in
+                </div>
+                <p className="text-xs text-gray-600">
+                  {event.status === 'completed'
+                    ? 'View finalized worker check-in records, shift arrival timestamps, and attendance summaries.'
+                    : 'Review assigned worker shifts, log late or absent exceptions, and finalize event check-in.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTab('attendance')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors shrink-0"
+              >
+                {event.status === 'completed' ? 'View Finalized Attendance' : 'Manage Attendance & Check-in'}
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          )}
           {/* Quick Staffing Banner (for confirmed & completed events) */}
           {(event.status === 'confirmed' || event.status === 'completed') && (
             <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/50 rounded-2xl border border-emerald-200/80 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
