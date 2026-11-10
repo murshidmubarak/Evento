@@ -922,5 +922,12 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.ok(json.data.session.categoryFinishTimes.length === 2);
     });
   });
+
+  after(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    await mongoose.disconnect();
+  });
 });
 

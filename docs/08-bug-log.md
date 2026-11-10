@@ -1250,6 +1250,50 @@ Fixed / Verified
 3. Corrections on completed events are permitted up to `scheduledEventEndAt + 24 hours`.
 4. Changing a worker to Present requires explicit confirmation and a mandatory reason (minimum 5 characters).
 
+---
+
+## BUG-026 — GitHub Actions CI Failure on Backend (Test Hang) and Frontend (Obsolete Check-in Finalization Tests)
+
+### Date
+
+2026-11-10
+
+### Feature / Module
+
+Milestone 4 — CI Workflow / `backend/tests/` & `frontend/src/tests/`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+On pushing branch `feature/attendance-workflow-and-concerns` to GitHub, both CI jobs failed on GitHub Actions:
+1. `CI / Backend (Type-Check, Test, Build)` failed after 2 minutes (hung during `npm test`).
+2. `CI / Frontend (Lint, Test, Build)` failed after 38 seconds during `npm test` with 8 failed tests in `attendanceCheckInUI.test.tsx`.
+
+### Root Cause
+
+1. **Backend Test Teardown (Recurrence of BUG-001)**:
+   Three attendance test suites (`attendanceCheckIn.test.ts`, `attendanceCategoryAndImmediateCheckIn.test.ts`, `attendanceApiRoutingAndPresentCorrection.test.ts`) initialized an Express HTTP listener (`server = app.listen(0)`) and opened Mongoose connections via `connectDB()`, but lacked an `after()` hook to close `server` and invoke `await mongoose.disconnect()`. In GitHub Actions, Node's test runner (`node:test`) waited indefinitely for active network handles to close until timing out after 2 minutes.
+2. **Frontend Obsolete UI Test Suite**:
+   `frontend/src/tests/attendanceCheckInUI.test.tsx` was authored during Phase 4.3 prior to Prompt 1's attendance workflow refinement. Prompt 1 intentionally deprecated and removed the "Review & Finalize Check-in" button, modal, and "Check-in Baseline" tab in favor of immediate individual persistence (which is thoroughly tested in `attendanceCategoryAndImmediateCheckInUI.test.tsx`). The old `attendanceCheckInUI.test.tsx` suite still asserted the presence of the deleted button and modal.
+
+### Solution
+
+1. **Backend Test Teardown**: Added `after(async () => { if (server) await new Promise<void>((r) => server.close(r)); await mongoose.disconnect(); })` to `attendanceCheckIn.test.ts`, `attendanceCategoryAndImmediateCheckIn.test.ts`, and `attendanceApiRoutingAndPresentCorrection.test.ts`.
+2. **Frontend UI Test Cleanup**: Cleaned up obsolete tests in `attendanceCheckInUI.test.tsx` that targeted the removed finalization modal and buttons, while preserving all valid tests for Tab Navigation, Initial Roster Loading, Error States, Inactive States, and Worker Search/Filtering. All 22 frontend test suites (143/143 tests) now pass 100%.
+
+### Rule
+
+1. Per BUG-001, EVERY backend test file initializing an Express server or connecting to MongoDB MUST implement an `after()` hook closing the server and disconnecting Mongoose.
+2. When replacing an obsolete workflow with an updated design, ensure legacy UI test suites are reconciled with the new component design so CI suites remain green.
+
+
 
 
 

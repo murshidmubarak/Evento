@@ -791,4 +791,11 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
       assert.strictEqual(w1.checkInSource, 'system_default');
     });
   });
+
+  after(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    await mongoose.disconnect();
+  });
 });
