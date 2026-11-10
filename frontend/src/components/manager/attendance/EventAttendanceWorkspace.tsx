@@ -6,8 +6,6 @@ import {
 import type {
   AttendanceSession,
   AttendanceRosterResponse,
-  FinalizeCheckInPayload,
-  LateExceptionInput,
   FinalizeCheckOutPayload,
   CategoryFinishTimeInput,
   IndividualCheckInPayload,
@@ -28,9 +26,6 @@ import {
   AttendanceRosterTable,
   type WorkerExceptionState,
 } from './AttendanceRosterTable';
-import {
-  ReviewCheckinModal,
-} from './ReviewCheckinModal';
 import {
   CheckoutFinishingTimeCard,
 } from './CheckoutFinishingTimeCard';
@@ -59,7 +54,6 @@ import {
   Undo2,
   Clock,
   ChevronRight,
-  History,
 } from 'lucide-react';
 
 interface EventAttendanceWorkspaceProps {
@@ -88,9 +82,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   // Check-in Exception State
   // ---------------------------------------------------------
   const [checkInExceptions, setCheckInExceptions] = useState<Record<string, WorkerExceptionState>>({});
-  const [isCheckInReviewOpen, setIsCheckInReviewOpen] = useState(false);
-  const [checkInIdempotencyKey, setCheckInIdempotencyKey] = useState<string>('');
-  const [checkInPayloadHash, setCheckInPayloadHash] = useState<string>('');
 
   // ---------------------------------------------------------
   // Checkout State
@@ -103,8 +94,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>('');
   const [checkoutPayloadHash, setCheckoutPayloadHash] = useState<string>('');
 
-  // When checkout is active, manager can toggle to view finalized check-in records
-  const [activeStageTab, setActiveStageTab] = useState<'checkout_form' | 'checkin_history'>('checkout_form');
+  // Active workspace tab when checkout is not yet finalized
+  const [activeStageTab, setActiveStageTab] = useState<'checkin' | 'checkout_form' | 'checkin_history'>('checkin');
 
   // ---------------------------------------------------------
   // Phase 4.5: Correction & Verification State
@@ -132,6 +123,10 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
       setRosterData(rost);
 
       const activeSession = sess || rost.session;
+
+      if (activeSession?.checkInFinalized && !activeSession?.checkOutFinalized) {
+        setActiveStageTab('checkout_form');
+      }
 
       // Populate default finish time, category finish times, and overrides if session already has them
       if (activeSession?.actualNormalFinishTime) {
@@ -234,16 +229,35 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
   const handleSaveWorkerCheckIn = async (workerId: string, payload: IndividualCheckInPayload) => {
     try {
-      await attendanceApi.recordWorkerCheckIn(eventId, workerId, payload);
       const worker = rosterData?.roster.find((w) => w.workerId === workerId);
-      const name = worker ? worker.workerName : 'Worker';
-      setSuccessNotice(
-        payload.arrivalStatus === 'absent'
-          ? `${name} check-in successfully confirmed and saved as Absent.`
-          : payload.arrivalStatus === 'late'
-            ? `${name} check-in successfully confirmed and saved as Late (${payload.actualArrivalTime}).`
-            : `${name} check-in successfully confirmed and saved as Present / On Time.`
-      );
+      if (worker?.attendanceId) {
+        // Operation 2: Existing record update -> use correction API!
+        await attendanceApi.correctAttendance(worker.attendanceId, {
+          arrivalStatus: payload.arrivalStatus,
+          actualArrivalTime: payload.actualArrivalTime,
+          status: payload.status,
+          applyDefaultCheckout: true,
+          reason: 'Manager adjusted attendance exception in roster',
+        });
+        setSuccessNotice(
+          payload.arrivalStatus === 'absent'
+            ? `${worker.workerName} attendance successfully updated to Absent.`
+            : payload.arrivalStatus === 'late'
+              ? `${worker.workerName} attendance successfully updated to Late (${payload.actualArrivalTime}).`
+              : `${worker.workerName} attendance successfully updated to Present / On Time.`
+        );
+      } else {
+        // Operation 1: Initial Late/Absent marking -> use recordWorkerCheckIn!
+        await attendanceApi.recordWorkerCheckIn(eventId, workerId, payload);
+        const name = worker ? worker.workerName : 'Worker';
+        setSuccessNotice(
+          payload.arrivalStatus === 'absent'
+            ? `${name} check-in successfully confirmed and saved as Absent.`
+            : payload.arrivalStatus === 'late'
+              ? `${name} check-in successfully confirmed and saved as Late (${payload.actualArrivalTime}).`
+              : `${name} check-in successfully confirmed and saved as Present / On Time.`
+        );
+      }
       await loadAttendanceData(true);
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Failed to save individual check-in.';
@@ -274,75 +288,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
     return { present, late, absent, hasValidationError };
   }, [rosterData, checkInExceptions]);
-
-  const currentCheckInPayload = useMemo((): FinalizeCheckInPayload => {
-    const lateExceptions: LateExceptionInput[] = [];
-    const absentExceptions: string[] = [];
-
-    const roster = rosterData?.roster || [];
-    roster.forEach((r) => {
-      const exc = checkInExceptions[r.workerId];
-      if (exc?.type === 'late' && exc.actualArrivalTime && !exc.error) {
-        lateExceptions.push({
-          workerId: r.workerId,
-          actualArrivalTime: exc.actualArrivalTime.trim(),
-        });
-      } else if (exc?.type === 'absent') {
-        absentExceptions.push(r.workerId);
-      }
-    });
-
-    return {
-      lateExceptions: lateExceptions.length > 0 ? lateExceptions : undefined,
-      absentExceptions: absentExceptions.length > 0 ? absentExceptions : undefined,
-    };
-  }, [rosterData, checkInExceptions]);
-
-  const computedCheckInHash = useMemo(() => {
-    return JSON.stringify({
-      late: (currentCheckInPayload.lateExceptions || []).sort(
-        (a: LateExceptionInput, b: LateExceptionInput) => a.workerId.localeCompare(b.workerId)
-      ),
-      absent: (currentCheckInPayload.absentExceptions || []).sort(),
-    });
-  }, [currentCheckInPayload]);
-
-  const handleOpenCheckInReview = () => {
-    if (checkInLiveCounts.hasValidationError) return;
-    if (!checkInIdempotencyKey || computedCheckInHash !== checkInPayloadHash) {
-      const newKey = `chk_${eventId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      setCheckInIdempotencyKey(newKey);
-      setCheckInPayloadHash(computedCheckInHash);
-    }
-    setIsCheckInReviewOpen(true);
-  };
-
-  const handleRegenerateCheckInKey = () => {
-    const newKey = `chk_${eventId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    setCheckInIdempotencyKey(newKey);
-  };
-
-  const handleConfirmFinalizeCheckIn = async (keyToUse: string) => {
-    try {
-      await attendanceApi.finalizeCheckIn(eventId, currentCheckInPayload, keyToUse);
-      setIsCheckInReviewOpen(false);
-      setSuccessNotice('Check-in has been successfully finalized! You may now manage checkout when shifts conclude.');
-      await loadAttendanceData(true);
-    } catch (err: any) {
-      if (err.response?.status === 409) {
-        const latestSession = await attendanceApi.getSession(eventId);
-        if (latestSession.checkInFinalized) {
-          setIsCheckInReviewOpen(false);
-          await loadAttendanceData(true);
-          setSuccessNotice('Check-in has already been finalized.');
-          return;
-        }
-        // True conflict: re-throw to allow modal to display error while preserving exceptions
-        throw err;
-      }
-      throw err;
-    }
-  };
 
   // ---------------------------------------------------------
   // Checkout Handlers & Calculations
@@ -604,9 +549,17 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   // ---------------------------------------------------------
   // Lifecycle Stage Determination
   // ---------------------------------------------------------
-  const isCheckInFinalized = Boolean(session?.checkInFinalized || rosterData?.session?.checkInFinalized);
   const isCheckoutFinalized = Boolean(session?.checkOutFinalized || rosterData?.session?.checkOutFinalized);
   const canFinalizeCheckIn = rosterData?.canFinalizeCheckIn ?? false;
+  const isEventDay = rosterData?.isEventDay ?? true;
+  const eventDateFormatted = rosterData?.eventDate
+    ? new Date(rosterData.eventDate).toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+    : undefined;
   const latestTime = rosterData?.latestReportingTime || '';
   const roster = rosterData?.roster || [];
   const requirements = rosterData?.requirements || [];
@@ -632,45 +585,57 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
       {/* Lifecycle Progress Stepper Bar */}
       <div className="bg-white rounded-2xl border border-gray-200/90 p-3 sm:p-4 shadow-xs flex items-center justify-between gap-2 overflow-x-auto">
-        {/* Step 1: Check-in */}
-        <div className="flex items-center gap-2.5 min-w-[150px]">
+        {/* Step 1: Check-in Exceptions */}
+        <button
+          type="button"
+          onClick={() => !isCheckoutFinalized && setActiveStageTab('checkin')}
+          className="flex items-center gap-2.5 min-w-[150px] text-left group"
+        >
           <div
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${isCheckInFinalized
-                ? 'bg-emerald-600 text-white'
+            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${activeStageTab === 'checkin' && !isCheckoutFinalized
+                ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/20'
                 : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
               }`}
           >
-            {isCheckInFinalized ? <CheckCircle2 size={16} /> : '1'}
+            1
           </div>
           <div>
-            <span className="text-xs font-bold text-gray-900 block leading-tight">Step 1: Check-in</span>
+            <span className="text-xs font-bold text-gray-900 block leading-tight group-hover:text-emerald-700 transition-colors">
+              Step 1: Check-in
+            </span>
             <span className="text-[10px] text-gray-500">
-              {isCheckInFinalized ? 'Completed' : 'Exception-Based'}
+              Immediate Saving
             </span>
           </div>
-        </div>
+        </button>
 
         <ChevronRight size={16} className="text-gray-300 shrink-0" />
 
         {/* Step 2: Checkout */}
-        <div className="flex items-center gap-2.5 min-w-[150px]">
+        <button
+          type="button"
+          onClick={() => !isCheckoutFinalized && setActiveStageTab('checkout_form')}
+          className="flex items-center gap-2.5 min-w-[150px] text-left group"
+        >
           <div
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${isCheckoutFinalized
+            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${isCheckoutFinalized
                 ? 'bg-emerald-600 text-white'
-                : isCheckInFinalized
-                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 ring-2 ring-emerald-500/20'
-                  : 'bg-gray-100 text-gray-400'
+                : activeStageTab === 'checkout_form'
+                  ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/20'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
           >
             {isCheckoutFinalized ? <CheckCircle2 size={16} /> : '2'}
           </div>
           <div>
-            <span className="text-xs font-bold text-gray-900 block leading-tight">Step 2: Checkout</span>
+            <span className="text-xs font-bold text-gray-900 block leading-tight group-hover:text-emerald-700 transition-colors">
+              Step 2: Checkout
+            </span>
             <span className="text-[10px] text-gray-500">
-              {isCheckoutFinalized ? 'Completed' : isCheckInFinalized ? 'Active' : 'Locked'}
+              {isCheckoutFinalized ? 'Completed' : 'Category-Wise Timing'}
             </span>
           </div>
-        </div>
+        </button>
 
         <ChevronRight size={16} className="text-gray-300 shrink-0" />
 
@@ -693,10 +658,22 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         </div>
       </div>
 
-      {/* =========================================================================
-          STAGE 1: CHECK-IN PENDING (Phase 4.3 Workspace)
-      ========================================================================= */}
-      {!isCheckInFinalized ? (
+      {isCheckoutFinalized ? (
+        /* =========================================================================
+            STAGE 3: FULL ATTENDANCE FINALIZED (Read-Only)
+        ========================================================================= */
+        <FinalizedAttendanceView
+          session={session || rosterData!.session}
+          roster={roster}
+          openConcernsCount={rosterData?.openConcernsCount || 0}
+          onRefresh={() => loadAttendanceData(true)}
+          onOpenCorrection={(w) => setCorrectionWorker(w)}
+          onOpenVerification={(act) => setVerificationAction(act)}
+        />
+      ) : activeStageTab === 'checkin' ? (
+        /* =========================================================================
+            STAGE 1: CHECK-IN EXCEPTIONS (Immediate Saving Workflow)
+        ========================================================================= */
         <div className="space-y-6">
           {/* Timing Banner */}
           <AttendanceTimingBanner
@@ -750,50 +727,35 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
               <button
                 type="button"
-                onClick={handleOpenCheckInReview}
-                disabled={!canFinalizeCheckIn || roster.length === 0 || checkInLiveCounts.hasValidationError}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors shrink-0"
+                onClick={() => setActiveStageTab('checkout_form')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors shrink-0"
               >
-                <ShieldCheck size={14} />
-                Review & Finalize Check-in
+                <span>Proceed to Checkout</span>
+                <ChevronRight size={14} />
               </button>
             </div>
           </div>
 
-          {/* Check-in Roster Table */}
+          {/* Check-in Roster Table with Immediate Persistence */}
           <AttendanceRosterTable
             roster={roster}
             exceptions={checkInExceptions}
             onExceptionChange={handleCheckInExceptionChange}
             onSaveWorkerCheckIn={handleSaveWorkerCheckIn}
-            disabled={false}
-          />
-
-          {/* Check-in Review Modal */}
-          <ReviewCheckinModal
-            isOpen={isCheckInReviewOpen}
-            onClose={() => setIsCheckInReviewOpen(false)}
-            onConfirm={handleConfirmFinalizeCheckIn}
-            roster={roster}
-            exceptions={checkInExceptions}
-            idempotencyKey={checkInIdempotencyKey}
-            onRegenerateKey={handleRegenerateCheckInKey}
+            onCorrectAttendance={handleCorrectAttendance}
+            isEventDay={isEventDay}
+            eventDateFormatted={eventDateFormatted}
+            isBeforeEventDay={rosterData?.isBeforeEventDay}
+            isAfterEventDay={rosterData?.isAfterEventDay}
+            canNormalCorrect={rosterData?.canNormalCorrect}
+            isAfterCorrectionDeadline={rosterData?.isAfterCorrectionDeadline}
+            eventStatus={eventStatus}
+            disabled={eventStatus === 'cancelled'}
           />
         </div>
-      ) : isCheckoutFinalized ? (
-        /* =========================================================================
-            STAGE 3: FULL ATTENDANCE FINALIZED (Read-Only)
-        ========================================================================= */
-        <FinalizedAttendanceView
-          session={session || rosterData!.session}
-          roster={roster}
-          onRefresh={() => loadAttendanceData(true)}
-          onOpenCorrection={(w) => setCorrectionWorker(w)}
-          onOpenVerification={(act) => setVerificationAction(act)}
-        />
       ) : (
         /* =========================================================================
-            STAGE 2: CHECK-IN FINALIZED, CHECKOUT ACTIVE (Phase 4.4 Workspace)
+            STAGE 2: CHECKOUT WORKSPACE (Category-Wise Finishing Times)
         ========================================================================= */
         <div className="space-y-6">
           {/* Checkout Stage Banner */}
@@ -807,39 +769,49 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                   Checkout Stage Active — Enter Normal Finishing Time
                 </h4>
                 <p className="text-xs text-emerald-800">
-                  Check-in has been finalized. Once shifts conclude, specify the actual normal finishing time and record any early departures or overtime.
+                  Once shifts conclude, specify the normal finishing times per category and record any early departures or overtime.
                 </p>
               </div>
             </div>
 
-            {/* Stage View Switcher */}
-            <div className="inline-flex rounded-xl bg-emerald-100/70 p-1 border border-emerald-200/80 shrink-0 self-start sm:self-auto">
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              {/* Stage View Switcher for Historical Check-in Baseline */}
+              <div className="inline-flex rounded-xl bg-emerald-100/70 p-1 border border-emerald-200/80 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveStageTab('checkout_form')}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkout_form'
+                      ? 'bg-white text-emerald-950 shadow-2xs'
+                      : 'text-emerald-800 hover:text-emerald-950'
+                    }`}
+                >
+                  Checkout Workspace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveStageTab('checkin_history')}
+                  className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkin_history'
+                      ? 'bg-white text-emerald-950 shadow-2xs'
+                      : 'text-emerald-800 hover:text-emerald-950'
+                    }`}
+                >
+                  <span>Check-in Baseline</span>
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setActiveStageTab('checkout_form')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkout_form'
-                    ? 'bg-white text-emerald-950 shadow-2xs'
-                    : 'text-emerald-800 hover:text-emerald-950'
-                  }`}
+                onClick={() => setActiveStageTab('checkin')}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-300 rounded-xl shadow-2xs transition-colors shrink-0"
               >
-                Checkout Workspace
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveStageTab('checkin_history')}
-                className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkin_history'
-                    ? 'bg-white text-emerald-950 shadow-2xs'
-                    : 'text-emerald-800 hover:text-emerald-950'
-                  }`}
-              >
-                <History size={12} />
-                <span>Check-in Baseline</span>
+                <Undo2 size={13} />
+                <span>← Back to Check-in</span>
               </button>
             </div>
           </div>
 
+          {/* Active Checkout Sub-view: Either historical Check-in Baseline or Checkout Workspace */}
           {activeStageTab === 'checkin_history' ? (
-            /* Historical Check-in Baseline View */
             <FinalizedAttendanceView
               session={{ ...(session || rosterData?.session), checkOutFinalized: false } as any}
               roster={roster}
@@ -848,8 +820,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
               onOpenVerification={(act) => setVerificationAction(act)}
             />
           ) : (
-            /* Checkout Active Workspace Form */
-            <div className="space-y-6">
+            <>
               {/* Finishing Time Configuration Card */}
               <CheckoutFinishingTimeCard
                 defaultFinishTime={defaultFinishTime}
@@ -945,7 +916,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                 idempotencyKey={checkoutIdempotencyKey}
                 onRegenerateKey={handleRegenerateCheckoutKey}
               />
-            </div>
+            </>
           )}
         </div>
       )}

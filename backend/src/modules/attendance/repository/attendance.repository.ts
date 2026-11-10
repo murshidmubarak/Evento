@@ -119,7 +119,7 @@ export class AttendanceRepository {
   ): Promise<IAttendance[]> {
     if (!mongoose.Types.ObjectId.isValid(workerId)) return [];
     const query = Attendance.find({ workerId: new mongoose.Types.ObjectId(workerId) })
-      .populate('eventId', 'title date location status')
+      .populate('eventId', 'title eventType date startTime endTime status location')
       .sort({ createdAt: -1 });
 
     if (options.skip) query.skip(options.skip);
@@ -226,6 +226,7 @@ export class AttendanceRepository {
     eventId: string,
     workerId: string,
     updateData: Partial<IAttendance>,
+    correction?: IAttendanceCorrection,
     session?: ClientSession
   ): Promise<IAttendance | null> {
     if (!mongoose.Types.ObjectId.isValid(eventId) || !mongoose.Types.ObjectId.isValid(workerId)) {
@@ -239,15 +240,21 @@ export class AttendanceRepository {
 
     const { eventId: _eId, workerId: _wId, ...cleanUpdateData } = updateData as any;
 
+    const updateOps: any = {
+      $set: cleanUpdateData,
+      $setOnInsert: {
+        eventId: filter.eventId,
+        workerId: filter.workerId,
+      },
+    };
+
+    if (correction) {
+      updateOps.$push = { corrections: correction };
+    }
+
     const query = Attendance.findOneAndUpdate(
       filter,
-      {
-        $set: cleanUpdateData,
-        $setOnInsert: {
-          eventId: filter.eventId,
-          workerId: filter.workerId,
-        },
-      },
+      updateOps,
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     if (session) query.session(session);
@@ -399,6 +406,54 @@ export class AttendanceRepository {
     }
 
     return summary;
+  }
+
+  /**
+   * Permanently lock an attendance record's status.
+   */
+  async lockAttendanceStatus(
+    attendanceId: string,
+    reason: string,
+    lockedBy: string,
+    session?: ClientSession
+  ): Promise<IAttendance | null> {
+    if (!mongoose.Types.ObjectId.isValid(attendanceId)) return null;
+    const query = Attendance.findByIdAndUpdate(
+      attendanceId,
+      {
+        $set: {
+          isStatusLocked: true,
+          statusLockedAt: new Date(),
+          statusLockedReason: reason,
+          statusLockedBy: new mongoose.Types.ObjectId(lockedBy),
+          hasOpenConcern: false,
+        },
+      },
+      { new: true }
+    );
+    if (session) query.session(session);
+    return query.exec();
+  }
+
+  /**
+   * Updates open concern flag and active concern reference on an attendance record.
+   */
+  async setOpenConcern(
+    attendanceId: string,
+    concernId: string | null,
+    hasOpen: boolean,
+    session?: ClientSession
+  ): Promise<IAttendance | null> {
+    if (!mongoose.Types.ObjectId.isValid(attendanceId)) return null;
+    const update: any = {
+      $set: {
+        hasOpenConcern: hasOpen,
+        activeConcernId: concernId ? new mongoose.Types.ObjectId(concernId) : null,
+      },
+    };
+    const query = Attendance.findByIdAndUpdate(attendanceId, update, { new: true });
+    if (session) query.session(session);
+    return query.exec();
   }
 }
 

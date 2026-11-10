@@ -107,7 +107,7 @@ export const validateCheckInFinalization = (req: Request, _res: Response, next: 
     } else {
       absentExceptions.forEach((workerId, index) => {
         if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
-          errors.push(`absentExceptions[${index}] must be a valid worker ObjectId`);
+          errors.push(`absentExceptions[${index}] must be a valid ObjectId`);
         } else if (absentWorkerIds.has(workerId)) {
           errors.push(`Duplicate workerId '${workerId}' in absentExceptions`);
         } else {
@@ -117,10 +117,10 @@ export const validateCheckInFinalization = (req: Request, _res: Response, next: 
     }
   }
 
-  // Check mutuality (no worker in both late and absent exceptions)
+  // Mutual exclusion check
   for (const workerId of lateWorkerIds) {
     if (absentWorkerIds.has(workerId)) {
-      errors.push(`Worker '${workerId}' cannot be marked both late and absent`);
+      errors.push(`Worker '${workerId}' cannot be marked both late and absent (cannot appear in both lateExceptions and absentExceptions)`);
     }
   }
 
@@ -178,7 +178,7 @@ export const validateIndividualCheckIn = (req: Request, _res: Response, next: Ne
 };
 
 /**
- * Validates checkout finalization payload.
+ * Validates checkout finalization payload with category-wise finishing times.
  */
 export const validateCheckOutFinalization = (req: Request, _res: Response, next: NextFunction): void => {
   const { eventId } = req.params;
@@ -455,3 +455,117 @@ export const validateAttendanceVerification = (req: Request, _res: Response, nex
   next();
 };
 
+/**
+ * Validates worker attendance concern submission.
+ */
+export const validateSubmitConcern = (req: Request, _res: Response, next: NextFunction): void => {
+  const { attendanceId, concernCategory, explanation, additionalDetails } = req.body;
+  const errors: string[] = [];
+
+  if (!attendanceId || !mongoose.Types.ObjectId.isValid(attendanceId)) {
+    errors.push('attendanceId must be a valid ObjectId');
+  }
+
+  const validCategories = [
+    'late_dispute',
+    'absent_dispute',
+    'time_recording_error',
+    'technical_issue',
+    'other',
+  ];
+  if (!concernCategory || !validCategories.includes(concernCategory)) {
+    errors.push(
+      `concernCategory is required and must be one of: ${validCategories.join(', ')}`
+    );
+  }
+
+  if (!explanation || typeof explanation !== 'string' || explanation.trim().length < 5) {
+    errors.push('explanation is mandatory and must be at least 5 characters');
+  }
+
+  if (additionalDetails !== undefined && additionalDetails !== null) {
+    if (typeof additionalDetails !== 'string') {
+      errors.push('additionalDetails must be a string');
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
+ * Validates message added to a concern thread.
+ */
+export const validateConcernMessage = (req: Request, _res: Response, next: NextFunction): void => {
+  const { concernId } = req.params;
+  const { message } = req.body;
+  const errors: string[] = [];
+
+  if (!concernId || !mongoose.Types.ObjectId.isValid(concernId)) {
+    errors.push('Invalid concern ID format');
+  }
+
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    errors.push('message is required and cannot be empty');
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
+ * Validates manager/admin concern resolution.
+ */
+export const validateResolveConcern = (req: Request, _res: Response, next: NextFunction): void => {
+  const { concernId } = req.params;
+  const { action, resolutionExplanation, resultingArrivalStatus, resultingActualArrivalTime } = req.body;
+  const errors: string[] = [];
+
+  if (!concernId || !mongoose.Types.ObjectId.isValid(concernId)) {
+    errors.push('Invalid concern ID format');
+  }
+
+  if (!action || !['accept', 'reject'].includes(action)) {
+    errors.push("Action must be either 'accept' or 'reject'");
+  }
+
+  if (
+    !resolutionExplanation ||
+    typeof resolutionExplanation !== 'string' ||
+    resolutionExplanation.trim().length < 5
+  ) {
+    errors.push('resolutionExplanation is mandatory and must be at least 5 characters');
+  }
+
+  if (action === 'accept') {
+    const validStatuses = ['on_time', 'late', 'absent'];
+    if (!resultingArrivalStatus || !validStatuses.includes(resultingArrivalStatus)) {
+      errors.push(
+        "When accepting a concern, resultingArrivalStatus must be one of: 'on_time', 'late', 'absent'"
+      );
+    } else if (resultingArrivalStatus === 'late') {
+      if (!resultingActualArrivalTime) {
+        errors.push(
+          "resultingActualArrivalTime is required when resultingArrivalStatus is 'late'"
+        );
+      } else {
+        const timeCheck = isValidTimeString(resultingActualArrivalTime);
+        if (!timeCheck.valid) {
+          errors.push(`resultingActualArrivalTime: ${timeCheck.error}`);
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};

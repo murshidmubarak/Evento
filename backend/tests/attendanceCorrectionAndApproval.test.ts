@@ -151,8 +151,8 @@ describe('Milestone 4 — Phase 4.5: Attendance Corrections, Absence Reversal & 
       isActive: true,
     });
 
-    // 2. Events
-    const earlierToday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // 2. Events (Today's date so it is within the active 24h correction window)
+    const earlierToday = new Date();
     event1Id = new mongoose.Types.ObjectId().toString();
     await Event.create({
       _id: event1Id,

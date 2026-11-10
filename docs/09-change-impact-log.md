@@ -1713,6 +1713,171 @@ Implemented complete browser and device push notification system for EventOps ER
 - Frontend Full Suite (`npm --prefix frontend test -- --run`): 142/142 passed (100%), 21 test files, exit code 0.
 - Database Safety: Real database `eventops` remained completely untouched. All tests executed with zero persistent artifacts.
 
+---
+
+### [Milestone 4 — Attendance Workflow Update: Prompt 1 Event-Day Exception Check-in, Immediate Persistence & Decoupled Checkout]
+**Date:** 2026-11-09
+**Impact Classification:** High (Decoupled checkout from check-in finalization, enforced event-day boundary check in `Asia/Kolkata`, immediate database persistence for Late/Absent exceptions with worker notification dispatch, and removed legacy Review & Finalize Check-in UI)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/repository/attendance-session.repository.ts`:
+  - Removed `{ checkInFinalized: true }` constraint from `atomicFinalizeCheckOut` query filter to allow checkout finalization directly on sessions without prior check-in finalization.
+- `backend/src/modules/attendance/repository/attendance.repository.ts`:
+  - Enhanced `upsertIndividualCheckIn` to accept optional `correction` record and append it atomically to `corrections` history.
+- `backend/src/modules/attendance/service/attendance.service.ts`:
+  - Added `getOperationalDateString` for Indian Standard Time (`Asia/Kolkata`).
+  - Added strict date-guard in `recordWorkerCheckIn`: initial marks rejected before or after event day.
+  - Appended immutable correction record on subsequent check-in updates prior to checkout finalization.
+  - Dispatched worker notifications with deduplication via `NotificationService` when a worker is confirmed Late or Absent.
+  - In `finalizeCheckOut`: automatically provisions default `on_time` attendance records for all assigned workers not marked as Late/Absent.
+  - In `verifyAttendanceSession`: decoupled from `checkInFinalized`, requiring only `checkOutFinalized`.
+  - In `getRoster`: returned event-day boundary flags (`isEventDay`, `isBeforeEventDay`, `isAfterEventDay`, `eventOperationalDate`, `currentOperationalDate`).
+- `frontend/src/features/attendance/attendance.types.ts`:
+  - Added event-day date flags to `AttendanceRosterResponse`.
+- `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`:
+  - Removed the 3-state toggle; replaced with two exception buttons (`Mark Late`, `Mark Absent`).
+  - Rendered "Present / On Time (Default)" indicator for unmarked workers.
+  - Added notice banners when viewing outside the scheduled event day.
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`:
+  - Removed legacy "Review & Finalize Check-in" button, state, and `ReviewCheckinModal`.
+  - Added stage tab switcher (`checkout_form` / `checkin_history`) so managers can view the historical Check-in Baseline during Checkout stage.
+- `backend/tests/`:
+  - `attendanceCategoryAndImmediateCheckIn.test.ts`: Added tests for event-day boundary enforcement and decoupled checkout.
+  - `attendanceCheckOut.test.ts`: Verified decoupled checkout finalization with automatic `on_time` default provisioning.
+  - `attendanceModelsAndRepositories.test.ts`: Updated `atomicFinalizeCheckOut` test filter assertions.
+- `frontend/src/tests/`:
+  - `attendanceCategoryAndImmediateCheckInUI.test.tsx`: Updated test assertions for `Mark Late` / `Mark Absent` exception buttons.
+  - `attendanceCheckOutUI.test.tsx`: Verified Check-in Baseline toggle during Checkout stage.
+- `docs/08-bug-log.md`: Documented BUG-023.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Test Suite: 682/682 passed (100%), 116 test suites, exit code 0.
+- Frontend Unit/UI Tests: All attendance UI suites passed (34/34 tests, 100%), exit code 0.
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): 0 errors, exit code 0.
+- Database Safety: Strict Rule 26 isolation enforced; `eventops` untouched, tests executed solely in `eventops_test`.
+
+---
+
+### [Milestone 4 — Attendance Workflow Update: Prompt 2 Worker Concerns, 24h Normal Correction Window, Exceptional Corrections & Permanent Status Locking]
+**Date:** 2026-11-09
+**Impact Classification:** High (Introduced dedicated worker concerns dispute lifecycle, 24-hour canonical correction window post-event conclusion in `Asia/Kolkata`, exceptional manager corrections with permanent status locking, open concern verification blockers, and worker/manager communication foundation)
+
+**Affected Modules & Files:**
+- `backend/src/modules/attendance/model/attendance.model.ts`:
+  - Added `isStatusLocked`, `statusLockedAt`, `statusLockedReason`, `statusLockedBy`, `hasOpenConcern`, `activeConcernId` to `IAttendance` and Mongoose schema with query index.
+- `backend/src/modules/attendance/model/attendance-concern.model.ts`:
+  - Created schema and model for `AttendanceConcern` with unique index on `attendanceId`, status `open | closed`, outcome `accepted | rejected`, messages array, and query indexes.
+- `backend/src/modules/attendance/utils/attendance-window.util.ts`:
+  - Created `calculateEventCorrectionWindow()` handling timezone offsets (`Asia/Kolkata`), overnight shifts, canonical schedule fields, and 24h deadline calculation (`scheduledEventEndAt + 24 hours`).
+- `backend/src/modules/attendance/repository/attendance.repository.ts`:
+  - Added `lockAttendanceStatus()` and `setOpenConcern()`.
+  - Updated `findByWorkerId` population to include event scheduling details.
+- `backend/src/modules/attendance/repository/attendance-concern.repository.ts`:
+  - Implemented CRUD, `findByAttendanceId`, `countOpenByEventId`, `addMessage`, and `closeConcern` with outcome recording.
+- `backend/src/modules/attendance/service/attendance-concern.service.ts`:
+  - Implemented worker concern submission validation (dispute window, one thread per attendance record, Late/Absent only).
+  - Implemented timestamped message exchange for open concerns (closed threads are read-only).
+  - Implemented manager exceptional resolution:
+    - **Accept**: modifies attendance status/times atomically, recalculates delay/overtime/duration, appends immutable correction history, and permanently locks the record (`isStatusLocked: true`).
+    - **Reject**: preserves existing status, records explanation, and permanently locks the record (`isStatusLocked: true`).
+  - Integrated notification dispatch for concern submission, reply messages, and resolutions via existing `NotificationService`.
+- `backend/src/modules/attendance/service/attendance.service.ts`:
+  - Enforced 24h deadline check in `correctAttendance`: non-admin manager modifications after 24h are rejected with HTTP 403.
+  - Enforced `isStatusLocked` guard at the top of `recordWorkerCheckIn` and `correctAttendance`: permanently locked records cannot be modified via standard check-in or correction endpoints.
+  - Enforced open concern blocker in `verifyAttendance`: verification is rejected if `countOpenByEventId > 0`.
+  - Injected correction window details and `openConcernsCount` into `getRoster` response.
+- `backend/src/modules/attendance/validation/attendance.validation.ts`:
+  - Added Zod schemas for `validateSubmitConcern`, `validateConcernMessage`, and `validateResolveConcern`.
+- `backend/src/modules/attendance/controller/attendance-concern.controller.ts`:
+  - Created controller endpoints using standardized `ApiResponse`.
+- `backend/src/modules/attendance/routes/attendance.routes.ts`:
+  - Mounted worker routes (`GET /worker/records`, `POST /concerns`), shared thread routes (`GET /concerns`, `GET /concerns/:id`, `POST /concerns/:id/messages`), and manager resolution (`POST /concerns/:id/resolve`).
+- `frontend/src/features/attendance/attendance.types.ts`:
+  - Added `AttendanceConcern`, `ConcernMessage`, `SubmitConcernPayload`, `ResolveConcernPayload`, `WorkerAttendanceRecordWithConcern`, plus locked and window fields in `AttendanceRosterItem` and `AttendanceRosterResponse`.
+- `frontend/src/features/attendance/attendanceApi.ts`:
+  - Implemented client API methods: `getWorkerAttendanceRecords`, `submitConcern`, `getConcerns`, `getConcernById`, `addConcernMessage`, `resolveConcern`.
+- `frontend/src/pages/worker/WorkerAttendanceConcerns.tsx`:
+  - Built worker attendance concerns portal with shift overview, dispute eligibility, modal concern submission form, and interactive conversation thread drawer.
+- `frontend/src/pages/manager/ManagerAttendanceConcerns.tsx`:
+  - Built manager attendance concerns dashboard with status filters (Open / Closed / All), thread review, message reply input, and Accept/Reject resolution modal.
+- `frontend/src/routes/AppRoutes.tsx`:
+  - Registered `/worker/concerns` (Worker portal) and `/manager/concerns` (Manager portal).
+- `frontend/src/layouts/WorkerLayout.tsx` & `frontend/src/layouts/ManagerLayout.tsx`:
+  - Added "Attendance Concerns" navigation items with `AlertCircle` icon.
+- `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx` & `FinalizedAttendanceView.tsx`:
+  - Added warning banner alerting manager to open concerns and disabled "Approve Attendance" button with informative tooltip when `openConcernsCount > 0`.
+- `frontend/src/components/manager/attendance/CorrectionModal.tsx`:
+  - Added permanent lock banner and disabled form submission when `worker.isStatusLocked === true`.
+- `backend/tests/`:
+  - `attendanceConcernsAndDeadlines.test.ts`: Created 25 integration tests covering window calculation, normal 24h correction deadline, concern submission rules, conversation messaging, accept/reject resolutions with permanent status locking, and verification blocking. Clean teardown with `server.close()` and `mongoose.disconnect()`.
+  - `attendanceCorrectionAndApproval.test.ts`: Updated fixture event date to current day so test operations remain within the active 24h window.
+- `frontend/src/tests/`:
+  - `attendanceConcernsUI.test.tsx`: Created 5 UI tests verifying concern blocker banner, permanent locking in CorrectionModal, worker dispute modal, and manager review & resolution flow.
+- `docs/08-bug-log.md`: Documented BUG-024.
+- `docs/09-change-impact-log.md`: Recorded change impact.
+
+**Verification Results:**
+- Backend Integration Tests:
+  - `attendanceConcernsAndDeadlines.test.ts`: 25/25 passed (100%), exit code 0.
+  - `attendanceCategoryAndImmediateCheckIn.test.ts`: 22/22 passed (100%), exit code 0.
+  - `attendanceCheckOut.test.ts`: 24/24 passed (100%), exit code 0.
+  - `attendanceCorrectionAndApproval.test.ts`: 17/17 passed (100%), exit code 0.
+  - Total attendance integration tests: 88/88 passed (100%).
+- Frontend Tests:
+  - `attendanceConcernsUI.test.tsx`: 5/5 passed (100%), exit code 0.
+  - All frontend attendance UI suites: 39/39 passed (100%), exit code 0.
+- Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+- Frontend Production Build (`npm --prefix frontend run build`): 0 errors, compiled cleanly in 7.0s, exit code 0.
+- Database Safety: Strict Rule 26 isolation enforced; `eventops` untouched, tests executed solely in `eventops_test` and dropped cleanly.
+
+---
+
+## Milestone 4: Attendance Workflow Bug Fix — API Routing for Existing Records & Change to Present Option
+- **Impact Level**: Medium (Refined API routing between initial check-in and post-shift correction; added Change to Present modal workflow and backend validation without modifying database models or financial logic)
+- **Date**: 2026-11-09
+- **Affected Files**:
+  - `backend/src/modules/attendance/service/attendance.service.ts`:
+    - Enforced strict distinction in `recordWorkerCheckIn`: rejects calls when an attendance record already exists (`arrivalStatus !== 'unrecorded'`) with HTTP 400 Bad Request instructing callers to use the correction API (`PATCH /api/attendance/records/:attendanceId/correct`).
+    - Updated `correctAttendance`: supported `arrivalStatus: 'on_time'` transitions (`Late -> Present` and `Absent -> Present`), resetting delay to 0, updating checkIn timestamp to scheduled reporting time with `checkInSource: 'system_default'`, updating status to `checked_in` (or `checked_out`), and preserving post-checkout absence reversal validations.
+  - `backend/src/modules/attendance/validation/attendance.validation.ts`:
+    - Aligned validation error messages for mutual exclusion between late and absent exceptions.
+  - `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`:
+    - Added "Change to Present" button to Late and Absent worker rows.
+    - Added state and confirmation dialog modal for Change to Present with scheduled reporting time, on-time explanation, and mandatory reason input (min 5 chars).
+    - Branched `handleConfirmAndSave` to invoke `onCorrectAttendance` when `worker.attendanceId` exists.
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`:
+    - Branched `handleSaveWorkerCheckIn` to call `attendanceApi.correctAttendance` when modifying an already-recorded worker.
+    - Passed correction and deadline props (`onCorrectAttendance`, `canNormalCorrect`, `isAfterCorrectionDeadline`, `eventStatus`) to `AttendanceRosterTable`.
+  - `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`:
+    - Created 12 comprehensive integration tests covering initial check-in vs correction API routing, completed event rules, Change to Present transitions, and deadline/locking protections.
+  - `frontend/src/tests/attendanceCategoryAndImmediateCheckInUI.test.tsx`:
+    - Added UI tests for Change to Present button rendering, confirmation modal interactions, dynamic API routing, and locked row protection.
+- **Affected Modules**:
+  - Attendance Module (Check-in, Corrections, Roster UI)
+- **Affected APIs**:
+  - `POST /api/attendance/events/:eventId/workers/:workerId/checkin`: Rejects modification of existing records with HTTP 400.
+  - `PATCH /api/attendance/records/:attendanceId/correct`: Explicitly supports on-time reversal (`Late -> Present`, `Absent -> Present`).
+- **Database Schema Changes**:
+  - None. Preserved existing Attendance and AttendanceSession models.
+- **Frontend Areas Affected**:
+  - Manager Event Details -> Attendance Workspace -> AttendanceRosterTable.
+- **Verification Results**:
+  - `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`: 12/12 passed (100%).
+  - `backend/tests/attendanceCategoryAndImmediateCheckIn.test.ts`: 22/22 passed (100%).
+  - `backend/tests/attendanceConcernsAndDeadlines.test.ts`: 25/25 passed (100%).
+  - `backend/tests/attendanceCheckIn.test.ts`: 28/28 passed (100%).
+  - `backend/tests/attendanceCorrectionAndApproval.test.ts`: 17/17 passed (100%).
+  - `backend/tests/attendanceCheckOut.test.ts`: 24/24 passed (100%).
+  - Total attendance backend tests: 128/128 passed (100%).
+  - `frontend/src/tests/attendanceCategoryAndImmediateCheckInUI.test.tsx`: 15/15 passed (100%).
+  - Frontend production build (`tsc -b && vite build`): Succeeded in 1.1s, exit code 0.
+  - Backend type-check (`tsc --noEmit`): 0 errors, exit code 0.
+  - Strict Rule 26 isolation enforced; `eventops` untouched, tests executed solely in `eventops_test` and dropped cleanly.
+
+
+
 
 
 

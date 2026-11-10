@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { logout } from '../features/auth/authSlice';
-import { LogOut, LayoutDashboard, Menu, X, ShieldCheck, CalendarDays, Users } from 'lucide-react';
+import { LogOut, LayoutDashboard, Menu, X, ShieldCheck, CalendarDays, Users, AlertCircle } from 'lucide-react';
 import { NotificationBell } from '../components/common/NotificationBell';
 
 export const ManagerLayout: React.FC = () => {
@@ -33,6 +33,7 @@ export const ManagerLayout: React.FC = () => {
     { to: '/manager', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/manager/events', label: 'Assigned Events', icon: CalendarDays },
     { to: '/manager/workers', label: 'Manage Workers', icon: Users },
+    { to: '/manager/concerns', label: 'Attendance Concerns', icon: AlertCircle },
   ];
 
   return (

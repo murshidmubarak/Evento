@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import type { AttendanceRosterItem, AttendanceSession } from '../../../features/attendance/attendance.types';
 import { formatDurationMinutes, isOvernightCheckout } from '../../../features/attendance/attendanceApi';
 import {
@@ -14,6 +15,7 @@ import {
   XCircle,
   RotateCw,
   RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 
 interface FinalizedAttendanceViewProps {
@@ -31,6 +33,7 @@ interface FinalizedAttendanceViewProps {
     lifecycleStatus: string;
   };
   roster: AttendanceRosterItem[];
+  openConcernsCount?: number;
   onRefresh?: () => void;
   onOpenCorrection?: (worker: AttendanceRosterItem) => void;
   onOpenVerification?: (action: 'approve' | 'reject') => void;
@@ -39,6 +42,7 @@ interface FinalizedAttendanceViewProps {
 export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = ({
   session,
   roster,
+  openConcernsCount = 0,
   onRefresh,
   onOpenCorrection,
   onOpenVerification,
@@ -300,6 +304,33 @@ export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = (
         </div>
       )}
 
+      {/* Open Concerns Blocker Alert Banner (§13) */}
+      {isCheckoutFinalized && openConcernsCount > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <AlertCircle size={20} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-950">
+                {openConcernsCount === 1
+                  ? '1 Open Attendance Concern Requires Resolution'
+                  : `${openConcernsCount} Open Attendance Concerns Require Resolution`}
+              </h4>
+              <p className="text-xs text-amber-800 mt-0.5 leading-relaxed max-w-2xl">
+                Assigned staff have raised attendance concerns that are currently open. In accordance with system policy, all open concerns must be reviewed and resolved (accepted or rejected) before official attendance verification can proceed.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/manager/concerns"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs shrink-0 transition-colors"
+          >
+            Review Concerns
+          </Link>
+        </div>
+      )}
+
       {/* Verification Status & Manager Sign-off Action Bar (when checkout is finalized) */}
       {isCheckoutFinalized && (
         <div
@@ -390,7 +421,13 @@ export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = (
                   <button
                     type="button"
                     onClick={() => onOpenVerification?.('approve')}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    disabled={openConcernsCount > 0}
+                    title={
+                      openConcernsCount > 0
+                        ? 'Resolve all open attendance concerns before final verification'
+                        : 'Approve Attendance'
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ShieldCheck size={14} />
                     Approve Attendance

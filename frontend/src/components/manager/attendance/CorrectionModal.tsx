@@ -13,6 +13,7 @@ import {
   UserCheck,
   CheckCircle2,
   RotateCcw,
+  Lock,
 } from 'lucide-react';
 
 interface CorrectionModalProps {
@@ -31,6 +32,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
   onSubmit,
 }) => {
   const isAbsent = worker.status === 'absent' || worker.arrivalStatus === 'absent';
+  const isLocked = Boolean(worker.isStatusLocked);
   const [markAsAbsent, setMarkAsAbsent] = useState(false);
 
   // State for absence reversal
@@ -128,7 +130,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid || !worker.attendanceId) return;
+    if (isLocked || !isFormValid || !worker.attendanceId) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -209,8 +211,22 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Permanent Lock Notice (§12) */}
+          {isLocked && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 text-xs text-red-900">
+              <Lock size={18} className="text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-red-950 text-sm">Attendance Record Permanently Locked</h4>
+                <p className="mt-1 text-red-800 leading-relaxed">
+                  This attendance record is permanently locked because an attendance concern was resolved
+                  {worker.statusLockedReason ? ` (${worker.statusLockedReason})` : ''}. Further modifications or corrections are strictly disabled.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Approval Invalidation Notice if previously verified */}
-          {worker.verificationStatus && worker.verificationStatus !== 'pending_review' && (
+          {!isLocked && worker.verificationStatus && worker.verificationStatus !== 'pending_review' && (
             <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900">
               <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
               <p>
@@ -537,11 +553,16 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!isFormValid || isSubmitting}
+              disabled={isLocked || !isFormValid || isSubmitting}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>Applying Correction...</>
+              ) : isLocked ? (
+                <>
+                  <Lock size={14} />
+                  Record Permanently Locked
+                </>
               ) : (
                 <>
                   <CheckCircle2 size={14} />

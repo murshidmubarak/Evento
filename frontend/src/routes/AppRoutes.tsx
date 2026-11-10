@@ -32,10 +32,12 @@ import { ManagerDashboard } from '../pages/manager/ManagerDashboard';
 import { ManagerEventList } from '../pages/manager/ManagerEventList';
 import { ManagerEventDetails } from '../pages/manager/ManagerEventDetails';
 import { ManagerWorkers } from '../pages/manager/ManagerWorkers';
+import { ManagerAttendanceConcerns } from '../pages/manager/ManagerAttendanceConcerns';
 
 import { WorkerLayout } from '../layouts/WorkerLayout';
 import { WorkerDashboard } from '../pages/worker/WorkerDashboard';
 import { WorkerLocationSetup } from '../pages/worker/WorkerLocationSetup';
+import { WorkerAttendanceConcerns } from '../pages/worker/WorkerAttendanceConcerns';
 
 export const AppRoutes = () => {
   return (
@@ -83,6 +85,7 @@ export const AppRoutes = () => {
             <Route path="events" element={<ManagerEventList />} />
             <Route path="events/:id" element={<ManagerEventDetails />} />
             <Route path="workers" element={<ManagerWorkers />} />
+            <Route path="concerns" element={<ManagerAttendanceConcerns />} />
           </Route>
         </Route>
 
@@ -91,6 +94,7 @@ export const AppRoutes = () => {
           <Route path="/worker" element={<WorkerLayout />}>
             <Route index element={<WorkerDashboard />} />
             <Route path="location" element={<WorkerLocationSetup />} />
+            <Route path="concerns" element={<WorkerAttendanceConcerns />} />
           </Route>
         </Route>
       </Route>

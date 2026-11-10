@@ -11,6 +11,7 @@ import { Event } from '../src/modules/events/model/event.model.js';
 import { WorkRequirement } from '../src/modules/work-requirements/model/work-requirement.model.js';
 import { AttendanceSession } from '../src/modules/attendance/model/attendance-session.model.js';
 import { Attendance } from '../src/modules/attendance/model/attendance.model.js';
+import { Notification } from '../src/modules/notifications/model/notification.model.js';
 
 describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times, Immediate Check-in & Corrections', () => {
   let server: any;
@@ -53,6 +54,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
     await WorkRequirement.deleteMany({});
     await AttendanceSession.deleteMany({});
     await Attendance.deleteMany({});
+    await Notification.deleteMany({});
 
     // 1. Users
     adminId = new mongoose.Types.ObjectId().toString();
@@ -145,8 +147,8 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       isActive: true,
     });
 
-    // Event scheduled for earlier today
-    const earlierToday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Event scheduled for today
+    const today = new Date();
 
     eventId = new mongoose.Types.ObjectId().toString();
     await Event.create({
@@ -155,7 +157,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       eventManagerId: managerId,
       title: 'Grand Tech Summit 2026',
       eventType: 'Wedding',
-      date: earlierToday,
+      date: today,
       startTime: '08:00',
       endTime: '23:00',
       guestCount: 300,
@@ -166,7 +168,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
     });
 
     // Work Requirements:
-    // Req 1: Cameraman / Photographer, reporting 09:00
+    // Req 1: Cameraman / Photographer, reporting 08:00
     req1Id = new mongoose.Types.ObjectId().toString();
     await WorkRequirement.create({
       _id: req1Id,
@@ -177,11 +179,11 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
         { workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() },
         { workerId: new mongoose.Types.ObjectId(worker2Id), assignedAt: new Date() },
       ],
-      reportingTime: '09:00',
+      reportingTime: '08:00',
       status: 'filled',
     });
 
-    // Req 2: Catering Boy, reporting 20:00 (evening/overnight)
+    // Req 2: Catering Boy, reporting 09:00 (evening/overnight)
     req2Id = new mongoose.Types.ObjectId().toString();
     await WorkRequirement.create({
       _id: req2Id,
@@ -192,7 +194,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
         { workerId: new mongoose.Types.ObjectId(worker3Id), assignedAt: new Date() },
         { workerId: new mongoose.Types.ObjectId(worker4Id), assignedAt: new Date() },
       ],
-      reportingTime: '20:00',
+      reportingTime: '09:00',
       status: 'filled',
     });
   });
@@ -246,6 +248,90 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
         }
       );
       assert.strictEqual(res.status, 403);
+    });
+
+    it('should reject recording check-in before the scheduled event day (future event)', async () => {
+      const futureDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+      const futureEventId = new mongoose.Types.ObjectId().toString();
+      await Event.create({
+        _id: futureEventId,
+        clientId,
+        eventManagerId: managerId,
+        title: 'Future Gala',
+        eventType: 'Wedding',
+        date: futureDate,
+        startTime: '10:00',
+        endTime: '18:00',
+        guestCount: 150,
+        status: 'confirmed',
+        location: { address: 'Future Hall' },
+      });
+      await WorkRequirement.create({
+        _id: new mongoose.Types.ObjectId().toString(),
+        eventId: futureEventId,
+        workerType: 'Cameraman / Photographer',
+        requiredCount: 1,
+        assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() }],
+        reportingTime: '10:00',
+        status: 'filled',
+      });
+
+      const res = await fetch(
+        `http://localhost:${port}/api/attendance/events/${futureEventId}/workers/${worker1Id}/checkin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({ arrivalStatus: 'late', actualArrivalTime: '10:30' }),
+        }
+      );
+      assert.strictEqual(res.status, 400);
+      const json = await res.json();
+      assert.match(json.message, /scheduled event day/i);
+    });
+
+    it('should reject recording initial check-in after the scheduled event day (past event)', async () => {
+      const pastDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const pastEventId = new mongoose.Types.ObjectId().toString();
+      await Event.create({
+        _id: pastEventId,
+        clientId,
+        eventManagerId: managerId,
+        title: 'Past Gala',
+        eventType: 'Wedding',
+        date: pastDate,
+        startTime: '10:00',
+        endTime: '18:00',
+        guestCount: 150,
+        status: 'confirmed',
+        location: { address: 'Past Hall' },
+      });
+      await WorkRequirement.create({
+        _id: new mongoose.Types.ObjectId().toString(),
+        eventId: pastEventId,
+        workerType: 'Cameraman / Photographer',
+        requiredCount: 1,
+        assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() }],
+        reportingTime: '10:00',
+        status: 'filled',
+      });
+
+      const res = await fetch(
+        `http://localhost:${port}/api/attendance/events/${pastEventId}/workers/${worker1Id}/checkin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({ arrivalStatus: 'absent' }),
+        }
+      );
+      assert.strictEqual(res.status, 400);
+      const json = await res.json();
+      assert.match(json.message, /event day has passed/i);
     });
 
     it('should validate arrivalStatus payload (missing or invalid)', async () => {
@@ -323,7 +409,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
           },
           body: JSON.stringify({
             arrivalStatus: 'late',
-            actualArrivalTime: '09:30',
+            actualArrivalTime: '08:30',
           }),
         }
       );
@@ -341,6 +427,15 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.ok(doc);
       assert.strictEqual(doc.arrivalStatus, 'late');
       assert.strictEqual(doc.delayMinutes, 30);
+
+      // Verify notification created for worker2
+      const notif2 = await Notification.findOne({
+        recipientId: worker2Id,
+      });
+      assert.ok(notif2, 'Notification for worker2 (Late) should be created');
+      assert.strictEqual(notif2.type, 'attendance_marked_late');
+      assert.match(notif2.title, /attendance update/i);
+      assert.match(notif2.message, /marked LATE/i);
     });
 
     it('should immediately record worker3 as Absent', async () => {
@@ -368,11 +463,20 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.ok(doc);
       assert.strictEqual(doc.status, 'absent');
       assert.strictEqual(doc.checkIn, null);
+
+      // Verify notification created for worker3
+      const notif3 = await Notification.findOne({
+        recipientId: worker3Id,
+      });
+      assert.ok(notif3, 'Notification for worker3 (Absent) should be created');
+      assert.strictEqual(notif3.type, 'attendance_marked_absent');
+      assert.match(notif3.title, /attendance update/i);
+      assert.match(notif3.message, /marked ABSENT/i);
     });
 
-    it('should allow updating an individual check-in before batch finalization without duplicating', async () => {
-      // Change worker2 from 09:30 late to 09:45 late
-      const res = await fetch(
+    it('should reject check-in API for existing record and allow updating via correction API without duplicating', async () => {
+      // 1. Calling initial check-in API on an existing record must be rejected (400 Bad Request)
+      const rejectRes = await fetch(
         `http://localhost:${port}/api/attendance/events/${eventId}/workers/${worker2Id}/checkin`,
         {
           method: 'POST',
@@ -382,7 +486,33 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
           },
           body: JSON.stringify({
             arrivalStatus: 'late',
-            actualArrivalTime: '09:45',
+            actualArrivalTime: '08:45',
+          }),
+        }
+      );
+
+      assert.strictEqual(rejectRes.status, 400);
+      const rejectJson = await rejectRes.json();
+      assert.match(rejectJson.message, /already exists for this worker/i);
+      assert.match(rejectJson.message, /Use the correction API/i);
+
+      // 2. Fetch existing attendance record ID for worker2
+      const existingAtt = await Attendance.findOne({ eventId, workerId: worker2Id });
+      assert.ok(existingAtt);
+
+      // 3. Updating existing attendance record via correction API succeeds
+      const res = await fetch(
+        `http://localhost:${port}/api/attendance/records/${existingAtt._id}/correct`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            arrivalStatus: 'late',
+            actualArrivalTime: '08:45',
+            reason: 'Manager updated late arrival timestamp',
           }),
         }
       );
@@ -453,13 +583,13 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
             'Content-Type': 'application/json',
             Authorization: `Bearer ${managerToken}`,
           },
-          body: JSON.stringify({ arrivalStatus: 'late', actualArrivalTime: '09:15' }),
+          body: JSON.stringify({ arrivalStatus: 'late', actualArrivalTime: '08:15' }),
         }
       );
 
       assert.strictEqual(res.status, 400);
       const json = await res.json();
-      assert.match(json.message, /check-in has already been finalized/i);
+      assert.match(json.message, /check-in has already been finalized|already exists for this worker/i);
     });
   });
 
@@ -488,9 +618,9 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
     });
 
     it('should finalize checkout with category-wise finishing times and handle overnight shift', async () => {
-      // Cameraman / Photographer finishes at 17:00 (day shift, started 09:00)
-      // Catering Boy finishes at 02:00 (overnight shift, started 20:00 -> finMins (120) <= repMins (1200))
-      // worker2 (Cameraman / Photographer) has early departure at 16:00 (1 hour early)
+      // Cameraman / Photographer finishes at 16:00 (day shift, started 08:00)
+      // Catering Boy finishes at 02:00 (overnight shift, started 09:00 -> finMins (120) <= repMins (540))
+      // worker2 (Cameraman / Photographer) has early departure at 15:00 (1 hour early)
       const res = await fetch(`http://localhost:${port}/api/attendance/events/${eventId}/finalize-checkout`, {
         method: 'POST',
         headers: {
@@ -500,11 +630,11 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
         },
         body: JSON.stringify({
           categoryFinishTimes: [
-            { workerType: 'Cameraman / Photographer', normalFinishTime: '17:00' },
+            { workerType: 'Cameraman / Photographer', normalFinishTime: '16:00' },
             { workerType: 'Catering Boy', normalFinishTime: '02:00' },
           ],
           earlyDepartureExceptions: [
-            { workerId: worker2Id, actualCheckoutTime: '16:00' },
+            { workerId: worker2Id, actualCheckoutTime: '15:00' },
           ],
         }),
       });
@@ -521,35 +651,35 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.ok(session.categoryFinishTimes && session.categoryFinishTimes.length === 2);
 
       const catMap = new Map(session.categoryFinishTimes.map((c: any) => [c.workerType, c]));
-      assert.strictEqual((catMap.get('Cameraman / Photographer') as any).normalFinishTime, '17:00');
+      assert.strictEqual((catMap.get('Cameraman / Photographer') as any).normalFinishTime, '16:00');
       assert.strictEqual((catMap.get('Catering Boy') as any).normalFinishTime, '02:00');
 
       // Verify worker1 (cameraman)
       const att1 = await Attendance.findOne({ eventId, workerId: worker1Id });
       assert.ok(att1);
-      assert.strictEqual(att1.applicableNormalFinishTimeSnapshot, '17:00');
+      assert.strictEqual(att1.applicableNormalFinishTimeSnapshot, '16:00');
       assert.strictEqual(att1.departureStatus, 'normal');
       assert.strictEqual(att1.earlyDepartureMinutes, 0);
       assert.strictEqual(att1.overtimeMinutes, 0);
-      // duration: 09:00 to 17:00 = 8 hours = 480 minutes
+      // duration: 08:00 to 16:00 = 8 hours = 480 minutes
       assert.strictEqual(att1.durationMinutes, 480);
 
-      // Verify worker2 (cameraman, early at 16:00)
+      // Verify worker2 (cameraman, early at 15:00)
       const att2 = await Attendance.findOne({ eventId, workerId: worker2Id });
       assert.ok(att2);
-      assert.strictEqual(att2.applicableNormalFinishTimeSnapshot, '17:00');
+      assert.strictEqual(att2.applicableNormalFinishTimeSnapshot, '16:00');
       assert.strictEqual(att2.departureStatus, 'early_departure');
       assert.strictEqual(att2.earlyDepartureMinutes, 60);
-      // duration: 09:45 to 16:00 = 6h 15m = 375 minutes
+      // duration: 08:45 to 15:00 = 6h 15m = 375 minutes
       assert.strictEqual(att2.durationMinutes, 375);
 
-      // Verify worker4 (catering_boy, overnight 20:00 to 02:00 next day)
+      // Verify worker4 (catering_boy, overnight 09:00 to 02:00 next day)
       const att4 = await Attendance.findOne({ eventId, workerId: worker4Id });
       assert.ok(att4);
       assert.strictEqual(att4.applicableNormalFinishTimeSnapshot, '02:00');
       assert.strictEqual(att4.departureStatus, 'normal');
-      // duration: 20:00 to 02:00 = 6 hours = 360 minutes
-      assert.strictEqual(att4.durationMinutes, 360);
+      // duration: 09:00 to 02:00 = 17 hours = 1020 minutes
+      assert.strictEqual(att4.durationMinutes, 1020);
       // Check-out date is later than check-in date (+24 hours rollover)
       assert.ok(att4.checkOut! > att4.checkIn!);
 
@@ -558,6 +688,97 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.ok(att3);
       assert.strictEqual(att3.status, 'absent');
       assert.strictEqual(att3.checkOut || null, null);
+    });
+
+    it('should directly finalize checkout without prior check-in finalization, automatically defaulting unmarked workers to On Time', async () => {
+      const directEventId = new mongoose.Types.ObjectId().toString();
+      await Event.create({
+        _id: directEventId,
+        clientId,
+        eventManagerId: managerId,
+        title: 'Direct Checkout Event',
+        eventType: 'Wedding',
+        date: new Date(),
+        startTime: '09:00',
+        endTime: '17:00',
+        guestCount: 100,
+        status: 'confirmed',
+        location: { address: 'Direct Hall' },
+      });
+
+      const workerA = new mongoose.Types.ObjectId().toString();
+      const workerB = new mongoose.Types.ObjectId().toString();
+      await User.create([
+        { _id: workerA, name: 'Worker A', email: 'workerA@example.com', password: 'password123', role: 'worker', workerType: 'Chef', isActive: true },
+        { _id: workerB, name: 'Worker B', email: 'workerB@example.com', password: 'password123', role: 'worker', workerType: 'Chef', isActive: true },
+      ]);
+
+      await WorkRequirement.create({
+        _id: new mongoose.Types.ObjectId().toString(),
+        eventId: directEventId,
+        workerType: 'Chef',
+        requiredCount: 2,
+        assignedWorkers: [
+          { workerId: new mongoose.Types.ObjectId(workerA), assignedAt: new Date() },
+          { workerId: new mongoose.Types.ObjectId(workerB), assignedAt: new Date() },
+        ],
+        reportingTime: '09:00',
+        status: 'filled',
+      });
+
+      // Mark only workerA as Late (Worker B remains unmarked)
+      const lateRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${directEventId}/workers/${workerA}/checkin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({ arrivalStatus: 'late', actualArrivalTime: '09:20' }),
+        }
+      );
+      assert.strictEqual(lateRes.status, 200);
+
+      // Finalize checkout directly without calling finalize-checkin
+      const checkoutRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${directEventId}/finalize-checkout`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+            'Idempotency-Key': 'chkout_direct_1',
+          },
+          body: JSON.stringify({
+            categoryFinishTimes: [{ workerType: 'Chef', normalFinishTime: '17:00' }],
+          }),
+        }
+      );
+
+      assert.strictEqual(checkoutRes.status, 200);
+      const checkoutJson = await checkoutRes.json();
+      assert.strictEqual(checkoutJson.success, true);
+      assert.strictEqual(checkoutJson.data.checkOutFinalized, true);
+
+      // Verify session
+      const directSession = await AttendanceSession.findOne({ eventId: directEventId });
+      assert.ok(directSession);
+      assert.strictEqual(directSession.checkOutFinalized, true);
+
+      // Worker A was late
+      const attA = await Attendance.findOne({ eventId: directEventId, workerId: workerA });
+      assert.ok(attA);
+      assert.strictEqual(attA.arrivalStatus, 'late');
+      assert.strictEqual(attA.status, 'checked_out');
+
+      // Worker B was unmarked -> automatically defaulted to on_time / system_default
+      const attB = await Attendance.findOne({ eventId: directEventId, workerId: workerB });
+      assert.ok(attB);
+      assert.strictEqual(attB.arrivalStatus, 'on_time');
+      assert.strictEqual(attB.checkInSource, 'system_default');
+      assert.strictEqual(attB.status, 'checked_out');
+      assert.strictEqual(attB.durationMinutes, 480); // 09:00 to 17:00 = 8h = 480m
     });
   });
 
@@ -653,8 +874,8 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.strictEqual(json.data.checkOutSource, 'system_default');
       assert.ok(json.data.checkIn);
       assert.ok(json.data.checkOut);
-      // catering_boy shift: 20:00 to 02:00 = 360 mins
-      assert.strictEqual(json.data.durationMinutes, 360);
+      // catering_boy shift: 09:00 to 02:00 = 1020 mins
+      assert.strictEqual(json.data.durationMinutes, 1020);
 
       // Check corrections history
       assert.ok(json.data.corrections.length >= 1);
@@ -663,7 +884,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.strictEqual(last.newStatus, 'checked_out');
     });
 
-    it('should transition worker2 (Late 09:45) -> Late 09:15 via correction and recalculate delay and duration', async () => {
+    it('should transition worker2 (Late 08:45) -> Late 08:15 via correction and recalculate delay and duration', async () => {
       const att2 = await Attendance.findOne({ eventId, workerId: worker2Id });
       assert.ok(att2);
 
@@ -675,7 +896,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
         },
         body: JSON.stringify({
           arrivalStatus: 'late',
-          actualArrivalTime: '09:15',
+          actualArrivalTime: '08:15',
           reason: 'Correcting arrival time after reviewing entry register.',
         }),
       });
@@ -684,8 +905,8 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       const json = await res.json();
       assert.strictEqual(json.success, true);
       assert.strictEqual(json.data.arrivalStatus, 'late');
-      assert.strictEqual(json.data.delayMinutes, 15); // 09:00 -> 09:15 = 15m
-      // checkout was 16:00 -> 09:15 to 16:00 = 6h 45m = 405 mins
+      assert.strictEqual(json.data.delayMinutes, 15); // 08:00 -> 08:15 = 15m
+      // checkout was 15:00 -> 08:15 to 15:00 = 6h 45m = 405 mins
       assert.strictEqual(json.data.durationMinutes, 405);
     });
 
