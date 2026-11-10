@@ -431,7 +431,7 @@ describe('Milestone 4 — Phase 4.1: Attendance Models, Repositories & Validatio
       assert.strictEqual(duplicateFinalize, null);
     });
 
-    it('atomicFinalizeCheckOut enforces check-in finalization and persists all 5 checkout idempotency fields', async () => {
+    it('atomicFinalizeCheckOut allows direct checkout without requiring check-in finalization and persists all 5 checkout idempotency fields', async () => {
       const eventId = new mongoose.Types.ObjectId().toString();
       const managerId = new mongoose.Types.ObjectId();
       await attendanceSessionRepository.getOrCreateSession(eventId);
@@ -448,22 +448,16 @@ describe('Milestone 4 — Phase 4.1: Attendance Models, Repositories & Validatio
         committedSummary: { normalCount: 4, overtimeCount: 1, earlyDepartureCount: 0 },
       };
 
-      // 1. Fails if check-in is not finalized
-      const prematureCheckout = await attendanceSessionRepository.atomicFinalizeCheckOut(eventId, finishData, idempotencyData);
-      assert.strictEqual(prematureCheckout, null);
-
-      // 2. Finalize check-in first
-      await attendanceSessionRepository.atomicFinalizeCheckIn(eventId, {
-        finalizedAt: new Date(),
-        finalizedBy: managerId,
-      });
-
-      // 3. Checkout finalization now succeeds
+      // 1. Directly finalizes checkout (Prompt 1: check-in finalization no longer prerequisite)
       const finalizedCheckout = await attendanceSessionRepository.atomicFinalizeCheckOut(eventId, finishData, idempotencyData);
       assert.ok(finalizedCheckout);
       assert.strictEqual(finalizedCheckout.checkOutFinalized, true);
       assert.strictEqual(finalizedCheckout.lifecycleStatus, 'checkout_finalized');
       assert.strictEqual(finalizedCheckout.actualNormalFinishTime, '20:00');
+
+      // 2. Reject duplicate when already finalized
+      const duplicateCheckout = await attendanceSessionRepository.atomicFinalizeCheckOut(eventId, finishData, idempotencyData);
+      assert.strictEqual(duplicateCheckout, null);
 
       // Verify all 5 checkout idempotency fields are persisted
       assert.ok(finalizedCheckout.checkOutIdempotency);

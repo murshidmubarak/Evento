@@ -399,7 +399,7 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services &
       assert.match(data.message, /cancelled/i);
     });
 
-    it('rejects checkout if check-in has not yet been finalized', async () => {
+    it('rejects checkout if no assigned workers exist for this event', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${eventCheckInPendingId}/finalize-checkout`, {
         method: 'POST',
         headers: {
@@ -411,7 +411,7 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services &
       });
       assert.strictEqual(res.status, 400);
       const data = (await res.json()) as any;
-      assert.match(data.message, /check-in has been finalized/i);
+      assert.match(data.message, /no assigned workers/i);
     });
   });
 

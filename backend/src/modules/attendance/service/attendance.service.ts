@@ -24,7 +24,16 @@ import {
   AttendanceRepository,
   attendanceRepository,
 } from '../repository/attendance.repository.js';
+import { attendanceConcernRepository } from '../repository/attendance-concern.repository.js';
 import { isValidTimeString } from '../validation/attendance.validation.js';
+import { notificationService } from '../../notifications/service/notification.service.js';
+import {
+  getOperationalDateString,
+  calculateEventCorrectionWindow,
+  type EventCorrectionWindow,
+} from '../utils/attendance-window.util.js';
+
+export { getOperationalDateString, calculateEventCorrectionWindow, type EventCorrectionWindow };
 
 export interface FinalizeCheckInPayload {
   lateExceptions?: Array<{
@@ -120,6 +129,11 @@ export interface AttendanceRosterItem {
   rejectionReason?: string;
   corrections?: any[];
   isAssigned: boolean;
+  isStatusLocked?: boolean;
+  statusLockedAt?: Date;
+  statusLockedReason?: string;
+  hasOpenConcern?: boolean;
+  activeConcernId?: string | null;
 }
 
 export interface CorrectAttendancePayload {
@@ -150,6 +164,11 @@ export interface AttendanceRosterResponse {
   eventId: string;
   eventTitle: string;
   eventDate: Date;
+  isEventDay?: boolean;
+  isBeforeEventDay?: boolean;
+  isAfterEventDay?: boolean;
+  eventOperationalDate?: string;
+  currentOperationalDate?: string;
   session: {
     checkInFinalized: boolean;
     checkInFinalizedAt?: Date;
@@ -177,6 +196,11 @@ export interface AttendanceRosterResponse {
   latestReportingTimestamp: Date | null;
   canFinalizeCheckIn: boolean;
   totalAssigned: number;
+  scheduledEventEndAt?: Date;
+  correctionDeadlineAt?: Date;
+  canNormalCorrect?: boolean;
+  isAfterCorrectionDeadline?: boolean;
+  openConcernsCount?: number;
   requirements: AttendanceRosterRequirementItem[];
   roster: AttendanceRosterItem[];
 }
@@ -385,6 +409,11 @@ export class AttendanceService {
     }
 
     const now = new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+    const { isEventDay, isBeforeEventDay, isAfterEventDay, eventOperationalDate, currentOperationalDate } = windowInfo;
+
+    const openConcernsCount = await attendanceConcernRepository.countOpenByEventId(eventId);
+
     const canFinalizeCheckIn =
       !session.checkInFinalized &&
       latestReportingTimestamp !== null &&
@@ -434,6 +463,11 @@ export class AttendanceService {
         rejectionReason: att?.rejectionReason,
         corrections: att?.corrections || [],
         isAssigned: true,
+        isStatusLocked: Boolean(att?.isStatusLocked),
+        statusLockedAt: att?.statusLockedAt,
+        statusLockedReason: att?.statusLockedReason,
+        hasOpenConcern: Boolean(att?.hasOpenConcern),
+        activeConcernId: att?.activeConcernId ? att.activeConcernId.toString() : null,
       };
     });
 
@@ -441,6 +475,16 @@ export class AttendanceService {
       eventId,
       eventTitle: event.title,
       eventDate: event.date,
+      isEventDay,
+      isBeforeEventDay,
+      isAfterEventDay,
+      eventOperationalDate,
+      currentOperationalDate,
+      scheduledEventEndAt: windowInfo.scheduledEventEndAt,
+      correctionDeadlineAt: windowInfo.correctionDeadlineAt,
+      canNormalCorrect: windowInfo.canNormalCorrect,
+      isAfterCorrectionDeadline: windowInfo.isAfterDeadline,
+      openConcernsCount,
       session: {
         checkInFinalized: session.checkInFinalized,
         checkInFinalizedAt: session.checkInFinalizedAt,
@@ -503,10 +547,55 @@ export class AttendanceService {
       );
     }
 
-    // 2. Retrieve session and check finalization status
+    // 2. Check if worker attendance record is permanently locked (§12)
+    const existingRecord = await this.attRepo.findByEventAndWorker(eventId, workerId);
+    if (existingRecord?.isStatusLocked) {
+      throw ApiError.forbidden('Attendance record is permanently locked and cannot be modified');
+    }
+
+    // Operation 1 vs Operation 2 Separation:
+    // If an attendance record already exists for this worker, reject the initial check-in API.
+    // Callers must use the correction API (PATCH /api/attendance/records/:attendanceId/correct).
+    if (existingRecord && existingRecord.arrivalStatus !== 'unrecorded') {
+      throw ApiError.badRequest(
+        `Attendance record already exists for this worker. Use the correction API ('PATCH /api/attendance/records/${existingRecord._id}/correct') to modify existing attendance records.`
+      );
+    }
+
+    // 3. Check session state
+    const session = await this.sessionRepo.getOrCreateSession(eventId);
+    if (session.checkInFinalized || session.checkOutFinalized) {
+      throw ApiError.badRequest('Cannot record check-in: check-in has already been finalized for this event');
+    }
+
+    // 4. Check event-day restrictions
+    const now = new Date();
+    const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
+    const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
+
+    const isInitialMark = !existingRecord || existingRecord.arrivalStatus === 'unrecorded';
+
+    if (isInitialMark) {
+      if (currentOperationalDate < eventOperationalDate) {
+        throw ApiError.badRequest(
+          'Initial attendance marks can only be recorded on the scheduled event day (cannot mark before event day)'
+        );
+      }
+      if (currentOperationalDate > eventOperationalDate) {
+        throw ApiError.badRequest(
+          'Initial attendance marks can only be recorded on the scheduled event day (event day has passed)'
+        );
+      }
+    } else {
+      if (currentOperationalDate < eventOperationalDate) {
+        throw ApiError.badRequest('Attendance marks cannot be recorded before the scheduled event day');
+      }
+    }
+
+    // 2b. Retrieve session and check finalization status
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
-    if (sessionDoc.checkInFinalized) {
-      throw ApiError.badRequest('Check-in has already been finalized. Use the correction workflow to modify attendance.');
+    if (sessionDoc.checkOutFinalized) {
+      throw ApiError.badRequest('Checkout has already been finalized. Use the correction workflow to modify attendance.');
     }
 
     // 3. Find worker assignment in active work requirements
@@ -584,8 +673,40 @@ export class AttendanceService {
       delayMinutes = 0;
     }
 
-    const now = new Date();
     const managerObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Check if status changed compared to existing record
+    const isStatusChanged =
+      !existingRecord ||
+      existingRecord.arrivalStatus !== finalArrivalStatus ||
+      (finalArrivalStatus === 'late' && existingRecord.checkIn?.getTime() !== checkIn?.getTime());
+
+    let correction: any = undefined;
+    if (existingRecord && isStatusChanged && existingRecord.arrivalStatus !== 'unrecorded') {
+      const formatTime = (d?: Date | null) =>
+        d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '';
+
+      correction = {
+        modifiedBy: managerObjectId,
+        modifiedAt: now,
+        field: 'arrivalStatus',
+        previousValue: existingRecord.checkIn ? formatTime(existingRecord.checkIn) : existingRecord.arrivalStatus,
+        previousSource: existingRecord.checkInSource,
+        previousStatus: existingRecord.status,
+        previousArrivalStatus: existingRecord.arrivalStatus,
+        previousDepartureStatus: existingRecord.departureStatus,
+        newValue: checkIn ? formatTime(checkIn) : finalArrivalStatus,
+        newSource: checkInSource,
+        newStatus: finalStatus,
+        newArrivalStatus: finalArrivalStatus,
+        newDepartureStatus: existingRecord.departureStatus,
+        reason:
+          (payload as any).reason ||
+          (finalArrivalStatus === 'late'
+            ? `Updated arrival time to ${payload.actualArrivalTime}`
+            : `Updated status to ${finalArrivalStatus}`),
+      };
+    }
 
     // 7. Atomically upsert the Attendance document
     const updateData: any = {
@@ -605,9 +726,41 @@ export class AttendanceService {
       durationMinutes: 0,
     };
 
-    const savedRecord = await this.attRepo.upsertIndividualCheckIn(eventId, workerId, updateData);
+    const savedRecord = await this.attRepo.upsertIndividualCheckIn(eventId, workerId, updateData, correction);
     if (!savedRecord) {
       throw ApiError.internal('Failed to persist individual worker check-in');
+    }
+
+    // Dispatch worker notification if status is Late or Absent, and status effectively changed
+    if (isStatusChanged && (finalArrivalStatus === 'late' || finalArrivalStatus === 'absent')) {
+      try {
+        const isLate = finalArrivalStatus === 'late';
+        const title = isLate
+          ? `Attendance Update: Marked Late for ${event.title}`
+          : `Attendance Update: Marked Absent for ${event.title}`;
+        const message = isLate
+          ? `You have been marked LATE for ${event.title}.\n\nYour recorded arrival time is ${payload.actualArrivalTime}.\n\nPlease note that this attendance status may affect your performance record. If you believe the information is incorrect, please contact your Event Manager.`
+          : `You have been marked ABSENT for ${event.title}.\n\nPlease note that this attendance status may affect your performance record. If you believe the information is incorrect, please contact your Event Manager.`;
+
+        await notificationService.createNotification({
+          recipientId: workerId,
+          type: `attendance_marked_${finalArrivalStatus}`,
+          title,
+          message,
+          resourceType: 'attendance',
+          resourceId: savedRecord._id.toString(),
+          destinationRoute: '/worker',
+          deduplicationKey: `attendance_${eventId}_${workerId}_${finalArrivalStatus}_${checkIn ? checkIn.getTime() : 'absent'}`,
+          metadata: {
+            eventId,
+            workerId,
+            arrivalStatus: finalArrivalStatus,
+            checkIn: checkIn ? checkIn.toISOString() : null,
+          },
+        });
+      } catch (notifErr: any) {
+        console.warn('⚠️ [AttendanceService] Failed to dispatch worker attendance notification:', notifErr.message);
+      }
     }
 
     return {
@@ -1049,12 +1202,7 @@ export class AttendanceService {
     // 3. Retrieve or safely initialize the session
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
 
-    // 4. Precondition: Check-in must be finalized first
-    if (!sessionDoc.checkInFinalized) {
-      throw ApiError.badRequest('Cannot finalize checkout before check-in has been finalized');
-    }
-
-    // 5. Compute stable payload hash
+    // 4. Compute stable payload hash
     const payloadHash = this.computeCheckOutPayloadHash(payload);
 
     // 6. Idempotency Evaluation
@@ -1195,11 +1343,30 @@ export class AttendanceService {
       defaultFinishTime24h = categoryFinishTimesToPersist[0]?.normalFinishTime || '';
     }
 
-    // 11. Load existing attendances
-    const existingAttendances = await this.attRepo.findByEventId(eventId);
-    if (existingAttendances.length === 0) {
-      throw ApiError.badRequest('No attendance records found for this event. Check-in must be finalized first.');
+    // 11. Build all assigned workers across active requirements
+    const assignmentEntries: Array<{
+      workerId: string;
+      workerType: string;
+      requirementId: string;
+      reportingTime: string;
+    }> = [];
+    for (const req of requirements) {
+      for (const a of req.assignedWorkers || []) {
+        assignmentEntries.push({
+          workerId: a.workerId.toString(),
+          workerType: req.workerType,
+          requirementId: req._id.toString(),
+          reportingTime: req.reportingTime,
+        });
+      }
     }
+
+    if (assignmentEntries.length === 0) {
+      throw ApiError.badRequest('No assigned workers found for this event');
+    }
+
+    // 12. Load existing attendances
+    const existingAttendances = await this.attRepo.findByEventId(eventId);
     const attendanceMap = new Map<string, IAttendance>();
     for (const att of existingAttendances) {
       const wId = (att.workerId as any)?._id?.toString() || att.workerId?.toString();
@@ -1208,19 +1375,20 @@ export class AttendanceService {
       }
     }
 
-    // 12. Validate exceptions
+    // 13. Validate exceptions
     const earlyExceptions = payload.earlyDepartureExceptions || [];
     const overtimeExceptions = payload.overtimeExceptions || [];
 
     const earlyWorkerIds = new Set<string>();
     const overtimeWorkerIds = new Set<string>();
+    const assignedWorkerIdSet = new Set(assignmentEntries.map((e) => e.workerId));
 
     for (const early of earlyExceptions) {
-      const att = attendanceMap.get(early.workerId);
-      if (!att) {
-        throw ApiError.badRequest(`Worker '${early.workerId}' does not have an attendance record for this event`);
+      if (!assignedWorkerIdSet.has(early.workerId)) {
+        throw ApiError.badRequest(`Worker '${early.workerId}' is not assigned to this event`);
       }
-      if (att.status === 'absent' || att.arrivalStatus === 'absent') {
+      const att = attendanceMap.get(early.workerId);
+      if (att && (att.status === 'absent' || att.arrivalStatus === 'absent')) {
         throw ApiError.badRequest(
           `Worker '${early.workerId}' is marked absent and cannot have an early departure checkout recorded`
         );
@@ -1232,11 +1400,11 @@ export class AttendanceService {
     }
 
     for (const ot of overtimeExceptions) {
-      const att = attendanceMap.get(ot.workerId);
-      if (!att) {
-        throw ApiError.badRequest(`Worker '${ot.workerId}' does not have an attendance record for this event`);
+      if (!assignedWorkerIdSet.has(ot.workerId)) {
+        throw ApiError.badRequest(`Worker '${ot.workerId}' is not assigned to this event`);
       }
-      if (att.status === 'absent' || att.arrivalStatus === 'absent') {
+      const att = attendanceMap.get(ot.workerId);
+      if (att && (att.status === 'absent' || att.arrivalStatus === 'absent')) {
         throw ApiError.badRequest(
           `Worker '${ot.workerId}' is marked absent and cannot have an overtime checkout recorded`
         );
@@ -1252,7 +1420,7 @@ export class AttendanceService {
       overtimeWorkerIds.add(ot.workerId);
     }
 
-    // 13. Build updates for all workers
+    // 14. Build updates for all assigned workers (unmarked workers default to On Time)
     const earlyMap = new Map(earlyExceptions.map((e) => [e.workerId, e.actualCheckoutTime]));
     const overtimeMap = new Map(overtimeExceptions.map((o) => [o.workerId, o.actualCheckoutTime]));
 
@@ -1265,10 +1433,11 @@ export class AttendanceService {
     let overtimeCount = 0;
     let absentCount = 0;
 
-    for (const [wId, att] of attendanceMap.entries()) {
-      const reqId = att.requirementId.toString();
-      const req = requirementMap.get(reqId);
-      const repTimeStr = att.reportingTimeSnapshot || req?.reportingTime || '08:00';
+    for (const entry of assignmentEntries) {
+      const wId = entry.workerId;
+      const att = attendanceMap.get(wId);
+      const req = requirementMap.get(entry.requirementId);
+      const repTimeStr = att?.reportingTimeSnapshot || entry.reportingTime || '08:00';
       const repTimeVal = isValidTimeString(repTimeStr);
       const normRepTime = repTimeVal.valid && repTimeVal.normalized24h ? repTimeVal.normalized24h : '08:00';
       const repDate = this.constructDateTime(event.date, normRepTime);
@@ -1277,12 +1446,12 @@ export class AttendanceService {
       // Priority 1: Requirement override
       // Priority 2: Category finish time
       // Priority 3: Event default finish time
-      const catEntry = categoryFinishMap.get(att.workerType.trim().toLowerCase());
+      const catEntry = categoryFinishMap.get(entry.workerType.trim().toLowerCase());
       let applicableFinishTimeStr: string;
       let applicableFinishDate: Date;
 
-      if (requirementOverrideMap.has(reqId)) {
-        applicableFinishTimeStr = requirementOverrideMap.get(reqId)!;
+      if (requirementOverrideMap.has(entry.requirementId)) {
+        applicableFinishTimeStr = requirementOverrideMap.get(entry.requirementId)!;
         applicableFinishDate = this.constructDateTime(event.date, applicableFinishTimeStr);
         if (applicableFinishDate.getTime() <= repDate.getTime()) {
           applicableFinishDate = new Date(applicableFinishDate.getTime() + 24 * 60 * 60 * 1000);
@@ -1294,16 +1463,23 @@ export class AttendanceService {
         applicableFinishTimeStr = defaultFinishTime24h;
         applicableFinishDate = eventDefaultFinishDate;
       } else {
-        throw ApiError.badRequest(`Missing normal finishing time for worker category '${att.workerType}'`);
+        throw ApiError.badRequest(`Missing normal finishing time for worker category '${entry.workerType}'`);
       }
 
-      if (att.status === 'absent' || att.arrivalStatus === 'absent') {
+      if (att && (att.status === 'absent' || att.arrivalStatus === 'absent')) {
         absentCount++;
         attendanceUpdates.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           workerId: new mongoose.Types.ObjectId(wId),
+          requirementId: new mongoose.Types.ObjectId(entry.requirementId),
+          workerType: entry.workerType,
+          reportingTimeSnapshot: repTimeStr,
           applicableNormalFinishTimeSnapshot: applicableFinishTimeStr,
           applicableNormalFinishDate: applicableFinishDate,
+          checkIn: null,
+          checkInSource: 'not_recorded',
+          arrivalStatus: 'absent',
+          delayMinutes: 0,
           checkOut: null,
           checkOutSource: 'not_recorded',
           departureStatus: 'not_recorded',
@@ -1311,8 +1487,18 @@ export class AttendanceService {
           overtimeMinutes: 0,
           durationMinutes: 0,
           status: 'absent',
+          verificationStatus: 'pending_review',
         });
-      } else if (earlyWorkerIds.has(wId)) {
+        continue;
+      }
+
+      // Default to on_time if worker has no prior exception
+      const checkInDate = att?.checkIn || repDate;
+      const checkInSource = att?.checkInSource || 'system_default';
+      const arrivalStatus = att?.arrivalStatus && att.arrivalStatus !== 'unrecorded' ? att.arrivalStatus : 'on_time';
+      const delayMinutes = att?.delayMinutes ?? 0;
+
+      if (earlyWorkerIds.has(wId)) {
         earlyDepartureCount++;
         const rawCheckoutTime = earlyMap.get(wId)!;
         const checkoutVal = isValidTimeString(rawCheckoutTime);
@@ -1334,20 +1520,27 @@ export class AttendanceService {
             `Worker '${wId}' early departure checkout time '${rawCheckoutTime}' must be earlier than the applicable normal finish time '${applicableFinishTimeStr}'`
           );
         }
-        if (att.checkIn && checkoutDate.getTime() <= att.checkIn.getTime()) {
+        if (checkoutDate.getTime() <= checkInDate.getTime()) {
           throw ApiError.badRequest(
             `Worker '${wId}' checkout time '${rawCheckoutTime}' must be later than their check-in time`
           );
         }
 
         const earlyDepartureMinutes = Math.round((applicableFinishDate.getTime() - checkoutDate.getTime()) / 60000);
-        const durationMinutes = att.checkIn ? Math.round((checkoutDate.getTime() - att.checkIn.getTime()) / 60000) : 0;
+        const durationMinutes = Math.round((checkoutDate.getTime() - checkInDate.getTime()) / 60000);
 
         attendanceUpdates.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           workerId: new mongoose.Types.ObjectId(wId),
+          requirementId: new mongoose.Types.ObjectId(entry.requirementId),
+          workerType: entry.workerType,
+          reportingTimeSnapshot: repTimeStr,
           applicableNormalFinishTimeSnapshot: applicableFinishTimeStr,
           applicableNormalFinishDate: applicableFinishDate,
+          checkIn: checkInDate,
+          checkInSource,
+          arrivalStatus,
+          delayMinutes,
           checkOut: checkoutDate,
           checkOutSource: 'manager_actual',
           departureStatus: 'early_departure',
@@ -1357,6 +1550,7 @@ export class AttendanceService {
           overtimeMinutes: 0,
           durationMinutes,
           status: 'checked_out',
+          verificationStatus: 'pending_review',
         });
       } else if (overtimeWorkerIds.has(wId)) {
         overtimeCount++;
@@ -1375,20 +1569,27 @@ export class AttendanceService {
             `Worker '${wId}' overtime checkout time '${rawCheckoutTime}' must be later than the applicable normal finish time '${applicableFinishTimeStr}'`
           );
         }
-        if (att.checkIn && checkoutDate.getTime() <= att.checkIn.getTime()) {
+        if (checkoutDate.getTime() <= checkInDate.getTime()) {
           throw ApiError.badRequest(
             `Worker '${wId}' checkout time '${rawCheckoutTime}' must be later than their check-in time`
           );
         }
 
         const overtimeMinutes = Math.round((checkoutDate.getTime() - applicableFinishDate.getTime()) / 60000);
-        const durationMinutes = att.checkIn ? Math.round((checkoutDate.getTime() - att.checkIn.getTime()) / 60000) : 0;
+        const durationMinutes = Math.round((checkoutDate.getTime() - checkInDate.getTime()) / 60000);
 
         attendanceUpdates.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           workerId: new mongoose.Types.ObjectId(wId),
+          requirementId: new mongoose.Types.ObjectId(entry.requirementId),
+          workerType: entry.workerType,
+          reportingTimeSnapshot: repTimeStr,
           applicableNormalFinishTimeSnapshot: applicableFinishTimeStr,
           applicableNormalFinishDate: applicableFinishDate,
+          checkIn: checkInDate,
+          checkInSource,
+          arrivalStatus,
+          delayMinutes,
           checkOut: checkoutDate,
           checkOutSource: 'manager_actual',
           departureStatus: 'overtime',
@@ -1398,17 +1599,25 @@ export class AttendanceService {
           overtimeMinutes,
           durationMinutes,
           status: 'checked_out',
+          verificationStatus: 'pending_review',
         });
       } else {
         // Normal default checkout
         normalCheckoutCount++;
-        const durationMinutes = att.checkIn ? Math.round((applicableFinishDate.getTime() - att.checkIn.getTime()) / 60000) : 0;
+        const durationMinutes = Math.round((applicableFinishDate.getTime() - checkInDate.getTime()) / 60000);
 
         attendanceUpdates.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           workerId: new mongoose.Types.ObjectId(wId),
+          requirementId: new mongoose.Types.ObjectId(entry.requirementId),
+          workerType: entry.workerType,
+          reportingTimeSnapshot: repTimeStr,
           applicableNormalFinishTimeSnapshot: applicableFinishTimeStr,
           applicableNormalFinishDate: applicableFinishDate,
+          checkIn: checkInDate,
+          checkInSource,
+          arrivalStatus,
+          delayMinutes,
           checkOut: applicableFinishDate,
           checkOutSource: 'system_default',
           departureStatus: 'normal',
@@ -1418,11 +1627,12 @@ export class AttendanceService {
           overtimeMinutes: 0,
           durationMinutes,
           status: 'checked_out',
+          verificationStatus: 'pending_review',
         });
       }
     }
 
-    const totalProcessed = attendanceMap.size;
+    const totalProcessed = assignmentEntries.length;
     const committedSummary: FinalizeCheckOutSummary = {
       eventId,
       totalProcessed,
@@ -1442,12 +1652,15 @@ export class AttendanceService {
       committedSummary: committedSummary as unknown as Record<string, unknown>,
     };
 
-    // 14. Transactional Persistence Execution
+    // 15. Transactional Persistence Execution
     await runInTransaction(async (dbSession) => {
       // Re-read session inside transaction to ensure atomic precondition check
       const currentSession = await this.sessionRepo.findByEventId(eventId, dbSession);
-      if (!currentSession || !currentSession.checkInFinalized) {
-        throw ApiError.badRequest('Check-in must be finalized before checkout can be finalized');
+      if (!currentSession) {
+        throw ApiError.notFound('Attendance session not found for this event');
+      }
+      if (currentSession.checkOutFinalized) {
+        throw ApiError.conflict('Checkout has already been finalized for this event');
       }
       if (currentSession.checkOutFinalized) {
         throw ApiError.conflict('Checkout has already been finalized for this event');
@@ -1500,9 +1713,21 @@ export class AttendanceService {
       throw ApiError.notFound('Attendance record not found');
     }
 
+    if (record.isStatusLocked) {
+      throw ApiError.forbidden('Attendance record is permanently locked and cannot be modified');
+    }
+
     const event = await this.validateEventAndOwnership(record.eventId.toString(), userId, userRole);
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
+    }
+
+    // Enforce 24-hour normal correction window (§2 & §7)
+    const windowInfo = calculateEventCorrectionWindow(event);
+    if (windowInfo.isAfterDeadline) {
+      throw ApiError.forbidden(
+        `Normal attendance correction period has expired (deadline was ${windowInfo.correctionDeadlineAt.toISOString()})`
+      );
     }
 
     const sessionDoc = await this.sessionRepo.findByEventId(record.eventId.toString());
@@ -1604,7 +1829,9 @@ export class AttendanceService {
         newValStr = `checked_in (${newArrivalStatus} at ${normalizedArrivalStr})`;
       } else {
         // Subcase 1B: Checkout is finalized -> requires actualCheckoutTime or applyDefaultCheckout
-        if (!payload.actualCheckoutTime && !payload.applyDefaultCheckout) {
+        const useDefaultCheckout = Boolean(payload.applyDefaultCheckout);
+
+        if (!payload.actualCheckoutTime && !useDefaultCheckout) {
           throw ApiError.badRequest(
             "When reversing absence after checkout finalization, you must either provide 'actualCheckoutTime' or set 'applyDefaultCheckout: true'"
           );
@@ -1645,7 +1872,7 @@ export class AttendanceService {
         updatedFields.applicableNormalFinishTimeSnapshot = applicableFinishTimeStr;
         updatedFields.applicableNormalFinishDate = applicableFinishDate;
 
-        if (payload.applyDefaultCheckout) {
+        if (useDefaultCheckout) {
           // Use system-default checkout
           updatedFields.checkOut = applicableFinishDate;
           updatedFields.checkOutSource = 'system_default';
@@ -1745,7 +1972,10 @@ export class AttendanceService {
         let newArrivalStatus: ArrivalStatus = 'on_time';
         let delayMinutes = 0;
 
-        if (arrivalDate.getTime() > repDate.getTime()) {
+        if (payload.arrivalStatus === 'on_time') {
+          newArrivalStatus = 'on_time';
+          delayMinutes = 0;
+        } else if (arrivalDate.getTime() > repDate.getTime()) {
           newArrivalStatus = 'late';
           delayMinutes = Math.round((arrivalDate.getTime() - repDate.getTime()) / 60000);
         }
@@ -1883,6 +2113,10 @@ export class AttendanceService {
           newValStr = 'normal';
         }
       }
+
+      if (payload.status && ['checked_in', 'checked_out', 'absent'].includes(payload.status)) {
+        updatedFields.status = payload.status as any;
+      }
     }
 
     // -------------------------------------------------------------------------
@@ -2012,9 +2246,17 @@ export class AttendanceService {
       throw ApiError.badRequest('Attendance session is cancelled');
     }
 
-    // Preconditions: Check-in and Checkout must both be finalized
-    if (!sessionDoc.checkInFinalized || !sessionDoc.checkOutFinalized) {
-      throw ApiError.badRequest('Both check-in and checkout must be finalized before attendance can be verified');
+    // Precondition: Checkout must be finalized before attendance can be verified
+    if (!sessionDoc.checkOutFinalized) {
+      throw ApiError.badRequest('Checkout must be finalized before attendance can be verified');
+    }
+
+    // Precondition: Open concerns must be resolved (§13)
+    const openConcernsCount = await attendanceConcernRepository.countOpenByEventId(eventId);
+    if (openConcernsCount > 0) {
+      throw ApiError.badRequest(
+        `Cannot verify attendance session while ${openConcernsCount} attendance concern(s) remain open. Please resolve all open concerns first.`
+      );
     }
 
     const records = await this.attRepo.findByEventId(eventId);

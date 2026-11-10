@@ -1115,6 +1115,187 @@ Fixed / Verified
 1. Whenever server roster data is fetched or refreshed, local exception state must synchronize committed database statuses while preserving active drafts.
 2. Finishing-time hierarchy must strictly remain: `Requirement Override > Category Normal Finish > Event Default Finish`.
 
+---
+
+## BUG-023 — Attendance Decoupling from Review/Finalize Check-in & Event-Day Date Boundary Restriction
+
+### Date
+
+2026-11-09
+
+### Feature / Module
+
+Milestone 4 — Attendance Workflow Update (Prompt 1: Event-Day Late/Absent Marking, Immediate Persistence & Decoupled Checkout) / `backend/src/modules/attendance/` & `frontend/src/components/manager/attendance/`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. `atomicFinalizeCheckOut` in `attendance-session.repository.ts` failed with `400 Session state invalid for checkout` or rejected checkout finalization when events bypassed the legacy `finalizeCheckIn` step, as its database filter strictly required `{ checkInFinalized: true }`.
+2. Initial check-in exception recording had no operational date boundary guard, allowing check-in marking on dates before or after the scheduled event day.
+3. In `EventAttendanceWorkspace.tsx`, legacy "Review & Finalize Check-in" button and modal remained visible and blocked the manager workflow, while workers without exceptions were not automatically populated as `on_time` during checkout finalization.
+4. When toggling to historical Check-in Baseline during Checkout stage, the UI failed to render `FinalizedAttendanceView`.
+
+### Root Cause
+
+1. Early Milestone 4 design tightly coupled checkout finalization to `checkInFinalized: true` in the session document and repository atomic filter. Under the streamlined workflow (Prompt 1), check-in finalization is retired; managers only mark exceptions, and unmarked workers automatically default to On Time during checkout.
+2. `recordWorkerCheckIn` did not calculate the operational date in `Asia/Kolkata` timezone to enforce the event-day rule.
+3. `EventAttendanceWorkspace.tsx` retained references to `isReviewModalOpen` and `ReviewCheckinModal`, without tab-level switching for Check-in Baseline during checkout.
+
+### Solution
+
+1. Updated `atomicFinalizeCheckOut` filter in `attendance-session.repository.ts` to remove the `{ checkInFinalized: true }` precondition while retaining `{ checkOutFinalized: false }`.
+2. Updated `finalizeCheckOut()` in `attendance.service.ts` to automatically query all assigned workers across requirements and bulk-provision default `on_time` attendance records for any worker who was not explicitly recorded as Late or Absent.
+3. Enforced operational date restriction in `recordWorkerCheckIn()`: checks `getOperationalDateString(event.date, 'Asia/Kolkata') === getOperationalDateString(new Date(), 'Asia/Kolkata')` and rejects marking with clear errors before or after event day.
+4. Added worker notifications via `NotificationService` for confirmed Late and Absent exceptions with deduplication.
+5. In `EventAttendanceWorkspace.tsx`, removed the legacy check-in review modal and button, replaced the 3-state toggle with two exception buttons (`Mark Late`, `Mark Absent`), and added stage tab switching to support viewing the Check-in Baseline during Checkout.
+
+### Rule
+
+1. Check-in is strictly exception-based: managers mark only Late or Absent. All unmarked workers are authoritative system defaults (`on_time`) finalized during checkout.
+2. Initial attendance marking can only be performed on the scheduled event day in `Asia/Kolkata` timezone.
+3. Checkout finalization must never require a preceding check-in finalization flag.
+
+---
+
+## BUG-024 — Node Test Runner Teardown Hang Due to Active Mongoose Connection & Locked Attendance Modification Guard Ordering
+
+### Date
+
+2026-11-09
+
+### Feature / Module
+
+Milestone 4 — Attendance Workflow Update (Prompt 2: Worker Concerns, 24h Normal Correction Window, Exceptional Corrections & Permanent Status Locking) / `backend/tests/` & `backend/src/modules/attendance/`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. Running `attendanceConcernsAndDeadlines.test.ts` via Node test runner completed all test assertions successfully, but the test process hung indefinitely during teardown instead of exiting cleanly.
+2. In `recordWorkerCheckIn` (`attendance.service.ts`), attempting to modify an attendance record that had already been permanently locked returned `HTTP 400 'Cannot record check-in: check-in has already been finalized'` instead of `HTTP 403 'Attendance record is permanently locked and cannot be modified'`.
+3. In legacy tests `attendanceCorrectionAndApproval.test.ts`, fixture events created with `date: Date.now() - 24 * 60 * 60 * 1000` failed corrections with `HTTP 403` due to the newly introduced 24-hour canonical correction window closing.
+
+### Root Cause
+
+1. In `attendanceConcernsAndDeadlines.test.ts`, the suite lacked an explicit `after()` hook calling `await mongoose.disconnect()` and `await server.close()`. In Node's native test runner (`node:test`), open MongoDB socket connections prevent the Node event loop from terminating. Furthermore, in `backend/tests/setup.ts`, the drop of `eventops_test` is bound directly to `mongoose.disconnect()`.
+2. In `attendance.service.ts` -> `recordWorkerCheckIn()`, the check for `session.checkInFinalized || session.checkOutFinalized` was evaluated prior to checking `existingRecord?.isStatusLocked`. Consequently, locked records returned a generic finalization error (400) rather than a permanent lock violation (403).
+3. The mock event in `attendanceCorrectionAndApproval.test.ts` had a historical date from yesterday (`endTime: 18:00`), which was older than 24 hours from the current runtime. Because Prompt 2 strictly enforces the 24-hour post-event correction window, manager correction requests were correctly rejected with HTTP 403 by the window validation utility.
+
+### Solution
+
+1. Added an explicit `after()` teardown hook in `attendanceConcernsAndDeadlines.test.ts` that awaits `server.close()` and `await mongoose.disconnect()`, triggering the automatic test database cleanup and terminating all TCP connection pools for a clean exit.
+2. Reordered guards in `recordWorkerCheckIn()`: placed `existingRecord?.isStatusLocked` check at the top of the function to immediately throw `ApiError.forbidden('Attendance record is permanently locked and cannot be modified')`.
+3. Updated the test fixture in `attendanceCorrectionAndApproval.test.ts` to use `new Date()` (today's operational date), ensuring test execution occurs within the valid 24-hour correction window.
+
+### Rule
+
+1. All Node test runner integration suites in `backend/tests/` MUST declare an `after()` hook that closes the HTTP server and awaits `mongoose.disconnect()` to drop the test database and ensure clean process termination.
+2. Permanent status lock checks (`isStatusLocked: true`) must ALWAYS take precedence over generic session finalization checks in all mutation endpoints (`recordWorkerCheckIn`, `correctAttendance`).
+3. Historical event fixtures for manager corrections must consider the canonical 24-hour correction window (`scheduledEventEndAt + 24 hours`).
+
+---
+
+## BUG-025 — Initial Check-In API Called for Existing Attendance Records on Completed Events & Missing Change to Present Option
+
+### Date
+
+2026-11-09
+
+### Feature / Module
+
+Milestone 4 — Attendance Module / `backend/src/modules/attendance/` & `frontend/src/components/manager/attendance/`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. When an event manager attempted to update an already-saved Late or Absent attendance record from the live roster on a completed event, the frontend invoked `POST /api/attendance/events/:eventId/workers/:workerId/checkin` (`recordWorkerCheckIn`). Because `recordWorkerCheckIn` strictly rejects completed events (`Attendance check-in cannot be recorded on completed events`), the operation was rejected even though the event was well within the post-event 24-hour correction window (`scheduledEventEndAt + 24 hours`).
+2. Once a worker was recorded as Late or Absent, the roster table only displayed "Change to Absent" (for Late) or "Change to Late" (for Absent). There was no "Change to Present" option to reverse the exception back to on-time status.
+
+### Root Cause
+
+1. Architectural ambiguity between initial shift check-in marking and post-shift correction. The frontend roster handlers routed all modifications through `recordWorkerCheckIn` instead of distinguishing between unrecorded workers (initial check-in) and existing records (correction workflow via `PATCH /api/attendance/records/:attendanceId/correct`).
+2. The table row actions omitted a "Change to Present" button and confirmation dialog for reversing exceptions to the on-time baseline.
+
+### Solution
+
+1. **Backend Guard in `recordWorkerCheckIn`**: Explicitly rejects requests if `existingRecord && existingRecord.arrivalStatus !== 'unrecorded'` with HTTP 400 Bad Request instructing the caller to use the correction API (`PATCH /api/attendance/records/:attendanceId/correct`).
+2. **Backend Correction Support in `correctAttendance`**: Supports `arrivalStatus: 'on_time'` transitions (`Late -> Present` and `Absent -> Present`), setting `arrivalStatus: 'on_time'`, `status: 'checked_in'` (or `checked_out`), `delayMinutes: 0`, and updating check-in timestamp to the scheduled reporting time with `checkInSource: 'system_default'`.
+3. **Frontend Dynamic Routing in `EventAttendanceWorkspace.tsx` and `AttendanceRosterTable.tsx`**: Checks if `worker.attendanceId` exists. If present, calls `correctAttendance`; if unrecorded, calls `recordWorkerCheckIn`.
+4. **Added "Change to Present" Action & Modal**: Late and Absent rows now render a "Change to Present" button. Clicking it opens an explicit confirmation dialog displaying worker details, scheduled reporting time, on-time explanation, and requiring a mandatory reason (min 5 chars).
+
+### Rule
+
+1. Initial check-in (`POST .../checkin`) is strictly reserved for initial shift check-ins on unrecorded workers during the scheduled event day before completion.
+2. Modifying an existing attendance record (regardless of event lifecycle state) must ALWAYS use the correction API (`PATCH /api/attendance/records/:attendanceId/correct`).
+3. Corrections on completed events are permitted up to `scheduledEventEndAt + 24 hours`.
+4. Changing a worker to Present requires explicit confirmation and a mandatory reason (minimum 5 characters).
+
+---
+
+## BUG-026 — GitHub Actions CI Failure on Backend (Test Hang) and Frontend (Obsolete Check-in Finalization Tests)
+
+### Date
+
+2026-11-10
+
+### Feature / Module
+
+Milestone 4 — CI Workflow / `backend/tests/` & `frontend/src/tests/`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+On pushing branch `feature/attendance-workflow-and-concerns` to GitHub, both CI jobs failed on GitHub Actions:
+1. `CI / Backend (Type-Check, Test, Build)` failed after 2 minutes (hung during `npm test`).
+2. `CI / Frontend (Lint, Test, Build)` failed after 38 seconds during `npm test` with 8 failed tests in `attendanceCheckInUI.test.tsx`.
+
+### Root Cause
+
+1. **Backend Test Teardown (Recurrence of BUG-001)**:
+   Three attendance test suites (`attendanceCheckIn.test.ts`, `attendanceCategoryAndImmediateCheckIn.test.ts`, `attendanceApiRoutingAndPresentCorrection.test.ts`) initialized an Express HTTP listener (`server = app.listen(0)`) and opened Mongoose connections via `connectDB()`, but lacked an `after()` hook to close `server` and invoke `await mongoose.disconnect()`. In GitHub Actions, Node's test runner (`node:test`) waited indefinitely for active network handles to close until timing out after 2 minutes.
+2. **Frontend Obsolete UI Test Suite**:
+   `frontend/src/tests/attendanceCheckInUI.test.tsx` was authored during Phase 4.3 prior to Prompt 1's attendance workflow refinement. Prompt 1 intentionally deprecated and removed the "Review & Finalize Check-in" button, modal, and "Check-in Baseline" tab in favor of immediate individual persistence (which is thoroughly tested in `attendanceCategoryAndImmediateCheckInUI.test.tsx`). The old `attendanceCheckInUI.test.tsx` suite still asserted the presence of the deleted button and modal.
+
+### Solution
+
+1. **Backend Test Teardown**: Added `after(async () => { if (server) await new Promise<void>((r) => server.close(r)); await mongoose.disconnect(); })` to `attendanceCheckIn.test.ts`, `attendanceCategoryAndImmediateCheckIn.test.ts`, and `attendanceApiRoutingAndPresentCorrection.test.ts`.
+2. **Frontend UI Test Cleanup**: Cleaned up obsolete tests in `attendanceCheckInUI.test.tsx` that targeted the removed finalization modal and buttons, while preserving all valid tests for Tab Navigation, Initial Roster Loading, Error States, Inactive States, and Worker Search/Filtering. All 22 frontend test suites (143/143 tests) now pass 100%.
+
+### Rule
+
+1. Per BUG-001, EVERY backend test file initializing an Express server or connecting to MongoDB MUST implement an `after()` hook closing the server and disconnecting Mongoose.
+2. When replacing an obsolete workflow with an updated design, ensure legacy UI test suites are reconciled with the new component design so CI suites remain green.
+
+
+
+
 
 
 

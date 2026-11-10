@@ -85,6 +85,11 @@ export interface AttendanceRosterItem {
   rejectionReason?: string;
   corrections?: AttendanceCorrection[];
   isAssigned: boolean;
+  isStatusLocked?: boolean;
+  statusLockedAt?: string;
+  statusLockedReason?: string;
+  hasOpenConcern?: boolean;
+  activeConcernId?: string | null;
 }
 
 export interface AttendanceRosterRequirementItem {
@@ -98,6 +103,11 @@ export interface AttendanceRosterResponse {
   eventId: string;
   eventTitle: string;
   eventDate: string;
+  isEventDay?: boolean;
+  isBeforeEventDay?: boolean;
+  isAfterEventDay?: boolean;
+  eventOperationalDate?: string;
+  currentOperationalDate?: string;
   session: {
     checkInFinalized: boolean;
     checkInFinalizedAt?: string;
@@ -117,6 +127,11 @@ export interface AttendanceRosterResponse {
   latestReportingTimestamp: string | null;
   canFinalizeCheckIn: boolean;
   totalAssigned: number;
+  scheduledEventEndAt?: string;
+  correctionDeadlineAt?: string;
+  canNormalCorrect?: boolean;
+  isAfterCorrectionDeadline?: boolean;
+  openConcernsCount?: number;
   requirements?: AttendanceRosterRequirementItem[];
   roster: AttendanceRosterItem[];
 }
@@ -213,5 +228,100 @@ export interface AttendanceVerificationSummary {
   totalRecords: number;
   rejectionReason?: string;
 }
+
+// =============================================================================
+// Attendance Concerns Lifecycle Types (§4, §5, §6, §11, §12)
+// =============================================================================
+
+export type ConcernStatus = 'open' | 'closed';
+export type ConcernResolutionOutcome = 'accepted' | 'rejected';
+export type ConcernCategory =
+  | 'late_dispute'
+  | 'absent_dispute'
+  | 'time_recording_error'
+  | 'technical_issue'
+  | 'other';
+
+export interface ConcernMessage {
+  senderId: string | { _id: string; name: string; role: string };
+  senderRole: 'worker' | 'event_manager' | 'admin';
+  message: string;
+  sentAt: string;
+}
+
+export interface AttendanceConcern {
+  _id: string;
+  attendanceId: string | any;
+  eventId: string | any;
+  workerId: string | any;
+  managerId: string | any;
+  concernCategory: ConcernCategory;
+  explanation: string;
+  additionalDetails?: string;
+  status: ConcernStatus;
+  resolutionOutcome?: ConcernResolutionOutcome;
+  resolutionExplanation?: string;
+  resultingArrivalStatus?: 'on_time' | 'late' | 'absent';
+  resultingActualArrivalTime?: string;
+  closedBy?: string | any;
+  closedAt?: string;
+  messages: ConcernMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubmitConcernPayload {
+  attendanceId: string;
+  concernCategory: ConcernCategory;
+  explanation: string;
+  additionalDetails?: string;
+}
+
+export interface ResolveConcernPayload {
+  action: 'accept' | 'reject';
+  resolutionExplanation: string;
+  resultingArrivalStatus?: 'on_time' | 'late' | 'absent';
+  resultingActualArrivalTime?: string;
+}
+
+export interface WorkerAttendanceRecordWithConcern {
+  attendanceId: string;
+  eventId: string;
+  eventTitle: string;
+  eventType: string;
+  eventDate: string;
+  eventStartTime?: string;
+  eventEndTime?: string;
+  eventLocation?: { address: string };
+  eventStatus: string;
+  workerType: string;
+  reportingTime: string;
+  arrivalStatus: string;
+  departureStatus?: string;
+  status: string;
+  checkIn?: string;
+  checkOut?: string;
+  delayMinutes: number;
+  isStatusLocked: boolean;
+  hasOpenConcern: boolean;
+  scheduledEventEndAt?: string;
+  correctionDeadlineAt?: string;
+  isBeforeEventEnd: boolean;
+  isAfterDeadline: boolean;
+  canRaiseConcern: boolean;
+  eligibilityReason: string;
+  concern?: {
+    concernId: string;
+    status: ConcernStatus;
+    concernCategory: ConcernCategory;
+    explanation: string;
+    resolutionOutcome?: ConcernResolutionOutcome;
+    resolutionExplanation?: string;
+    resultingArrivalStatus?: 'on_time' | 'late' | 'absent';
+    createdAt: string;
+    closedAt?: string;
+  } | null;
+}
+
 
 

@@ -106,13 +106,13 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
   // 1. AttendanceRosterTable - Immediate Individual Check-in Persistence
   // =========================================================================
   describe('1. AttendanceRosterTable - Immediate Individual Check-in Persistence', () => {
-    it('renders selection buttons for On Time, Late, and Absent for unrecorded worker', () => {
+    it('renders exception buttons for Mark Late and Mark Absent with default On Time status for unrecorded worker', () => {
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} />);
 
       expect(screen.getByText('Ahmed Raza')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'On Time' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Late' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Absent' })).toBeInTheDocument();
+      expect(screen.getByText(/Present \/ On Time \(Default\)/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Mark Late/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Mark Absent/i })).toBeInTheDocument();
     });
 
     it('selecting Late enters draft mode, showing arrival input and action buttons without auto-saving', async () => {
@@ -121,7 +121,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
       // Click Late button
-      fireEvent.click(screen.getByRole('button', { name: 'Late' }));
+      fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
 
       // Confirm draft input and buttons appear
       expect(screen.getByPlaceholderText('HH:mm')).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
       // Enter Late draft
-      fireEvent.click(screen.getByRole('button', { name: 'Late' }));
+      fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
       expect(screen.getByRole('button', { name: /Confirm and Save/i })).toBeInTheDocument();
 
       // Click Cancel
@@ -155,7 +155,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
       // Select Late
-      fireEvent.click(screen.getByRole('button', { name: 'Late' }));
+      fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
 
       // Enter arrival time
       const timeInput = screen.getByPlaceholderText('HH:mm');
@@ -180,7 +180,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
 
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+      fireEvent.click(screen.getByRole('button', { name: /Mark Absent/i }));
 
       const saveBtn = screen.getByRole('button', { name: /Confirm and Save/i });
       fireEvent.click(saveBtn);
@@ -198,6 +198,155 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       render(<StatefulAttendanceTable roster={[mockRosterItem2]} />);
 
       expect(screen.getByText('Saved On-Time')).toBeInTheDocument();
+    });
+
+    it('renders "Change to Present" button for saved Late and Absent workers', () => {
+      const lateWorker: AttendanceRosterItem = {
+        ...mockRosterItem1,
+        workerId: 'w_late',
+        workerName: 'Late Worker',
+        attendanceId: 'att_late',
+        arrivalStatus: 'late',
+        status: 'checked_in',
+        delayMinutes: 30,
+      };
+
+      const absentWorker: AttendanceRosterItem = {
+        ...mockRosterItem1,
+        workerId: 'w_absent',
+        workerName: 'Absent Worker',
+        attendanceId: 'att_absent',
+        arrivalStatus: 'absent',
+        status: 'absent',
+      };
+
+      const { rerender } = render(
+        <AttendanceRosterTable
+          roster={[lateWorker]}
+          exceptions={{ w_late: { type: 'late', actualArrivalTime: '09:30', delayMinutes: 30 } }}
+          onExceptionChange={vi.fn()}
+        />
+      );
+
+      // Late worker has Change to Present and Change to Absent
+      expect(screen.getByRole('button', { name: /Change to Present/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Change to Absent/i })).toBeInTheDocument();
+
+      // Absent worker has Change to Present and Change to Late
+      rerender(
+        <AttendanceRosterTable
+          roster={[absentWorker]}
+          exceptions={{ w_absent: { type: 'absent' } }}
+          onExceptionChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /Change to Present/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Change to Late/i })).toBeInTheDocument();
+    });
+
+    it('clicking "Change to Present" on saved worker opens confirmation dialog and calls onCorrectAttendance', async () => {
+      const mockCorrect = vi.fn().mockResolvedValue(undefined);
+      const lateWorker: AttendanceRosterItem = {
+        ...mockRosterItem1,
+        workerId: 'w_late_2',
+        workerName: 'Tariq Cameraman',
+        attendanceId: 'att_late_2',
+        arrivalStatus: 'late',
+        status: 'checked_in',
+        delayMinutes: 20,
+        reportingTime: '09:00',
+      };
+
+      render(
+        <AttendanceRosterTable
+          roster={[lateWorker]}
+          exceptions={{ w_late_2: { type: 'late', actualArrivalTime: '09:20', delayMinutes: 20 } }}
+          onExceptionChange={vi.fn()}
+          onCorrectAttendance={mockCorrect}
+        />
+      );
+
+      // Click "Change to Present"
+      fireEvent.click(screen.getByRole('button', { name: /Change to Present/i }));
+
+      // Confirm modal opens with worker details and scheduled reporting time
+      expect(screen.getByText('Change to Present (On Time)')).toBeInTheDocument();
+      expect(screen.getAllByText('Tariq Cameraman').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('09:00').length).toBeGreaterThanOrEqual(1);
+
+      // Click "Confirm Present"
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Present/i });
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(mockCorrect).toHaveBeenCalledWith('att_late_2', {
+          arrivalStatus: 'on_time',
+          status: 'checked_in',
+          applyDefaultCheckout: true,
+          reason: 'Reporting time confirmed on time / exception cleared',
+        });
+      });
+    });
+
+    it('editing an existing saved record via "Confirm and Save" calls onCorrectAttendance instead of onSaveWorkerCheckIn', async () => {
+      const mockSave = vi.fn().mockResolvedValue(undefined);
+      const mockCorrect = vi.fn().mockResolvedValue(undefined);
+
+      const savedLateWorker: AttendanceRosterItem = {
+        ...mockRosterItem1,
+        workerId: 'w_saved_1',
+        attendanceId: 'att_saved_1',
+        arrivalStatus: 'late',
+        status: 'checked_in',
+        delayMinutes: 15,
+      };
+
+      render(
+        <AttendanceRosterTable
+          roster={[savedLateWorker]}
+          exceptions={{ w_saved_1: { type: 'late', actualArrivalTime: '09:25', delayMinutes: 25 } }}
+          onExceptionChange={vi.fn()}
+          onSaveWorkerCheckIn={mockSave}
+          onCorrectAttendance={mockCorrect}
+        />
+      );
+
+      const confirmAndSaveBtn = screen.getByRole('button', { name: /Confirm and Save/i });
+      fireEvent.click(confirmAndSaveBtn);
+
+      await waitFor(() => {
+        expect(mockCorrect).toHaveBeenCalledTimes(1);
+        expect(mockCorrect).toHaveBeenCalledWith('att_saved_1', expect.objectContaining({
+          arrivalStatus: 'late',
+          actualArrivalTime: '09:25',
+          status: 'checked_in',
+          applyDefaultCheckout: true,
+        }));
+        expect(mockSave).not.toHaveBeenCalled();
+      });
+    });
+
+    it('locked worker displays Locked badge and does not render editable actions', () => {
+      const lockedWorker: AttendanceRosterItem = {
+        ...mockRosterItem1,
+        workerId: 'w_locked',
+        attendanceId: 'att_locked',
+        isStatusLocked: true,
+      };
+
+      render(
+        <AttendanceRosterTable
+          roster={[lockedWorker]}
+          exceptions={{}}
+          onExceptionChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('Locked')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Mark Late/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Mark Absent/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Change to Present/i })).not.toBeInTheDocument();
     });
   });
 

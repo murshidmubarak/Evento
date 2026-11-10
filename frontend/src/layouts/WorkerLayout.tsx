@@ -9,7 +9,8 @@ import {
   X, 
   ShieldCheck, 
   Briefcase,
-  MapPin
+  MapPin,
+  AlertCircle
 } from 'lucide-react';
 import { NotificationBell } from '../components/common/NotificationBell';
 
@@ -40,6 +41,7 @@ export const WorkerLayout: React.FC = () => {
   const navLinks = [
     { to: '/worker', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/worker/location', label: 'My Location', icon: MapPin },
+    { to: '/worker/concerns', label: 'Attendance Concerns', icon: AlertCircle },
   ];
 
   return (

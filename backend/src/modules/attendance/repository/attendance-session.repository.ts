@@ -147,7 +147,6 @@ export class AttendanceSessionRepository {
     const query = AttendanceSession.findOneAndUpdate(
       {
         eventId: new mongoose.Types.ObjectId(eventId),
-        checkInFinalized: true,
         checkOutFinalized: false,
       },
       {
@@ -156,6 +155,8 @@ export class AttendanceSessionRepository {
           actualNormalFinishDate: finishTimeData.actualNormalFinishDate,
           categoryFinishTimes: finishTimeData.categoryFinishTimes || [],
           requirementFinishOverrides: finishTimeData.requirementFinishOverrides || [],
+          checkInFinalized: true,
+          checkInFinalizedAt: checkOutRecord.finalizedAt || new Date(),
           checkOutFinalized: true,
           checkOutFinalizedAt: checkOutRecord.finalizedAt || new Date(),
           checkOutFinalizedBy: checkOutRecord.finalizedBy,

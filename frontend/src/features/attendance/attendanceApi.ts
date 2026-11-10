@@ -11,6 +11,10 @@ import type {
   CorrectAttendancePayload,
   VerifyAttendancePayload,
   AttendanceVerificationSummary,
+  AttendanceConcern,
+  SubmitConcernPayload,
+  ResolveConcernPayload,
+  WorkerAttendanceRecordWithConcern,
 } from './attendance.types';
 
 export const attendanceApi = {
@@ -130,6 +134,84 @@ export const attendanceApi = {
       message: string;
       data: AttendanceVerificationSummary;
     }>(`/attendance/events/${eventId}/verify`, payload);
+    return response.data.data;
+  },
+
+  /**
+   * GET /api/attendance/worker/records
+   * Returns worker's attendance records with concern eligibility metadata.
+   */
+  async getWorkerAttendanceRecords(): Promise<WorkerAttendanceRecordWithConcern[]> {
+    const response = await apiClient.get<{
+      success: boolean;
+      message: string;
+      data: WorkerAttendanceRecordWithConcern[];
+    }>('/attendance/worker/records');
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/concerns
+   * Worker raises a concern for a Late or Absent attendance record.
+   */
+  async submitConcern(payload: SubmitConcernPayload): Promise<AttendanceConcern> {
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: AttendanceConcern;
+    }>('/attendance/concerns', payload);
+    return response.data.data;
+  },
+
+  /**
+   * GET /api/attendance/concerns
+   * Lists concerns for worker, manager, or admin.
+   */
+  async getConcerns(params?: { eventId?: string; status?: string }): Promise<AttendanceConcern[]> {
+    const response = await apiClient.get<{
+      success: boolean;
+      message: string;
+      data: AttendanceConcern[];
+    }>('/attendance/concerns', { params });
+    return response.data.data;
+  },
+
+  /**
+   * GET /api/attendance/concerns/:concernId
+   * Retrieves single concern detail and conversation thread.
+   */
+  async getConcernById(concernId: string): Promise<AttendanceConcern> {
+    const response = await apiClient.get<{
+      success: boolean;
+      message: string;
+      data: AttendanceConcern;
+    }>(`/attendance/concerns/${concernId}`);
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/concerns/:concernId/messages
+   * Adds a reply message to an open concern conversation thread.
+   */
+  async addConcernMessage(concernId: string, message: string): Promise<AttendanceConcern> {
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: AttendanceConcern;
+    }>(`/attendance/concerns/${concernId}/messages`, { message });
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/concerns/:concernId/resolve
+   * Resolves concern (Accept / Reject) with permanent attendance locking.
+   */
+  async resolveConcern(concernId: string, payload: ResolveConcernPayload): Promise<AttendanceConcern> {
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: AttendanceConcern;
+    }>(`/attendance/concerns/${concernId}/resolve`, payload);
     return response.data.data;
   },
 };

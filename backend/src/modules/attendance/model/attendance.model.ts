@@ -65,6 +65,14 @@ export interface IAttendance extends Document {
   verifiedAt?: Date;
   rejectionReason?: string;
 
+  // Status Locking & Worker Concern Lifecycle (§12)
+  isStatusLocked: boolean;
+  statusLockedAt?: Date;
+  statusLockedReason?: string;
+  statusLockedBy?: Types.ObjectId;
+  hasOpenConcern: boolean;
+  activeConcernId?: Types.ObjectId;
+
   // Immutable audit trail
   corrections: IAttendanceCorrection[];
 
@@ -151,6 +159,13 @@ const attendanceSchema = new Schema<IAttendance>(
     verifiedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     verifiedAt: { type: Date },
     rejectionReason: { type: String, trim: true },
+
+    isStatusLocked: { type: Boolean, default: false, index: true },
+    statusLockedAt: { type: Date },
+    statusLockedReason: { type: String, trim: true },
+    statusLockedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    hasOpenConcern: { type: Boolean, default: false, index: true },
+    activeConcernId: { type: Schema.Types.ObjectId, ref: 'AttendanceConcern' },
 
     corrections: { type: [attendanceCorrectionSchema], default: [] },
   },

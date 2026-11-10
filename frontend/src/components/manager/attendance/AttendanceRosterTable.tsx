@@ -3,6 +3,7 @@ import type {
   AttendanceRosterItem,
   WorkerCheckInExceptionType,
   IndividualCheckInPayload,
+  CorrectAttendancePayload,
 } from '../../../features/attendance/attendance.types';
 import { calculateDelayMinutes } from '../../../features/attendance/attendanceApi';
 import {
@@ -19,6 +20,7 @@ import {
   Loader2,
   CheckCircle2,
   X,
+  Lock,
 } from 'lucide-react';
 
 export interface WorkerExceptionState {
@@ -33,7 +35,15 @@ interface AttendanceRosterTableProps {
   exceptions: Record<string, WorkerExceptionState>;
   onExceptionChange: (workerId: string, exception: WorkerExceptionState) => void;
   onSaveWorkerCheckIn?: (workerId: string, payload: IndividualCheckInPayload) => Promise<void>;
+  onCorrectAttendance?: (attendanceId: string, payload: CorrectAttendancePayload) => Promise<void>;
   disabled?: boolean;
+  isEventDay?: boolean;
+  eventDateFormatted?: string;
+  isBeforeEventDay?: boolean;
+  isAfterEventDay?: boolean;
+  canNormalCorrect?: boolean;
+  isAfterCorrectionDeadline?: boolean;
+  eventStatus?: string;
 }
 
 export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
@@ -41,7 +51,15 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   exceptions,
   onExceptionChange,
   onSaveWorkerCheckIn,
+  onCorrectAttendance,
   disabled = false,
+  isEventDay = true,
+  eventDateFormatted,
+  isBeforeEventDay = false,
+  isAfterEventDay = false,
+  canNormalCorrect: _canNormalCorrect,
+  isAfterCorrectionDeadline = false,
+  eventStatus,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'late' | 'absent'>('all');
@@ -49,6 +67,14 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
   const [workerRowError, setWorkerRowError] = useState<{ workerId: string; message: string } | null>(null);
   const [savedWorkerIds, setSavedWorkerIds] = useState<Set<string>>(new Set());
+
+  // Present Confirmation Modal State (§3)
+  const [presentConfirmWorker, setPresentConfirmWorker] = useState<AttendanceRosterItem | null>(null);
+  const [presentCorrectionReason, setPresentCorrectionReason] = useState(
+    'Reporting time confirmed on time / exception cleared'
+  );
+  const [isSubmittingPresent, setIsSubmittingPresent] = useState(false);
+  const [presentConfirmError, setPresentConfirmError] = useState<string | null>(null);
 
   // Unique worker types in roster
   const uniqueWorkerTypes = useMemo(() => {
@@ -179,7 +205,6 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   };
 
   const handleConfirmAndSave = async (worker: AttendanceRosterItem) => {
-    if (!onSaveWorkerCheckIn) return;
     const currentExc = exceptions[worker.workerId] || { type: 'present' };
 
     if (currentExc.type === 'late' && (!currentExc.actualArrivalTime || currentExc.error)) {
@@ -190,12 +215,24 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
     setWorkerRowError(null);
 
     try {
-      const payload: IndividualCheckInPayload = {
-        arrivalStatus: currentExc.type === 'present' ? 'on_time' : currentExc.type === 'late' ? 'late' : 'absent',
-        actualArrivalTime: currentExc.type === 'late' ? currentExc.actualArrivalTime?.trim() : undefined,
-        status: currentExc.type === 'absent' ? 'absent' : 'checked_in',
-      };
-      await onSaveWorkerCheckIn(worker.workerId, payload);
+      if (worker.attendanceId && onCorrectAttendance) {
+        // Operation 2: Existing record update -> use correction API!
+        await onCorrectAttendance(worker.attendanceId, {
+          arrivalStatus: currentExc.type === 'present' ? 'on_time' : currentExc.type === 'late' ? 'late' : 'absent',
+          actualArrivalTime: currentExc.type === 'late' ? currentExc.actualArrivalTime?.trim() : undefined,
+          status: currentExc.type === 'absent' ? 'absent' : 'checked_in',
+          applyDefaultCheckout: true,
+          reason: 'Manager adjusted attendance exception in roster',
+        });
+      } else if (onSaveWorkerCheckIn) {
+        // Operation 1: Initial Late/Absent marking -> use initial check-in API!
+        const payload: IndividualCheckInPayload = {
+          arrivalStatus: currentExc.type === 'present' ? 'on_time' : currentExc.type === 'late' ? 'late' : 'absent',
+          actualArrivalTime: currentExc.type === 'late' ? currentExc.actualArrivalTime?.trim() : undefined,
+          status: currentExc.type === 'absent' ? 'absent' : 'checked_in',
+        };
+        await onSaveWorkerCheckIn(worker.workerId, payload);
+      }
       setSavedWorkerIds((prev) => new Set(prev).add(worker.workerId));
     } catch (err: any) {
       setWorkerRowError({
@@ -204,6 +241,51 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       });
     } finally {
       setSavingWorkerId(null);
+    }
+  };
+
+  const handleInitiateChangeToPresent = (worker: AttendanceRosterItem) => {
+    if (disabled || worker.isStatusLocked) return;
+
+    const hasSavedRecord = Boolean(worker.attendanceId || savedWorkerIds.has(worker.workerId));
+    if (hasSavedRecord) {
+      setPresentConfirmWorker(worker);
+      setPresentCorrectionReason('Reporting time confirmed on time / exception cleared');
+      setPresentConfirmError(null);
+    } else {
+      // Local draft: directly revert to default present baseline
+      handleSelectType(worker, 'present');
+    }
+  };
+
+  const handleConfirmPresentCorrection = async () => {
+    if (!presentConfirmWorker) return;
+    if (presentCorrectionReason.trim().length < 5) {
+      setPresentConfirmError('Correction reason must be at least 5 characters');
+      return;
+    }
+
+    setIsSubmittingPresent(true);
+    setPresentConfirmError(null);
+
+    try {
+      if (presentConfirmWorker.attendanceId && onCorrectAttendance) {
+        await onCorrectAttendance(presentConfirmWorker.attendanceId, {
+          arrivalStatus: 'on_time',
+          status: 'checked_in',
+          applyDefaultCheckout: true,
+          reason: presentCorrectionReason.trim(),
+        });
+      }
+      onExceptionChange(presentConfirmWorker.workerId, { type: 'present' });
+      setSavedWorkerIds((prev) => new Set(prev).add(presentConfirmWorker.workerId));
+      setPresentConfirmWorker(null);
+    } catch (err: any) {
+      setPresentConfirmError(
+        err.response?.data?.message || err.message || 'Failed to update attendance to Present'
+      );
+    } finally {
+      setIsSubmittingPresent(false);
     }
   };
 
@@ -227,6 +309,48 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200/90 shadow-xs overflow-hidden">
+      {/* Event Day Notice Banner */}
+      {!isEventDay && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2.5 text-xs text-amber-900">
+          <AlertCircle size={16} className="text-amber-700 shrink-0" />
+          {isBeforeEventDay ? (
+            <span>
+              <strong>Notice:</strong> Initial attendance marking is only available on the scheduled event day
+              {eventDateFormatted ? ` (${eventDateFormatted})` : ''}. Actions are currently disabled.
+            </span>
+          ) : isAfterEventDay ? (
+            <span>
+              <strong>Notice:</strong> Initial attendance marking is closed for this event (event date was
+              {eventDateFormatted ? ` ${eventDateFormatted}` : ''}).
+            </span>
+          ) : (
+            <span>
+              <strong>Notice:</strong> Attendance exception marking is only permitted on the scheduled event day.
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Completed Event Notice Banner (§4) */}
+      {eventStatus === 'completed' && !isAfterCorrectionDeadline && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-3 flex items-center gap-2.5 text-xs text-blue-900">
+          <Clock size={16} className="text-blue-700 shrink-0" />
+          <span>
+            <strong>Notice:</strong> This event is completed. Live initial check-in is closed, but existing attendance records can be corrected within the 24-hour correction window.
+          </span>
+        </div>
+      )}
+
+      {/* Correction Deadline Expired Banner (§4) */}
+      {isAfterCorrectionDeadline && (
+        <div className="bg-gray-100 border-b border-gray-300 px-4 py-3 flex items-center gap-2.5 text-xs text-gray-800">
+          <Lock size={16} className="text-gray-600 shrink-0" />
+          <span>
+            <strong>Notice:</strong> The 24-hour normal attendance correction period has expired. Records are locked from normal editing.
+          </span>
+        </div>
+      )}
+
       {/* Header Toolbar: Search & Filters */}
       <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -398,49 +522,121 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                       </div>
                     </td>
 
-                    {/* Exception Toggle (Present, Late, Absent) */}
+                    {/* Exception Actions (Late, Absent, Present) */}
                     <td className="py-4 px-4">
-                      <div className="inline-flex items-center p-0.5 bg-gray-100 rounded-lg border border-gray-200">
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => handleSelectType(worker, 'present')}
-                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                            currentType === 'present'
-                              ? 'bg-white text-emerald-700 shadow-2xs font-bold border border-emerald-200'
-                              : 'text-gray-600 hover:text-gray-900'
-                          }`}
-                          title="No exception — Worker arrived on time"
-                        >
-                          On Time
-                        </button>
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => handleSelectType(worker, 'late')}
-                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                            currentType === 'late'
-                              ? 'bg-amber-500 text-white shadow-2xs font-bold'
-                              : 'text-gray-600 hover:text-amber-800'
-                          }`}
-                          title="Record late arrival exception"
-                        >
-                          Late
-                        </button>
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => handleSelectType(worker, 'absent')}
-                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                            currentType === 'absent'
-                              ? 'bg-rose-600 text-white shadow-2xs font-bold'
-                              : 'text-gray-600 hover:text-rose-800'
-                          }`}
-                          title="Mark worker as absent"
-                        >
-                          Absent
-                        </button>
-                      </div>
+                      {worker.isStatusLocked ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-500 border border-gray-200">
+                          <Lock size={12} />
+                          <span>Locked</span>
+                        </span>
+                      ) : currentType === 'present' ? (
+                        (worker.attendanceId || savedWorkerIds.has(worker.workerId)) ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-600 text-white shadow-2xs">
+                              Present
+                            </span>
+                            <button
+                              type="button"
+                              disabled={disabled || isAfterCorrectionDeadline}
+                              onClick={() => handleSelectType(worker, 'late')}
+                              className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-amber-700 hover:bg-amber-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                              title="Switch to Late"
+                            >
+                              Change to Late
+                            </button>
+                            <button
+                              type="button"
+                              disabled={disabled || isAfterCorrectionDeadline}
+                              onClick={() => handleSelectType(worker, 'absent')}
+                              className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-rose-700 hover:bg-rose-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                              title="Switch to Absent"
+                            >
+                              Change to Absent
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={disabled || isEventDay === false || eventStatus === 'completed'}
+                              onClick={() => handleSelectType(worker, 'late')}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                eventStatus === 'completed'
+                                  ? 'Event is completed'
+                                  : isEventDay === false
+                                  ? 'Attendance marking is only allowed on event day'
+                                  : 'Mark worker as Late'
+                              }
+                            >
+                              Mark Late
+                            </button>
+                            <button
+                              type="button"
+                              disabled={disabled || isEventDay === false || eventStatus === 'completed'}
+                              onClick={() => handleSelectType(worker, 'absent')}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                eventStatus === 'completed'
+                                  ? 'Event is completed'
+                                  : isEventDay === false
+                                  ? 'Attendance marking is only allowed on event day'
+                                  : 'Mark worker as Absent'
+                              }
+                            >
+                              Mark Absent
+                            </button>
+                          </div>
+                        )
+                      ) : currentType === 'late' ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-amber-500 text-white shadow-2xs">
+                            Late
+                          </span>
+                          <button
+                            type="button"
+                            disabled={disabled || isAfterCorrectionDeadline}
+                            onClick={() => handleInitiateChangeToPresent(worker)}
+                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                            title="Change to Present"
+                          >
+                            Change to Present
+                          </button>
+                          <button
+                            type="button"
+                            disabled={disabled || isAfterCorrectionDeadline}
+                            onClick={() => handleSelectType(worker, 'absent')}
+                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-rose-700 hover:bg-rose-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                            title="Switch to Absent"
+                          >
+                            Change to Absent
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-rose-600 text-white shadow-2xs">
+                            Absent
+                          </span>
+                          <button
+                            type="button"
+                            disabled={disabled || isAfterCorrectionDeadline}
+                            onClick={() => handleInitiateChangeToPresent(worker)}
+                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                            title="Change to Present"
+                          >
+                            Change to Present
+                          </button>
+                          <button
+                            type="button"
+                            disabled={disabled || isAfterCorrectionDeadline}
+                            onClick={() => handleSelectType(worker, 'late')}
+                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-amber-700 hover:bg-amber-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
+                            title="Switch to Late"
+                          >
+                            Change to Late
+                          </button>
+                        </div>
+                      )}
                     </td>
 
                     {/* Actual Arrival Time / Status Column */}
@@ -464,10 +660,12 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                         </div>
                       )}
 
-                      {currentType === 'present' && (
+                      {currentType === 'present' && !worker.attendanceId && !savedWorkerIds.has(worker.workerId) && (
                         <div className="text-gray-500 text-xs flex items-center gap-1.5">
                           <UserCheck size={14} className="text-emerald-600" />
-                          <span>Will be recorded as {worker.reportingTime} (Default)</span>
+                          <span className="font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Present / On Time (Default)
+                          </span>
                         </div>
                       )}
 
@@ -509,7 +707,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                       )}
 
                       {/* Confirm and Save / Cancel individual check-in controls */}
-                      {onSaveWorkerCheckIn && (
+                      {onSaveWorkerCheckIn && currentType !== 'present' && (
                         <div className="flex items-center gap-2 mt-2 pt-1 border-t border-gray-100">
                           <button
                             type="button"
@@ -566,6 +764,102 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
           During finalization, the backend records default arrival timestamps matching each worker's scheduled shift.
         </p>
       </div>
+
+      {/* Change to Present Confirmation Modal */}
+      {presentConfirmWorker && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <CheckCircle2 size={20} />
+                <h3 className="font-bold text-gray-900 text-base">Change to Present (On Time)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPresentConfirmWorker(null)}
+                disabled={isSubmittingPresent}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {/* Worker summary */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/70 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Worker:</span>
+                  <span className="font-bold text-gray-800">{presentConfirmWorker.workerName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Role:</span>
+                  <span className="font-semibold text-gray-700">{presentConfirmWorker.workerType}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Scheduled Reporting Time:</span>
+                  <span className="font-semibold text-emerald-700 font-mono">{presentConfirmWorker.reportingTime}</span>
+                </div>
+              </div>
+
+              {/* Informative notice */}
+              <p className="text-xs text-gray-600 leading-relaxed bg-emerald-50/60 p-3 rounded-xl border border-emerald-100">
+                Changing status to <strong>Present</strong> will record the worker's arrival as on-time (reporting time <span className="font-mono">{presentConfirmWorker.reportingTime}</span>) with <strong>0 minutes delay</strong>, clearing any previously logged absence or late penalties.
+              </p>
+
+              {/* Reason input */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Correction Reason <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  value={presentCorrectionReason}
+                  onChange={(e) => setPresentCorrectionReason(e.target.value)}
+                  disabled={isSubmittingPresent}
+                  placeholder="Explain why worker is being marked present (min 5 characters)..."
+                  rows={2}
+                  className="w-full text-xs p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              {presentConfirmError && (
+                <div className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-lg border border-rose-200 flex items-center gap-1.5">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{presentConfirmError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 mt-5 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setPresentConfirmWorker(null)}
+                disabled={isSubmittingPresent}
+                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPresentCorrection}
+                disabled={isSubmittingPresent || presentCorrectionReason.trim().length < 5}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+              >
+                {isSubmittingPresent ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Updating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={13} />
+                    <span>Confirm Present</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
