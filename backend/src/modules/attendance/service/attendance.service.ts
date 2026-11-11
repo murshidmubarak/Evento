@@ -277,17 +277,15 @@ export class AttendanceService {
   }
 
   /**
-   * Helper: Combines event calendar date and a normalized 24-hour time string into a Date in Asia/Kolkata timezone.
+   * Helper: Combines event calendar date and a normalized 24-hour time string into a UTC Date.
    */
   private constructDateTime(eventDate: Date, timeStr24h: string): Date {
-    const eventOperationalDate = getOperationalDateString(eventDate, 'Asia/Kolkata');
-    const [yearStr, monthStr, dayStr] = eventOperationalDate.split('-');
+    const d = new Date(eventDate);
     const [hStr, mStr] = timeStr24h.split(':');
     const hours = parseInt(hStr, 10);
     const minutes = parseInt(mStr, 10);
-    const pad = (n: number) => n.toString().padStart(2, '0');
 
-    return new Date(`${yearStr}-${monthStr}-${dayStr}T${pad(hours)}:${pad(minutes)}:00.000+05:30`);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hours, minutes, 0, 0));
   }
 
   /**
