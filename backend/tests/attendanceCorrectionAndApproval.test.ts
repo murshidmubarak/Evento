@@ -208,10 +208,17 @@ describe('Milestone 4 — Phase 4.5: Attendance Corrections, Absence Reversal & 
     // worker1: on-time (10:00)
     // worker2: late (10:30)
     // worker3: absent
-    await attendanceService.finalizeCheckIn(managerAId, 'event_manager', event1Id, 'setup_p45_checkin', {
-      lateExceptions: [{ workerId: worker2Id, actualArrivalTime: '10:30' }],
-      absentExceptions: [worker3Id],
-    });
+    await attendanceService.finalizeCheckIn(
+      managerAId,
+      'event_manager',
+      event1Id,
+      'setup_p45_checkin',
+      {
+        lateExceptions: [{ workerId: worker2Id, actualArrivalTime: '10:30' }],
+        absentExceptions: [worker3Id],
+      },
+      { skipTimingGuard: true }
+    );
 
     // 5. Finalize Checkout on Event 1
     // worker1: early departure at 17:00

@@ -277,15 +277,17 @@ export class AttendanceService {
   }
 
   /**
-   * Helper: Combines event calendar date and a normalized 24-hour time string into a UTC Date.
+   * Helper: Combines event calendar date and a normalized 24-hour time string into a Date in Asia/Kolkata timezone.
    */
   private constructDateTime(eventDate: Date, timeStr24h: string): Date {
-    const d = new Date(eventDate);
+    const eventOperationalDate = getOperationalDateString(eventDate, 'Asia/Kolkata');
+    const [yearStr, monthStr, dayStr] = eventOperationalDate.split('-');
     const [hStr, mStr] = timeStr24h.split(':');
     const hours = parseInt(hStr, 10);
     const minutes = parseInt(mStr, 10);
+    const pad = (n: number) => n.toString().padStart(2, '0');
 
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hours, minutes, 0, 0));
+    return new Date(`${yearStr}-${monthStr}-${dayStr}T${pad(hours)}:${pad(minutes)}:00.000+05:30`);
   }
 
   /**
@@ -805,7 +807,8 @@ export class AttendanceService {
     userRole: string,
     eventId: string,
     idempotencyKey: string,
-    payload: FinalizeCheckInPayload
+    payload: FinalizeCheckInPayload,
+    options?: { skipTimingGuard?: boolean }
   ): Promise<FinalizeCheckInSummary> {
     // 1. Mandatory Idempotency-Key header validation
     if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
@@ -938,7 +941,7 @@ export class AttendanceService {
     }
 
     const now = new Date();
-    if (latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()) {
+    if (!options?.skipTimingGuard && latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()) {
       throw ApiError.badRequest(
         `Cannot finalize check-in before the latest reporting time (${latestReportingTimeStr}). ` +
           `Check-in finalization becomes available at ${latestReportingTimestamp.toISOString()} once all assigned worker shifts have commenced.`

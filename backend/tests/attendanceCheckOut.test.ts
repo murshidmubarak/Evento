@@ -316,13 +316,27 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services &
     reqOvernightId = rOvernight._id.toString();
 
     // 5. Finalize Check-in on Event A (Worker 1 on-time, Worker 2 late 08:40 AM, Worker 3 absent, Worker 4 on-time)
-    await attendanceService.finalizeCheckIn(managerAId, 'event_manager', eventAId, 'setup_checkin_event_a', {
-      lateExceptions: [{ workerId: worker2Id, actualArrivalTime: '08:40 AM' }],
-      absentExceptions: [worker3Id],
-    });
+    await attendanceService.finalizeCheckIn(
+      managerAId,
+      'event_manager',
+      eventAId,
+      'setup_checkin_event_a',
+      {
+        lateExceptions: [{ workerId: worker2Id, actualArrivalTime: '08:40 AM' }],
+        absentExceptions: [worker3Id],
+      },
+      { skipTimingGuard: true }
+    );
 
     // 6. Finalize Check-in on Event Overnight (All on-time)
-    await attendanceService.finalizeCheckIn(managerAId, 'event_manager', eventOvernightId, 'setup_checkin_overnight', {});
+    await attendanceService.finalizeCheckIn(
+      managerAId,
+      'event_manager',
+      eventOvernightId,
+      'setup_checkin_overnight',
+      {},
+      { skipTimingGuard: true }
+    );
   });
 
   // ---------------------------------------------------------------------------
