@@ -17,12 +17,6 @@ import type {
   VerifyAttendancePayload,
 } from '../../../features/attendance/attendance.types';
 import {
-  AttendanceTimingBanner,
-} from './AttendanceTimingBanner';
-import {
-  AttendanceSummaryCards,
-} from './AttendanceSummaryCards';
-import {
   AttendanceRosterTable,
   type WorkerExceptionState,
 } from './AttendanceRosterTable';
@@ -53,7 +47,6 @@ import {
   ShieldCheck,
   Undo2,
   Clock,
-  ChevronRight,
 } from 'lucide-react';
 
 interface EventAttendanceWorkspaceProps {
@@ -222,11 +215,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
     }));
   };
 
-  const handleResetCheckInExceptions = () => {
-    setCheckInExceptions({});
-    setSuccessNotice('Exceptions reset. All workers restored to default On Time.');
-  };
-
   const handleSaveWorkerCheckIn = async (workerId: string, payload: IndividualCheckInPayload) => {
     try {
       const worker = rosterData?.roster.find((w) => w.workerId === workerId);
@@ -264,30 +252,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
       throw new Error(msg);
     }
   };
-
-  const checkInLiveCounts = useMemo(() => {
-    const roster = rosterData?.roster || [];
-    let present = 0;
-    let late = 0;
-    let absent = 0;
-    let hasValidationError = false;
-
-    roster.forEach((r) => {
-      const exc = checkInExceptions[r.workerId];
-      if (!exc || exc.type === 'present') {
-        present++;
-      } else if (exc.type === 'late') {
-        late++;
-        if (exc.error || !exc.actualArrivalTime) {
-          hasValidationError = true;
-        }
-      } else if (exc.type === 'absent') {
-        absent++;
-      }
-    });
-
-    return { present, late, absent, hasValidationError };
-  }, [rosterData, checkInExceptions]);
 
   // ---------------------------------------------------------
   // Checkout Handlers & Calculations
@@ -550,7 +514,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   // Lifecycle Stage Determination
   // ---------------------------------------------------------
   const isCheckoutFinalized = Boolean(session?.checkOutFinalized || rosterData?.session?.checkOutFinalized);
-  const canFinalizeCheckIn = rosterData?.canFinalizeCheckIn ?? false;
   const isEventDay = rosterData?.isEventDay ?? true;
   const eventDateFormatted = rosterData?.eventDate
     ? new Date(rosterData.eventDate).toLocaleDateString('en-IN', {
@@ -560,7 +523,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
       day: 'numeric',
     })
     : undefined;
-  const latestTime = rosterData?.latestReportingTime || '';
   const roster = rosterData?.roster || [];
   const requirements = rosterData?.requirements || [];
 
@@ -583,79 +545,65 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         </div>
       )}
 
-      {/* Lifecycle Progress Stepper Bar */}
-      <div className="bg-white rounded-2xl border border-gray-200/90 p-3 sm:p-4 shadow-xs flex items-center justify-between gap-2 overflow-x-auto">
-        {/* Step 1: Check-in Exceptions */}
-        <button
-          type="button"
-          onClick={() => !isCheckoutFinalized && setActiveStageTab('checkin')}
-          className="flex items-center gap-2.5 min-w-[150px] text-left group"
-        >
-          <div
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${activeStageTab === 'checkin' && !isCheckoutFinalized
-                ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/20'
-                : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-              }`}
+      {/* Top Error Alert (Only when an error occurs) */}
+      {errorMessage && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-900 text-xs p-4 rounded-xl flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-rose-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-700 hover:text-rose-950 font-bold text-xs"
           >
-            1
-          </div>
-          <div>
-            <span className="text-xs font-bold text-gray-900 block leading-tight group-hover:text-emerald-700 transition-colors">
-              Step 1: Check-in
-            </span>
-            <span className="text-[10px] text-gray-500">
-              Immediate Saving
-            </span>
-          </div>
-        </button>
-
-        <ChevronRight size={16} className="text-gray-300 shrink-0" />
-
-        {/* Step 2: Checkout */}
-        <button
-          type="button"
-          onClick={() => !isCheckoutFinalized && setActiveStageTab('checkout_form')}
-          className="flex items-center gap-2.5 min-w-[150px] text-left group"
-        >
-          <div
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${isCheckoutFinalized
-                ? 'bg-emerald-600 text-white'
-                : activeStageTab === 'checkout_form'
-                  ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/20'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-          >
-            {isCheckoutFinalized ? <CheckCircle2 size={16} /> : '2'}
-          </div>
-          <div>
-            <span className="text-xs font-bold text-gray-900 block leading-tight group-hover:text-emerald-700 transition-colors">
-              Step 2: Checkout
-            </span>
-            <span className="text-[10px] text-gray-500">
-              {isCheckoutFinalized ? 'Completed' : 'Category-Wise Timing'}
-            </span>
-          </div>
-        </button>
-
-        <ChevronRight size={16} className="text-gray-300 shrink-0" />
-
-        {/* Step 3: Complete Records */}
-        <div className="flex items-center gap-2.5 min-w-[150px]">
-          <div
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${isCheckoutFinalized
-                ? 'bg-emerald-600 text-white'
-                : 'bg-gray-100 text-gray-400'
-              }`}
-          >
-            {isCheckoutFinalized ? <CheckCircle2 size={16} /> : '3'}
-          </div>
-          <div>
-            <span className="text-xs font-bold text-gray-900 block leading-tight">Step 3: Complete</span>
-            <span className="text-[10px] text-gray-500">
-              {isCheckoutFinalized ? 'Official Archive' : 'Pending Checkout'}
-            </span>
-          </div>
+            Dismiss
+          </button>
         </div>
+      )}
+
+      {/* Workspace Header & Action Bar */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h3 className="text-base font-bold text-gray-900 tracking-tight">
+            {activeStageTab === 'checkout_form'
+              ? 'Checkout Workspace'
+              : 'Check-in Exceptions Workspace'}
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {activeStageTab === 'checkout_form'
+              ? 'Manage worker departures, finish times, and departure exceptions.'
+              : 'Staff not marked late or absent are recorded as Present / On Time.'}
+          </p>
+        </div>
+
+        {!isCheckoutFinalized && (
+          <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveStageTab('checkin')}
+              className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
+                activeStageTab === 'checkin'
+                  ? 'bg-gray-900 text-white font-bold shadow-xs'
+                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+              }`}
+            >
+              Check-in
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveStageTab('checkout_form')}
+              className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
+                activeStageTab === 'checkout_form'
+                  ? 'bg-gray-900 text-white font-bold shadow-xs'
+                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+              }`}
+            >
+              Checkout
+            </button>
+          </div>
+        )}
       </div>
 
       {isCheckoutFinalized ? (
@@ -675,67 +623,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             STAGE 1: CHECK-IN EXCEPTIONS (Immediate Saving Workflow)
         ========================================================================= */
         <div className="space-y-6">
-          {/* Timing Banner */}
-          <AttendanceTimingBanner
-            latestReportingTime={latestTime}
-            canFinalizeCheckIn={canFinalizeCheckIn}
-            checkInFinalized={false}
-            totalAssigned={roster.length}
-          />
-
-          {/* Metric Summary Cards */}
-          <AttendanceSummaryCards
-            totalAssigned={roster.length}
-            presentCount={checkInLiveCounts.present}
-            lateCount={checkInLiveCounts.late}
-            absentCount={checkInLiveCounts.absent}
-            latestReportingTime={latestTime}
-            canFinalizeCheckIn={canFinalizeCheckIn}
-            checkInFinalized={false}
-          />
-
-          {/* Check-in Exception Toolbar */}
-          <div className="bg-white rounded-2xl border border-gray-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <h3 className="text-sm font-bold text-gray-900">Check-in Exceptions Workspace</h3>
-              <p className="text-xs text-gray-500">
-                Staff not marked late or absent are automatically recorded as Present / On Time.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <button
-                type="button"
-                onClick={() => loadAttendanceData(true)}
-                disabled={isRefreshing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
-              >
-                <RotateCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
-                <span>Refresh</span>
-              </button>
-
-              {(checkInLiveCounts.late > 0 || checkInLiveCounts.absent > 0) && (
-                <button
-                  type="button"
-                  onClick={handleResetCheckInExceptions}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-colors"
-                >
-                  <Undo2 size={13} />
-                  <span>Reset to Default</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setActiveStageTab('checkout_form')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors shrink-0"
-              >
-                <span>Proceed to Checkout</span>
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          </div>
-
           {/* Check-in Roster Table with Immediate Persistence */}
           <AttendanceRosterTable
             roster={roster}
@@ -781,8 +668,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                   type="button"
                   onClick={() => setActiveStageTab('checkout_form')}
                   className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkout_form'
-                      ? 'bg-white text-emerald-950 shadow-2xs'
-                      : 'text-emerald-800 hover:text-emerald-950'
+                    ? 'bg-white text-emerald-950 shadow-2xs'
+                    : 'text-emerald-800 hover:text-emerald-950'
                     }`}
                 >
                   Checkout Workspace
@@ -791,8 +678,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                   type="button"
                   onClick={() => setActiveStageTab('checkin_history')}
                   className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkin_history'
-                      ? 'bg-white text-emerald-950 shadow-2xs'
-                      : 'text-emerald-800 hover:text-emerald-950'
+                    ? 'bg-white text-emerald-950 shadow-2xs'
+                    : 'text-emerald-800 hover:text-emerald-950'
                     }`}
                 >
                   <span>Check-in Baseline</span>

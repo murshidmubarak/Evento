@@ -199,9 +199,9 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Frontend Integrati
       />
     );
 
-    // Verify stepper shows Step 1 Completed and Step 2 Active
+    // Verify checkout workspace is active
     await waitFor(() => {
-      expect(screen.getByText(/Step 2: Checkout/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Checkout$/i })).toBeInTheDocument();
       expect(screen.getByText(/Normal Work Finishing Time/i)).toBeInTheDocument();
       expect(screen.getByText(/Checkout Stage Active/i)).toBeInTheDocument();
     });

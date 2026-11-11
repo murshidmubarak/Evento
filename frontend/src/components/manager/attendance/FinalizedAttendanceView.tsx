@@ -582,8 +582,8 @@ export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = (
             <p className="text-sm font-semibold">No records match the current filter.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="overflow-x-auto no-scrollbar">
+            <table className="w-full text-left text-xs border-collapse min-w-[700px]">
               <thead>
                 <tr className="bg-gray-50/80 border-b border-gray-200/80 text-gray-500 font-bold uppercase tracking-wider text-[11px]">
                   <th className="py-3.5 px-4 sm:px-6">Worker</th>
