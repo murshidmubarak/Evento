@@ -159,8 +159,8 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
       </div>
 
       {/* Roster Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
+      <div className="overflow-x-auto no-scrollbar">
+        <table className="w-full text-left border-collapse text-xs min-w-[620px]">
           <thead>
             <tr className="bg-gray-50/80 border-b border-gray-100 text-gray-500 font-bold uppercase tracking-wider text-[10px]">
               <th className="py-3 px-4">Staff Member</th>

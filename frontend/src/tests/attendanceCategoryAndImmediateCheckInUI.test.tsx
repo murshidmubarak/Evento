@@ -106,11 +106,15 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
   // 1. AttendanceRosterTable - Immediate Individual Check-in Persistence
   // =========================================================================
   describe('1. AttendanceRosterTable - Immediate Individual Check-in Persistence', () => {
-    it('renders exception buttons for Mark Late and Mark Absent with default On Time status for unrecorded worker', () => {
+    it('renders worker with default On Time status and allows opening status modal', () => {
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} />);
 
       expect(screen.getByText('Ahmed Raza')).toBeInTheDocument();
-      expect(screen.getByText(/Present \/ On Time \(Default\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Present$/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Change Status/i })).toBeInTheDocument();
+
+      // Open modal to view status options
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
       expect(screen.getByRole('button', { name: /Mark Late/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Mark Absent/i })).toBeInTheDocument();
     });
@@ -119,6 +123,9 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       const mockSave = vi.fn().mockResolvedValue(undefined);
 
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
+
+      // Open status modal
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
 
       // Click Late button
       fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
@@ -137,14 +144,15 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
 
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
-      // Enter Late draft
+      // Open modal & Enter Late draft
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
       fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
       expect(screen.getByRole('button', { name: /Confirm and Save/i })).toBeInTheDocument();
 
       // Click Cancel
       fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
 
-      // Draft time input should be gone
+      // Modal closed, draft time input gone
       expect(screen.queryByPlaceholderText('HH:mm')).not.toBeInTheDocument();
       expect(mockSave).not.toHaveBeenCalled();
     });
@@ -153,6 +161,9 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       const mockSave = vi.fn().mockResolvedValue(undefined);
 
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
+
+      // Open modal
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
 
       // Select Late
       fireEvent.click(screen.getByRole('button', { name: /Mark Late/i }));
@@ -180,6 +191,10 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
 
       render(<StatefulAttendanceTable roster={[mockRosterItem1]} onSave={mockSave} />);
 
+      // Open modal
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
+
+      // Select Absent
       fireEvent.click(screen.getByRole('button', { name: /Mark Absent/i }));
 
       const saveBtn = screen.getByRole('button', { name: /Confirm and Save/i });
@@ -200,7 +215,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       expect(screen.getByText('Saved On-Time')).toBeInTheDocument();
     });
 
-    it('renders "Change to Present" button for saved Late and Absent workers', () => {
+    it('renders "Change Status" and allows changing saved Late and Absent workers', () => {
       const lateWorker: AttendanceRosterItem = {
         ...mockRosterItem1,
         workerId: 'w_late',
@@ -211,6 +226,21 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         delayMinutes: 30,
       };
 
+      const { rerender } = render(
+        <AttendanceRosterTable
+          roster={[lateWorker]}
+          exceptions={{ w_late: { type: 'late', actualArrivalTime: '09:30', delayMinutes: 30 } }}
+          onExceptionChange={vi.fn()}
+        />
+      );
+
+      // Late worker row has Change Status
+      expect(screen.getByRole('button', { name: /Change Status/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
+      expect(screen.getByRole('button', { name: /Change to Present/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Mark Absent/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+
       const absentWorker: AttendanceRosterItem = {
         ...mockRosterItem1,
         workerId: 'w_absent',
@@ -220,19 +250,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         status: 'absent',
       };
 
-      const { rerender } = render(
-        <AttendanceRosterTable
-          roster={[lateWorker]}
-          exceptions={{ w_late: { type: 'late', actualArrivalTime: '09:30', delayMinutes: 30 } }}
-          onExceptionChange={vi.fn()}
-        />
-      );
-
-      // Late worker has Change to Present and Change to Absent
-      expect(screen.getByRole('button', { name: /Change to Present/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Change to Absent/i })).toBeInTheDocument();
-
-      // Absent worker has Change to Present and Change to Late
+      // Absent worker has Change Status
       rerender(
         <AttendanceRosterTable
           roster={[absentWorker]}
@@ -241,8 +259,10 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         />
       );
 
+      expect(screen.getByRole('button', { name: /Change Status/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
       expect(screen.getByRole('button', { name: /Change to Present/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Change to Late/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Mark Late/i })).toBeInTheDocument();
     });
 
     it('clicking "Change to Present" on saved worker opens confirmation dialog and calls onCorrectAttendance', async () => {
@@ -267,13 +287,16 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         />
       );
 
-      // Click "Change to Present"
-      fireEvent.click(screen.getByRole('button', { name: /Change to Present/i }));
+      // Open status modal
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
 
       // Confirm modal opens with worker details and scheduled reporting time
-      expect(screen.getByText('Change to Present (On Time)')).toBeInTheDocument();
-      expect(screen.getAllByText('Tariq Cameraman').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText('Update Attendance Status')).toBeInTheDocument();
+      expect(screen.getAllByText('Tariq Cameraman').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('09:00').length).toBeGreaterThanOrEqual(1);
+
+      // Select Change to Present
+      fireEvent.click(screen.getByRole('button', { name: /Change to Present/i }));
 
       // Click "Confirm Present"
       const confirmBtn = screen.getByRole('button', { name: /Confirm Present/i });
@@ -300,6 +323,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         arrivalStatus: 'late',
         status: 'checked_in',
         delayMinutes: 15,
+        reportingTime: '09:00',
       };
 
       render(
@@ -311,6 +335,13 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
           onCorrectAttendance={mockCorrect}
         />
       );
+
+      // Open status modal
+      fireEvent.click(screen.getByRole('button', { name: /Change Status/i }));
+
+      // Enter updated arrival time
+      const timeInput = screen.getByPlaceholderText('HH:mm');
+      fireEvent.change(timeInput, { target: { value: '09:25' } });
 
       const confirmAndSaveBtn = screen.getByRole('button', { name: /Confirm and Save/i });
       fireEvent.click(confirmAndSaveBtn);

@@ -135,54 +135,6 @@ describe('Milestone 4 — Phase 4.3: Event Manager Check-in Frontend Integration
     ],
   };
 
-  const mockRosterLocked: AttendanceRosterResponse = {
-    ...mockRosterEligible,
-    canFinalizeCheckIn: false,
-  };
-
-  const mockSessionFinalized: AttendanceSession = {
-    _id: 'sess_101',
-    eventId: 'ev_att_101',
-    lifecycleStatus: 'checkin_finalized',
-    checkInFinalized: true,
-    checkInFinalizedAt: '2026-11-20T04:15:00.000Z',
-    checkOutFinalized: false,
-  };
-
-  const mockRosterFinalized: AttendanceRosterResponse = {
-    ...mockRosterEligible,
-    session: {
-      checkInFinalized: true,
-      checkInFinalizedAt: '2026-11-20T04:15:00.000Z',
-      checkOutFinalized: false,
-      lifecycleStatus: 'checkin_finalized',
-    },
-    roster: [
-      {
-        ...mockRosterEligible.roster[0],
-        status: 'present',
-        arrivalStatus: 'on_time',
-        checkIn: '2026-11-20T02:30:00.000Z',
-        checkInSource: 'system_default',
-      },
-      {
-        ...mockRosterEligible.roster[1],
-        status: 'late',
-        arrivalStatus: 'late',
-        checkIn: '2026-11-20T03:15:00.000Z',
-        checkInSource: 'manager_actual',
-        delayMinutes: 45,
-      },
-      {
-        ...mockRosterEligible.roster[2],
-        status: 'absent',
-        arrivalStatus: 'absent',
-        checkIn: null,
-        checkInSource: 'not_recorded',
-      },
-    ],
-  };
-
   beforeEach(() => {
     vi.resetAllMocks();
   });
@@ -247,17 +199,16 @@ describe('Milestone 4 — Phase 4.3: Event Manager Check-in Frontend Integration
   // -------------------------------------------------------------------------
   // 2. Initial Roster Loading & Summary Metrics
   // -------------------------------------------------------------------------
-  describe('Initial Roster Loading & Summary Cards', () => {
-    it('loads session and roster, displaying summary counts and assigned workers', async () => {
+  describe('Initial Roster Loading & Assigned Workers', () => {
+    it('loads session and roster, displaying assigned workers and status filters', async () => {
       renderManagerDetails('attendance');
 
       await waitFor(() => {
-        // Summary metrics
-        expect(screen.getByText('Total Assigned')).toBeDefined();
-        expect(screen.getByText('Default Present')).toBeDefined();
-        expect(screen.getByText('Late Arrivals')).toBeDefined();
-        expect(screen.getAllByText('Absent').length).toBeGreaterThan(0);
-        expect(screen.getByText('Latest Shift')).toBeDefined();
+        // Roster header and filter tabs
+        expect(screen.getByText(/Assigned Worker/i)).toBeDefined();
+        expect(screen.getAllByText(/On Time/i).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Late/i).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Absent/i).length).toBeGreaterThan(0);
 
         // Worker rows
         expect(screen.getByText('Ahmed Raza')).toBeDefined();

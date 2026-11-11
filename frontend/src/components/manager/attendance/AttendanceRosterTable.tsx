@@ -9,18 +9,16 @@ import { calculateDelayMinutes } from '../../../features/attendance/attendanceAp
 import {
   Search,
   Filter,
-  UserCheck,
   Clock,
   UserX,
   AlertCircle,
-  Phone,
-  Mail,
-  HelpCircle,
-  Check,
   Loader2,
   CheckCircle2,
   X,
   Lock,
+  ChevronDown,
+  ChevronRight,
+  Info,
 } from 'lucide-react';
 
 export interface WorkerExceptionState {
@@ -29,6 +27,19 @@ export interface WorkerExceptionState {
   delayMinutes?: number;
   error?: string;
 }
+
+export const formatLateDuration = (delayMinutes?: number | null): string => {
+  if (!delayMinutes || delayMinutes <= 0) return 'Late';
+  const hours = Math.floor(delayMinutes / 60);
+  const mins = delayMinutes % 60;
+  if (hours === 0) {
+    return `${mins}m late`;
+  }
+  if (mins === 0) {
+    return `${hours}h late`;
+  }
+  return `${hours}h ${mins}m late`;
+};
 
 interface AttendanceRosterTableProps {
   roster: AttendanceRosterItem[];
@@ -53,28 +64,27 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   onSaveWorkerCheckIn,
   onCorrectAttendance,
   disabled = false,
-  isEventDay = true,
-  eventDateFormatted,
-  isBeforeEventDay = false,
-  isAfterEventDay = false,
+  isEventDay: _isEventDay = true,
+  eventDateFormatted: _eventDateFormatted,
+  isBeforeEventDay: _isBeforeEventDay,
+  isAfterEventDay: _isAfterEventDay,
   canNormalCorrect: _canNormalCorrect,
   isAfterCorrectionDeadline = false,
-  eventStatus,
+  eventStatus: _eventStatus,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'late' | 'absent'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [savingWorkerId, setSavingWorkerId] = useState<string | null>(null);
-  const [workerRowError, setWorkerRowError] = useState<{ workerId: string; message: string } | null>(null);
   const [savedWorkerIds, setSavedWorkerIds] = useState<Set<string>>(new Set());
 
-  // Present Confirmation Modal State (§3)
-  const [presentConfirmWorker, setPresentConfirmWorker] = useState<AttendanceRosterItem | null>(null);
-  const [presentCorrectionReason, setPresentCorrectionReason] = useState(
-    'Reporting time confirmed on time / exception cleared'
-  );
-  const [isSubmittingPresent, setIsSubmittingPresent] = useState(false);
-  const [presentConfirmError, setPresentConfirmError] = useState<string | null>(null);
+  // Modal State for Changing Status
+  const [selectedWorkerForModal, setSelectedWorkerForModal] = useState<AttendanceRosterItem | null>(null);
+  const [modalType, setModalType] = useState<WorkerCheckInExceptionType>('present');
+  const [modalArrivalTime, setModalArrivalTime] = useState('');
+  const [modalDelayMinutes, setModalDelayMinutes] = useState<number | null>(null);
+  const [modalReason, setModalReason] = useState('Reporting time confirmed on time / exception cleared');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmittingModal, setIsSubmittingModal] = useState(false);
 
   // Unique worker types in roster
   const uniqueWorkerTypes = useMemo(() => {
@@ -118,12 +128,14 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       }
 
       // 2. Exception status filter
-      const excType = exceptions[item.workerId]?.type || 'present';
-      if (statusFilter !== 'all' && excType !== statusFilter) {
-        return false;
+      if (statusFilter !== 'all') {
+        const itemType = exceptions[item.workerId]?.type || 'present';
+        if (itemType !== statusFilter) {
+          return false;
+        }
       }
 
-      // 3. Worker type filter
+      // 3. Worker role/type filter
       if (typeFilter !== 'all' && item.workerType !== typeFilter) {
         return false;
       }
@@ -132,318 +144,222 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
     });
   }, [roster, searchTerm, statusFilter, typeFilter, exceptions]);
 
-  const handleSelectType = (worker: AttendanceRosterItem, newType: WorkerCheckInExceptionType) => {
-    if (disabled) return;
+  // ---------------------------------------------------------
+  // Modal Handlers
+  // ---------------------------------------------------------
+  const handleOpenModal = (worker: AttendanceRosterItem) => {
+    if (disabled || worker.isStatusLocked || isAfterCorrectionDeadline) return;
+    setSelectedWorkerForModal(worker);
 
-    if (workerRowError?.workerId === worker.workerId) {
-      setWorkerRowError(null);
-    }
-
-    if (newType === 'present') {
-      onExceptionChange(worker.workerId, { type: 'present' });
-    } else if (newType === 'absent') {
-      onExceptionChange(worker.workerId, { type: 'absent' });
-    } else if (newType === 'late') {
-      // Retain previous arrival time if available
-      const prev = exceptions[worker.workerId];
-      let initialTime = prev?.actualArrivalTime || '';
-      if (!initialTime && worker.checkIn) {
-        try {
-          initialTime = new Date(worker.checkIn).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Asia/Kolkata',
-          });
-        } catch {
-          initialTime = '';
-        }
-      }
-      let delayMinutes: number | undefined;
-      let error: string | undefined;
-
-      if (initialTime) {
-        const res = calculateDelayMinutes(worker.reportingTime, initialTime);
-        delayMinutes = res.isValid ? res.delayMinutes : undefined;
-        error = res.isValid ? undefined : res.error;
-      } else {
-        error = 'Arrival time is required for late exceptions';
-      }
-
-      onExceptionChange(worker.workerId, {
-        type: 'late',
-        actualArrivalTime: initialTime,
-        delayMinutes,
-        error,
-      });
-    }
-  };
-
-  const handleArrivalTimeChange = (worker: AttendanceRosterItem, arrivalTime: string) => {
-    if (disabled) return;
-
-    if (workerRowError?.workerId === worker.workerId) {
-      setWorkerRowError(null);
-    }
-
-    if (!arrivalTime.trim()) {
-      onExceptionChange(worker.workerId, {
-        type: 'late',
-        actualArrivalTime: '',
-        delayMinutes: undefined,
-        error: 'Arrival time is required for late exceptions',
-      });
-      return;
-    }
-
-    const res = calculateDelayMinutes(worker.reportingTime, arrivalTime);
-    onExceptionChange(worker.workerId, {
-      type: 'late',
-      actualArrivalTime: arrivalTime,
-      delayMinutes: res.isValid ? res.delayMinutes : undefined,
-      error: res.isValid ? undefined : res.error,
-    });
-  };
-
-  const handleConfirmAndSave = async (worker: AttendanceRosterItem) => {
     const currentExc = exceptions[worker.workerId] || { type: 'present' };
+    setModalType(currentExc.type);
 
-    if (currentExc.type === 'late' && (!currentExc.actualArrivalTime || currentExc.error)) {
+    let arrTime = currentExc.actualArrivalTime || '';
+    let delay = currentExc.delayMinutes ?? null;
+
+    if (!arrTime && worker.checkIn && worker.arrivalStatus === 'late') {
+      try {
+        arrTime = new Date(worker.checkIn).toLocaleTimeString('en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Kolkata',
+        });
+        delay = worker.delayMinutes ?? null;
+      } catch {
+        arrTime = '';
+      }
+    }
+
+    setModalArrivalTime(arrTime);
+    setModalDelayMinutes(delay);
+    setModalReason('Reporting time confirmed on time / exception cleared');
+    setModalError(null);
+  };
+
+  const handleCloseModal = () => {
+    if (isSubmittingModal) return;
+    setSelectedWorkerForModal(null);
+    setModalError(null);
+  };
+
+  const handleModalArrivalTimeChange = (timeVal: string) => {
+    setModalArrivalTime(timeVal);
+    if (!selectedWorkerForModal) return;
+
+    if (!timeVal.trim()) {
+      setModalDelayMinutes(null);
+      setModalError('Arrival time is required for late exceptions');
       return;
     }
 
-    setSavingWorkerId(worker.workerId);
-    setWorkerRowError(null);
-
-    try {
-      if (worker.attendanceId && onCorrectAttendance) {
-        // Operation 2: Existing record update -> use correction API!
-        await onCorrectAttendance(worker.attendanceId, {
-          arrivalStatus: currentExc.type === 'present' ? 'on_time' : currentExc.type === 'late' ? 'late' : 'absent',
-          actualArrivalTime: currentExc.type === 'late' ? currentExc.actualArrivalTime?.trim() : undefined,
-          status: currentExc.type === 'absent' ? 'absent' : 'checked_in',
-          applyDefaultCheckout: true,
-          reason: 'Manager adjusted attendance exception in roster',
-        });
-      } else if (onSaveWorkerCheckIn) {
-        // Operation 1: Initial Late/Absent marking -> use initial check-in API!
-        const payload: IndividualCheckInPayload = {
-          arrivalStatus: currentExc.type === 'present' ? 'on_time' : currentExc.type === 'late' ? 'late' : 'absent',
-          actualArrivalTime: currentExc.type === 'late' ? currentExc.actualArrivalTime?.trim() : undefined,
-          status: currentExc.type === 'absent' ? 'absent' : 'checked_in',
-        };
-        await onSaveWorkerCheckIn(worker.workerId, payload);
-      }
-      setSavedWorkerIds((prev) => new Set(prev).add(worker.workerId));
-    } catch (err: any) {
-      setWorkerRowError({
-        workerId: worker.workerId,
-        message: err.response?.data?.message || err.message || 'Failed to save individual check-in',
-      });
-    } finally {
-      setSavingWorkerId(null);
+    const res = calculateDelayMinutes(selectedWorkerForModal.reportingTime, timeVal);
+    if (res.isValid && res.delayMinutes !== undefined && res.delayMinutes > 0) {
+      setModalDelayMinutes(res.delayMinutes);
+      setModalError(null);
+    } else {
+      setModalDelayMinutes(null);
+      setModalError(res.error || `Arrival time must be after scheduled reporting time (${selectedWorkerForModal.reportingTime})`);
     }
   };
 
-  const handleInitiateChangeToPresent = (worker: AttendanceRosterItem) => {
-    if (disabled || worker.isStatusLocked) return;
-
+  const handleModalSubmit = async () => {
+    if (!selectedWorkerForModal) return;
+    const worker = selectedWorkerForModal;
     const hasSavedRecord = Boolean(worker.attendanceId || savedWorkerIds.has(worker.workerId));
-    if (hasSavedRecord) {
-      setPresentConfirmWorker(worker);
-      setPresentCorrectionReason('Reporting time confirmed on time / exception cleared');
-      setPresentConfirmError(null);
-    } else {
-      // Local draft: directly revert to default present baseline
-      handleSelectType(worker, 'present');
-    }
-  };
 
-  const handleConfirmPresentCorrection = async () => {
-    if (!presentConfirmWorker) return;
-    if (presentCorrectionReason.trim().length < 5) {
-      setPresentConfirmError('Correction reason must be at least 5 characters');
+    if (modalType === 'late') {
+      if (!modalArrivalTime.trim()) {
+        setModalError('Arrival time is required for late exceptions');
+        return;
+      }
+      const res = calculateDelayMinutes(worker.reportingTime, modalArrivalTime);
+      if (!res.isValid || !res.delayMinutes || res.delayMinutes <= 0) {
+        setModalError(res.error || `Arrival time must be after scheduled reporting time (${worker.reportingTime})`);
+        return;
+      }
+    }
+
+    if (hasSavedRecord && modalReason.trim().length < 5) {
+      setModalError('Correction reason must be at least 5 characters');
       return;
     }
 
-    setIsSubmittingPresent(true);
-    setPresentConfirmError(null);
+    setIsSubmittingModal(true);
+    setModalError(null);
 
     try {
-      if (presentConfirmWorker.attendanceId && onCorrectAttendance) {
-        await onCorrectAttendance(presentConfirmWorker.attendanceId, {
-          arrivalStatus: 'on_time',
-          status: 'checked_in',
-          applyDefaultCheckout: true,
-          reason: presentCorrectionReason.trim(),
+      if (modalType === 'present') {
+        if (hasSavedRecord && worker.attendanceId && onCorrectAttendance) {
+          await onCorrectAttendance(worker.attendanceId, {
+            arrivalStatus: 'on_time',
+            status: 'checked_in',
+            applyDefaultCheckout: true,
+            reason: modalReason.trim(),
+          });
+        }
+        onExceptionChange(worker.workerId, { type: 'present' });
+        setSavedWorkerIds((prev) => new Set(prev).add(worker.workerId));
+      } else if (modalType === 'late') {
+        const res = calculateDelayMinutes(worker.reportingTime, modalArrivalTime);
+        const delay = res.delayMinutes || 0;
+        if (hasSavedRecord && worker.attendanceId && onCorrectAttendance) {
+          await onCorrectAttendance(worker.attendanceId, {
+            arrivalStatus: 'late',
+            actualArrivalTime: modalArrivalTime.trim(),
+            status: 'checked_in',
+            applyDefaultCheckout: true,
+            reason: modalReason.trim(),
+          });
+        } else if (onSaveWorkerCheckIn) {
+          await onSaveWorkerCheckIn(worker.workerId, {
+            arrivalStatus: 'late',
+            actualArrivalTime: modalArrivalTime.trim(),
+            status: 'checked_in',
+          });
+        }
+        onExceptionChange(worker.workerId, {
+          type: 'late',
+          actualArrivalTime: modalArrivalTime.trim(),
+          delayMinutes: delay,
         });
+        setSavedWorkerIds((prev) => new Set(prev).add(worker.workerId));
+      } else if (modalType === 'absent') {
+        if (hasSavedRecord && worker.attendanceId && onCorrectAttendance) {
+          await onCorrectAttendance(worker.attendanceId, {
+            arrivalStatus: 'absent',
+            status: 'absent',
+            applyDefaultCheckout: true,
+            reason: modalReason.trim(),
+          });
+        } else if (onSaveWorkerCheckIn) {
+          await onSaveWorkerCheckIn(worker.workerId, {
+            arrivalStatus: 'absent',
+            actualArrivalTime: undefined,
+            status: 'absent',
+          });
+        }
+        onExceptionChange(worker.workerId, { type: 'absent' });
+        setSavedWorkerIds((prev) => new Set(prev).add(worker.workerId));
       }
-      onExceptionChange(presentConfirmWorker.workerId, { type: 'present' });
-      setSavedWorkerIds((prev) => new Set(prev).add(presentConfirmWorker.workerId));
-      setPresentConfirmWorker(null);
-    } catch (err: any) {
-      setPresentConfirmError(
-        err.response?.data?.message || err.message || 'Failed to update attendance to Present'
-      );
-    } finally {
-      setIsSubmittingPresent(false);
-    }
-  };
 
-  const handleCancelDraft = (worker: AttendanceRosterItem) => {
-    if (worker.status === 'absent' || worker.arrivalStatus === 'absent') {
-      onExceptionChange(worker.workerId, { type: 'absent' });
-    } else if (worker.arrivalStatus === 'late') {
-      const arrTime = worker.checkIn
-        ? new Date(worker.checkIn).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
-        : '';
-      onExceptionChange(worker.workerId, {
-        type: 'late',
-        actualArrivalTime: arrTime,
-        delayMinutes: worker.delayMinutes,
-      });
-    } else {
-      onExceptionChange(worker.workerId, { type: 'present' });
+      setSelectedWorkerForModal(null);
+    } catch (err: any) {
+      setModalError(err.response?.data?.message || err.message || 'Failed to update attendance status');
+    } finally {
+      setIsSubmittingModal(false);
     }
-    setWorkerRowError(null);
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200/90 shadow-xs overflow-hidden">
-      {/* Event Day Notice Banner */}
-      {!isEventDay && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2.5 text-xs text-amber-900">
-          <AlertCircle size={16} className="text-amber-700 shrink-0" />
-          {isBeforeEventDay ? (
-            <span>
-              <strong>Notice:</strong> Initial attendance marking is only available on the scheduled event day
-              {eventDateFormatted ? ` (${eventDateFormatted})` : ''}. Actions are currently disabled.
-            </span>
-          ) : isAfterEventDay ? (
-            <span>
-              <strong>Notice:</strong> Initial attendance marking is closed for this event (event date was
-              {eventDateFormatted ? ` ${eventDateFormatted}` : ''}).
-            </span>
-          ) : (
-            <span>
-              <strong>Notice:</strong> Attendance exception marking is only permitted on the scheduled event day.
-            </span>
+    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-xs">
+      {/* Header & Subtitle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-bold text-gray-900 tracking-tight">
+            Assigned Workers ({roster.length})
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Click any row to record an exception if a worker arrived late or was absent.
+          </p>
+        </div>
+      </div>
+
+      {/* Filters & Search Row */}
+      <div className="flex flex-col sm:flex-row items-center gap-3">
+        <div className="relative w-full sm:flex-1">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by name, type, ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-9 py-2 bg-white border border-gray-200 rounded-lg text-xs font-normal text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 transition-colors"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label="Clear search"
+            >
+              <X size={14} />
+            </button>
           )}
         </div>
-      )}
 
-      {/* Completed Event Notice Banner (§4) */}
-      {eventStatus === 'completed' && !isAfterCorrectionDeadline && (
-        <div className="bg-blue-50 border-b border-blue-200 px-4 py-3 flex items-center gap-2.5 text-xs text-blue-900">
-          <Clock size={16} className="text-blue-700 shrink-0" />
-          <span>
-            <strong>Notice:</strong> This event is completed. Live initial check-in is closed, but existing attendance records can be corrected within the 24-hour correction window.
-          </span>
-        </div>
-      )}
-
-      {/* Correction Deadline Expired Banner (§4) */}
-      {isAfterCorrectionDeadline && (
-        <div className="bg-gray-100 border-b border-gray-300 px-4 py-3 flex items-center gap-2.5 text-xs text-gray-800">
-          <Lock size={16} className="text-gray-600 shrink-0" />
-          <span>
-            <strong>Notice:</strong> The 24-hour normal attendance correction period has expired. Records are locked from normal editing.
-          </span>
-        </div>
-      )}
-
-      {/* Header Toolbar: Search & Filters */}
-      <div className="p-4 sm:p-5 border-b border-gray-100 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold text-gray-900 tracking-tight">
-              Assigned Worker Roster ({roster.length})
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Review assigned staff and mark any exceptions. Workers not marked late or absent default to On Time.
-            </p>
+        <div className="w-full sm:w-auto flex items-center gap-2">
+          <Filter size={15} className="text-gray-400 shrink-0" />
+          <div className="relative flex-1 sm:flex-none sm:w-auto min-w-0">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full sm:w-auto appearance-none pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
+              aria-label="Filter by attendance status"
+            >
+              <option value="all">All Statuses ({counts.total})</option>
+              <option value="present">On Time ({counts.present})</option>
+              <option value="late">Late ({counts.late})</option>
+              <option value="absent">Absent ({counts.absent})</option>
+            </select>
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
 
-          {/* Quick Search */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search by name, type, ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all text-gray-800"
-            />
-          </div>
-        </div>
-
-        {/* Filter Tabs & Worker Type Dropdown */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            <button
-              type="button"
-              onClick={() => setStatusFilter('all')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-                statusFilter === 'all'
-                  ? 'bg-gray-900 text-white shadow-2xs'
-                  : 'bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200/70'
-              }`}
-            >
-              All ({counts.total})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('present')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-                statusFilter === 'present'
-                  ? 'bg-emerald-700 text-white shadow-2xs'
-                  : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100/80 border border-emerald-200/60'
-              }`}
-            >
-              <UserCheck size={13} />
-              Default Present ({counts.present})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('late')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-                statusFilter === 'late'
-                  ? 'bg-amber-600 text-white shadow-2xs'
-                  : 'bg-amber-50 text-amber-800 hover:bg-amber-100/80 border border-amber-200/60'
-              }`}
-            >
-              <Clock size={13} />
-              Late ({counts.late})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('absent')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-                statusFilter === 'absent'
-                  ? 'bg-rose-700 text-white shadow-2xs'
-                  : 'bg-rose-50 text-rose-800 hover:bg-rose-100/80 border border-rose-200/60'
-              }`}
-            >
-              <UserX size={13} />
-              Absent ({counts.absent})
-            </button>
-          </div>
-
-          {/* Type Filter */}
           {uniqueWorkerTypes.length > 1 && (
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <Filter size={13} className="text-gray-400" />
+            <div className="relative flex-1 sm:flex-none sm:w-auto min-w-0">
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full sm:w-auto appearance-none pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
+                aria-label="Filter by worker role"
               >
-                <option value="all">All Worker Roles</option>
+                <option value="all">All Roles</option>
                 {uniqueWorkerTypes.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
                 ))}
               </select>
+              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
             </div>
           )}
         </div>
@@ -451,300 +367,126 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
 
       {/* Roster Table Content */}
       {filteredRoster.length === 0 ? (
-        <div className="p-12 text-center text-gray-500">
+        <div className="p-8 sm:p-12 text-center text-gray-500">
           <p className="text-sm font-semibold">No workers match the selected filters.</p>
           <p className="text-xs text-gray-400 mt-1">Try resetting your search query or filter options.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="overflow-x-auto no-scrollbar rounded-lg border border-gray-200">
+          <table className="w-full text-left text-xs border-collapse min-w-[540px]">
             <thead>
-              <tr className="bg-gray-50/80 border-b border-gray-200/80 text-gray-500 font-bold uppercase tracking-wider text-[11px]">
-                <th className="py-3.5 px-4 sm:px-6">Worker</th>
-                <th className="py-3.5 px-4">Role</th>
-                <th className="py-3.5 px-4">Scheduled Shift</th>
-                <th className="py-3.5 px-4">Attendance Exception</th>
-                <th className="py-3.5 px-4 sm:px-6">Actual Arrival / Result</th>
+              <tr className="bg-gray-50/75 border-b border-gray-200/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                <th className="py-3 px-4 sm:px-6">WORKER</th>
+                <th className="py-3 px-3 sm:px-4">ROLE</th>
+                <th className="py-3 px-3 sm:px-4">SCHEDULED SHIFT</th>
+                <th className="py-3 px-3 sm:px-4">ATTENDANCE STATUS</th>
+                <th className="py-3 px-3 pr-4 sm:pr-6 text-right w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRoster.map((worker) => {
                 const currentExc = exceptions[worker.workerId] || { type: 'present' };
                 const currentType = currentExc.type;
+                const isLocked = Boolean(worker.isStatusLocked || disabled || isAfterCorrectionDeadline);
 
                 return (
                   <tr
                     key={worker.workerId}
-                    className={`transition-colors hover:bg-gray-50/60 ${
-                      currentType === 'absent'
-                        ? 'bg-rose-50/20'
+                    onClick={() => !isLocked && handleOpenModal(worker)}
+                    className={`group transition-colors ${isLocked ? 'bg-gray-50/30 cursor-default' : 'cursor-pointer hover:bg-gray-50/70'
+                      } ${currentType === 'absent'
+                        ? 'bg-rose-50/15'
                         : currentType === 'late'
-                        ? 'bg-amber-50/20'
-                        : ''
-                    }`}
+                          ? 'bg-amber-50/15'
+                          : ''
+                      }`}
                   >
                     {/* Worker Details */}
-                    <td className="py-4 px-4 sm:px-6">
-                      <div className="font-bold text-gray-900 text-sm">{worker.workerName}</div>
-                      <div className="flex flex-wrap items-center gap-2 mt-0.5 text-gray-500 text-[11px]">
-                        {worker.businessId && (
-                          <span className="font-mono bg-gray-100 text-gray-700 px-1.5 py-0.2 rounded font-medium">
-                            {worker.businessId}
-                          </span>
-                        )}
-                        {worker.workerPhone && (
-                          <span className="inline-flex items-center gap-1">
-                            <Phone size={10} className="text-gray-400" />
-                            {worker.workerPhone}
-                          </span>
-                        )}
-                        {worker.workerEmail && (
-                          <span className="inline-flex items-center gap-1 truncate max-w-[150px]">
-                            <Mail size={10} className="text-gray-400" />
-                            {worker.workerEmail}
-                          </span>
-                        )}
+                    <td className="py-3.5 px-4 sm:px-6">
+                      <div className="font-bold text-gray-900 text-sm group-hover:text-emerald-900 transition-colors">
+                        {worker.workerName}
                       </div>
+                      {worker.businessId && (
+                        <div className="text-gray-500 text-xs font-mono mt-0.5">
+                          {worker.businessId}
+                        </div>
+                      )}
                     </td>
 
-                    {/* Worker Type */}
-                    <td className="py-4 px-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200/80">
+                    {/* Role */}
+                    <td className="py-3.5 px-3 sm:px-4">
+                      <span className="text-xs text-gray-700 leading-tight block">
                         {worker.workerType}
                       </span>
                     </td>
 
-                    {/* Reporting Time */}
-                    <td className="py-4 px-4">
-                      <div className="inline-flex items-center gap-1.5 font-semibold text-gray-900 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-200/60">
-                        <Clock size={13} className="text-emerald-600" />
-                        <span>{worker.reportingTime}</span>
-                      </div>
+                    {/* Scheduled Shift (Clean text matching mockup) */}
+                    <td className="py-3.5 px-3 sm:px-4">
+                      <span className="text-xs font-semibold text-gray-900">
+                        {worker.reportingTime}
+                      </span>
                     </td>
 
-                    {/* Exception Actions (Late, Absent, Present) */}
-                    <td className="py-4 px-4">
+                    {/* Attendance Status Badge */}
+                    <td className="py-3.5 px-3 sm:px-4 whitespace-nowrap">
                       {worker.isStatusLocked ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-500 border border-gray-200">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-600 border border-gray-200">
                           <Lock size={12} />
                           <span>Locked</span>
                         </span>
-                      ) : currentType === 'present' ? (
-                        (worker.attendanceId || savedWorkerIds.has(worker.workerId)) ? (
-                          <div className="inline-flex items-center gap-1.5">
-                            <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-600 text-white shadow-2xs">
-                              Present
-                            </span>
-                            <button
-                              type="button"
-                              disabled={disabled || isAfterCorrectionDeadline}
-                              onClick={() => handleSelectType(worker, 'late')}
-                              className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-amber-700 hover:bg-amber-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                              title="Switch to Late"
-                            >
-                              Change to Late
-                            </button>
-                            <button
-                              type="button"
-                              disabled={disabled || isAfterCorrectionDeadline}
-                              onClick={() => handleSelectType(worker, 'absent')}
-                              className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-rose-700 hover:bg-rose-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                              title="Switch to Absent"
-                            >
-                              Change to Absent
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={disabled || isEventDay === false || eventStatus === 'completed'}
-                              onClick={() => handleSelectType(worker, 'late')}
-                              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={
-                                eventStatus === 'completed'
-                                  ? 'Event is completed'
-                                  : isEventDay === false
-                                  ? 'Attendance marking is only allowed on event day'
-                                  : 'Mark worker as Late'
-                              }
-                            >
-                              Mark Late
-                            </button>
-                            <button
-                              type="button"
-                              disabled={disabled || isEventDay === false || eventStatus === 'completed'}
-                              onClick={() => handleSelectType(worker, 'absent')}
-                              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={
-                                eventStatus === 'completed'
-                                  ? 'Event is completed'
-                                  : isEventDay === false
-                                  ? 'Attendance marking is only allowed on event day'
-                                  : 'Mark worker as Absent'
-                              }
-                            >
-                              Mark Absent
-                            </button>
-                          </div>
-                        )
-                      ) : currentType === 'late' ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-amber-500 text-white shadow-2xs">
-                            Late
-                          </span>
-                          <button
-                            type="button"
-                            disabled={disabled || isAfterCorrectionDeadline}
-                            onClick={() => handleInitiateChangeToPresent(worker)}
-                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                            title="Change to Present"
-                          >
-                            Change to Present
-                          </button>
-                          <button
-                            type="button"
-                            disabled={disabled || isAfterCorrectionDeadline}
-                            onClick={() => handleSelectType(worker, 'absent')}
-                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-rose-700 hover:bg-rose-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                            title="Switch to Absent"
-                          >
-                            Change to Absent
-                          </button>
-                        </div>
                       ) : (
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-rose-600 text-white shadow-2xs">
-                            Absent
+                        (worker.attendanceId || savedWorkerIds.has(worker.workerId) || worker.status === 'checked_in' || worker.status === 'absent') ? (
+                          worker.status === 'absent' || worker.arrivalStatus === 'absent' ? (
+                            <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                              <UserX size={12} className="text-rose-600" />
+                              <span>Absent</span>
+                            </span>
+                          ) : worker.arrivalStatus === 'late' ? (
+                            <span className="inline-flex items-center gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                              <Clock size={12} className="text-amber-600" />
+                              <span>{formatLateDuration(worker.delayMinutes)}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                              <CheckCircle2 size={12} className="text-emerald-600" />
+                              <span>Saved On-Time</span>
+                            </span>
+                          )
+                        ) : currentType === 'present' ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <CheckCircle2 size={12} className="text-emerald-600" />
+                            <span>Present</span>
                           </span>
-                          <button
-                            type="button"
-                            disabled={disabled || isAfterCorrectionDeadline}
-                            onClick={() => handleInitiateChangeToPresent(worker)}
-                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                            title="Change to Present"
-                          >
-                            Change to Present
-                          </button>
-                          <button
-                            type="button"
-                            disabled={disabled || isAfterCorrectionDeadline}
-                            onClick={() => handleSelectType(worker, 'late')}
-                            className="px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-amber-700 hover:bg-amber-50 rounded border border-gray-200 transition-colors disabled:opacity-40"
-                            title="Switch to Late"
-                          >
-                            Change to Late
-                          </button>
-                        </div>
+                        ) : currentType === 'late' ? (
+                          <span className="inline-flex items-center gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <Clock size={12} className="text-amber-600" />
+                            <span>{currentExc.delayMinutes ? formatLateDuration(currentExc.delayMinutes) : 'Late'}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <UserX size={12} className="text-rose-600" />
+                            <span>Absent</span>
+                          </span>
+                        )
                       )}
                     </td>
 
-                    {/* Actual Arrival Time / Status Column */}
-                    <td className="py-4 px-4 sm:px-6">
-                      {/* Saved Database Status Badge */}
-                      {(worker.attendanceId || savedWorkerIds.has(worker.workerId) || worker.status === 'checked_in' || worker.status === 'absent') && (
-                        <div className="mb-1.5">
-                          {worker.status === 'absent' || worker.arrivalStatus === 'absent' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                              <UserX size={10} /> Saved Absent
-                            </span>
-                          ) : worker.arrivalStatus === 'late' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              <Clock size={10} /> Saved Late ({worker.delayMinutes}m delay)
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              <CheckCircle2 size={10} /> Saved On-Time
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {currentType === 'present' && !worker.attendanceId && !savedWorkerIds.has(worker.workerId) && (
-                        <div className="text-gray-500 text-xs flex items-center gap-1.5">
-                          <UserCheck size={14} className="text-emerald-600" />
-                          <span className="font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            Present / On Time (Default)
-                          </span>
-                        </div>
-                      )}
-
-                      {currentType === 'absent' && (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                          <UserX size={13} />
-                          <span>Absent — Check-in omitted</span>
-                        </div>
-                      )}
-
-                      {currentType === 'late' && (
-                        <div className="space-y-1 max-w-xs">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="time"
-                              disabled={disabled}
-                              value={currentExc.actualArrivalTime || ''}
-                              onChange={(e) => handleArrivalTimeChange(worker, e.target.value)}
-                              className={`px-2 py-1 text-xs bg-white border rounded-lg focus:outline-none focus:ring-2 transition-all font-mono font-medium ${
-                                currentExc.error
-                                  ? 'border-rose-400 focus:ring-rose-400 text-rose-900 bg-rose-50/30'
-                                  : 'border-amber-300 focus:ring-amber-500 text-gray-900'
-                              }`}
-                              placeholder="HH:mm"
-                            />
-                            {currentExc.delayMinutes !== undefined && !currentExc.error && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap">
-                                +{currentExc.delayMinutes} min late
-                              </span>
-                            )}
-                          </div>
-                          {currentExc.error && (
-                            <div className="text-[11px] text-rose-600 flex items-center gap-1 font-medium">
-                              <AlertCircle size={12} className="shrink-0" />
-                              <span>{currentExc.error}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Confirm and Save / Cancel individual check-in controls */}
-                      {onSaveWorkerCheckIn && currentType !== 'present' && (
-                        <div className="flex items-center gap-2 mt-2 pt-1 border-t border-gray-100">
-                          <button
-                            type="button"
-                            disabled={
-                              disabled ||
-                              savingWorkerId === worker.workerId ||
-                              (currentType === 'late' && (!!currentExc.error || !currentExc.actualArrivalTime))
-                            }
-                            onClick={() => handleConfirmAndSave(worker)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            {savingWorkerId === worker.workerId ? (
-                              <>
-                                <Loader2 size={11} className="animate-spin" />
-                                <span>Saving...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Check size={11} />
-                                <span>Confirm and Save</span>
-                              </>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={disabled || savingWorkerId === worker.workerId}
-                            onClick={() => handleCancelDraft(worker)}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                          >
-                            <X size={11} />
-                            <span>Cancel</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {workerRowError && workerRowError.workerId === worker.workerId && (
-                        <p className="text-[11px] text-rose-600 mt-1 font-medium">{workerRowError.message}</p>
+                    {/* Arrow Mark / Details Button to identify user to click */}
+                    <td className="py-3.5 px-3 pr-4 sm:pr-6 text-right whitespace-nowrap">
+                      {!worker.isStatusLocked && (
+                        <button
+                          type="button"
+                          aria-label="Change Status"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenModal(worker);
+                          }}
+                          disabled={isLocked}
+                          className="inline-flex items-center justify-center w-7 h-7 text-gray-400 group-hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                          title="Click to change status"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -756,104 +498,255 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       )}
 
       {/* Helpful Operational Disclaimer Footer */}
-      <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex items-start gap-2.5 text-xs text-gray-500">
-        <HelpCircle size={16} className="text-gray-400 shrink-0 mt-0.5" />
-        <p className="leading-relaxed">
-          <strong>Exception-Based Check-in:</strong> By default, all workers are assumed present and on time.
-          You only need to log exceptions for workers who arrived late or did not show up.
-          During finalization, the backend records default arrival timestamps matching each worker's scheduled shift.
-        </p>
+      <div className="p-4 sm:p-5 bg-gray-50/70 border border-gray-200 rounded-xl flex items-start gap-3">
+        <Info size={16} className="text-gray-400 shrink-0 mt-0.5" />
+        <div className="space-y-0.5">
+          <h4 className="text-xs font-bold text-gray-900">
+            Exception-Based Check-in
+          </h4>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            By default, all workers are assumed present and on time. Click any row to record an exception if a worker arrived late or was absent.
+          </p>
+        </div>
       </div>
 
-      {/* Change to Present Confirmation Modal */}
-      {presentConfirmWorker && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-2 text-emerald-700">
-                <CheckCircle2 size={20} />
-                <h3 className="font-bold text-gray-900 text-base">Change to Present (On Time)</h3>
+      {/* Formal Status Change Modal */}
+      {selectedWorkerForModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-gray-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="status-modal-title"
+          onClick={() => !isSubmittingModal && handleCloseModal()}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-lg my-auto overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex items-start justify-between gap-3 bg-gradient-to-r from-gray-50/80 via-white to-gray-50/80 shrink-0">
+              <div>
+                <h3 id="status-modal-title" className="text-base font-bold text-gray-900">
+                  Update Attendance Status
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Modify reporting status for this assigned staff member.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setPresentConfirmWorker(null)}
-                disabled={isSubmittingPresent}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                onClick={handleCloseModal}
+                disabled={isSubmittingModal}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="mt-4 space-y-3">
-              {/* Worker summary */}
-              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/70 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Worker:</span>
-                  <span className="font-bold text-gray-800">{presentConfirmWorker.workerName}</span>
+            {/* Worker Summary Banner */}
+            <div className="p-4 sm:p-5 pb-0 shrink-0">
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-900 font-bold text-sm flex items-center justify-center shrink-0 border border-emerald-200">
+                    {selectedWorkerForModal.workerName.charAt(0)}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-gray-900 truncate">
+                      {selectedWorkerForModal.workerName}
+                    </h4>
+                    <p className="text-xs text-gray-500 truncate">
+                      {selectedWorkerForModal.workerType}
+                      {selectedWorkerForModal.businessId ? ` · ${selectedWorkerForModal.businessId}` : ''}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Role:</span>
-                  <span className="font-semibold text-gray-700">{presentConfirmWorker.workerType}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Scheduled Reporting Time:</span>
-                  <span className="font-semibold text-emerald-700 font-mono">{presentConfirmWorker.reportingTime}</span>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-gray-400 font-medium block uppercase tracking-wider">Scheduled</span>
+                  <span className="text-xs font-bold text-gray-900 inline-flex items-center gap-1">
+                    <Clock size={12} className="text-emerald-600" />
+                    {selectedWorkerForModal.reportingTime}
+                  </span>
                 </div>
               </div>
+            </div>
 
-              {/* Informative notice */}
-              <p className="text-xs text-gray-600 leading-relaxed bg-emerald-50/60 p-3 rounded-xl border border-emerald-100">
-                Changing status to <strong>Present</strong> will record the worker's arrival as on-time (reporting time <span className="font-mono">{presentConfirmWorker.reportingTime}</span>) with <strong>0 minutes delay</strong>, clearing any previously logged absence or late penalties.
-              </p>
+            {/* Modal Body / Status Options */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+              {modalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0 text-rose-600" />
+                  <span>{modalError}</span>
+                </div>
+              )}
 
-              {/* Reason input */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Correction Reason <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  value={presentCorrectionReason}
-                  onChange={(e) => setPresentCorrectionReason(e.target.value)}
-                  disabled={isSubmittingPresent}
-                  placeholder="Explain why worker is being marked present (min 5 characters)..."
-                  rows={2}
-                  className="w-full text-xs p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
+              <label className="block text-xs font-bold text-gray-700">
+                Select Reporting Status <span className="text-rose-500">*</span>
+              </label>
+
+              <div className="grid grid-cols-1 gap-2.5">
+                {/* Option 1: Present (On Time) */}
+                <button
+                  type="button"
+                  onClick={() => setModalType('present')}
+                  className={`w-full text-left p-3.5 rounded-xl border cursor-pointer transition-all ${modalType === 'present'
+                      ? 'border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/10'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
+                    }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${modalType === 'present' ? 'border-emerald-600 bg-emerald-600' : 'border-gray-300'
+                        }`}>
+                        {modalType === 'present' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          {Boolean(selectedWorkerForModal.attendanceId || savedWorkerIds.has(selectedWorkerForModal.workerId))
+                            ? 'Change to Present'
+                            : 'Present / On Time'}
+                        </span>
+                        <span className="text-[11px] text-gray-500">
+                          Worker reported on time for scheduled shift ({selectedWorkerForModal.reportingTime}).
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                      On Time
+                    </span>
+                  </div>
+                </button>
+
+                {/* Option 2: Late Arrival */}
+                <div
+                  onClick={() => setModalType('late')}
+                  className={`p-3.5 rounded-xl border cursor-pointer transition-all ${modalType === 'late'
+                      ? 'border-amber-500 bg-amber-50/50 ring-2 ring-amber-500/10'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
+                    }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${modalType === 'late' ? 'border-amber-600 bg-amber-600' : 'border-gray-300'
+                        }`}>
+                        {modalType === 'late' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setModalType('late')}
+                          className="text-xs font-bold text-gray-900 block text-left"
+                        >
+                          Mark Late
+                        </button>
+                        <span className="text-[11px] text-gray-500">
+                          Worker arrived after scheduled reporting time.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* If Late selected: show time input */}
+                  {modalType === 'late' && (
+                    <div className="mt-3 pt-3 border-t border-amber-200/60 space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-amber-950">
+                          Actual Arrival Time (HH:mm) <span className="text-rose-500">*</span>
+                        </label>
+                        {modalDelayMinutes !== null && modalDelayMinutes > 0 && (
+                          <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md">
+                            {formatLateDuration(modalDelayMinutes)}
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="time"
+                        value={modalArrivalTime}
+                        onChange={(e) => handleModalArrivalTimeChange(e.target.value)}
+                        placeholder="HH:mm"
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-900 font-medium"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Option 3: Absent */}
+                <button
+                  type="button"
+                  onClick={() => setModalType('absent')}
+                  className={`w-full text-left p-3.5 rounded-xl border cursor-pointer transition-all ${modalType === 'absent'
+                      ? 'border-rose-500 bg-rose-50/50 ring-2 ring-rose-500/10'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
+                    }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${modalType === 'absent' ? 'border-rose-600 bg-rose-600' : 'border-gray-300'
+                        }`}>
+                        {modalType === 'absent' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">Mark Absent</span>
+                        <span className="text-[11px] text-gray-500">
+                          Staff member did not attend this event.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
               </div>
 
-              {presentConfirmError && (
-                <div className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-lg border border-rose-200 flex items-center gap-1.5">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span>{presentConfirmError}</span>
+              {/* Reason field (mandatory if correcting an existing saved record in database) */}
+              {Boolean(selectedWorkerForModal.attendanceId || savedWorkerIds.has(selectedWorkerForModal.workerId)) && (
+                <div className="pt-2 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-gray-700">
+                      Correction Reason <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400">Required for audit history</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={modalReason}
+                    onChange={(e) => setModalReason(e.target.value)}
+                    placeholder="e.g. Worker arrival delayed due to traffic / reporting verified"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-800"
+                  />
                 </div>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 mt-5 pt-3 border-t border-gray-100">
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 bg-gray-50 border-t border-gray-100 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 shrink-0">
               <button
                 type="button"
-                onClick={() => setPresentConfirmWorker(null)}
-                disabled={isSubmittingPresent}
-                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-colors"
+                onClick={handleCloseModal}
+                disabled={isSubmittingModal}
+                className="h-9 px-4 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors inline-flex items-center justify-center"
               >
                 Cancel
               </button>
+
               <button
                 type="button"
-                onClick={handleConfirmPresentCorrection}
-                disabled={isSubmittingPresent || presentCorrectionReason.trim().length < 5}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                onClick={handleModalSubmit}
+                disabled={
+                  isSubmittingModal ||
+                  (modalType === 'late' && (!modalArrivalTime || modalDelayMinutes === null || modalDelayMinutes <= 0)) ||
+                  (Boolean(selectedWorkerForModal.attendanceId || savedWorkerIds.has(selectedWorkerForModal.workerId)) && modalReason.trim().length < 5)
+                }
+                className="h-9 inline-flex items-center justify-center gap-1.5 px-4 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors"
               >
-                {isSubmittingPresent ? (
+                {isSubmittingModal ? (
                   <>
                     <Loader2 size={13} className="animate-spin" />
-                    <span>Updating...</span>
+                    <span>Saving...</span>
                   </>
                 ) : (
-                  <>
-                    <Check size={13} />
-                    <span>Confirm Present</span>
-                  </>
+                  <span>
+                    {modalType === 'present' && Boolean(selectedWorkerForModal.attendanceId || savedWorkerIds.has(selectedWorkerForModal.workerId))
+                      ? 'Confirm Present'
+                      : 'Confirm and Save'}
+                  </span>
                 )}
               </button>
             </div>

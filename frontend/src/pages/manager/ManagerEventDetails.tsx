@@ -22,6 +22,7 @@ import {
   Briefcase,
   ArrowRight,
   UserCheck,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const ManagerEventDetails: React.FC = () => {
@@ -38,8 +39,8 @@ export const ManagerEventDetails: React.FC = () => {
     tabParam === 'requirements'
       ? 'requirements'
       : tabParam === 'attendance'
-      ? 'attendance'
-      : 'overview';
+        ? 'attendance'
+        : 'overview';
 
   const setTab = (tab: 'overview' | 'requirements' | 'attendance') => {
     setSearchParams((prev) => {
@@ -81,35 +82,35 @@ export const ManagerEventDetails: React.FC = () => {
     switch (status) {
       case 'confirmed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full border border-emerald-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-md border border-emerald-200">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Confirmed
           </span>
         );
       case 'in_progress':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full border border-blue-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-md border border-blue-200">
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
             In Progress
           </span>
         );
       case 'completed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 text-xs font-semibold rounded-full border border-purple-200">
-            <span className="w-2 h-2 rounded-full bg-purple-500" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-md border border-emerald-200">
+            <CheckCircle2 size={13} className="text-emerald-600" />
             Completed
           </span>
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 text-rose-700 text-xs font-semibold rounded-full border border-rose-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 text-rose-700 text-xs font-semibold rounded-md border border-rose-200">
             <span className="w-2 h-2 rounded-full bg-rose-500" />
             Cancelled
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-full border border-gray-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md border border-gray-200">
             <span className="w-2 h-2 rounded-full bg-gray-400" />
             {status?.replace('_', ' ')}
           </span>
@@ -204,7 +205,7 @@ export const ManagerEventDetails: React.FC = () => {
       <div className="flex items-center justify-between">
         <Link
           to="/manager/events"
-          className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-emerald-700 transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft size={16} />
           Back to Assigned Events
@@ -212,60 +213,54 @@ export const ManagerEventDetails: React.FC = () => {
       </div>
 
       {/* Header Banner with Operational Tabs */}
-      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200/80 shadow-xs relative overflow-hidden space-y-6">
+      <div className="bg-white rounded-xl p-4 sm:p-6 md:p-7 border border-gray-200 shadow-xs relative overflow-hidden space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2.5 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider px-2 py-0.5 bg-gray-100 text-gray-800 rounded border border-gray-200">
                 {event.eventType}
               </span>
               {getStatusBadge(event.status)}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight break-words">
               {event.title}
             </h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-gray-500 text-xs sm:text-sm mt-1 break-all sm:break-normal">
               Event Reference: <span className="font-mono text-gray-700 font-medium">{event._id}</span>
             </p>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+        {/* Navigation Tabs (Underline Tab Bar) */}
+        <div className="flex items-center gap-4 sm:gap-8 border-b border-gray-200 overflow-x-auto no-scrollbar pt-2 touch-pan-x">
           <button
             type="button"
             onClick={() => setTab('overview')}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
-              activeTab === 'overview'
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-            }`}
+            className={`pb-3 text-sm font-semibold transition-colors shrink-0 whitespace-nowrap border-b-2 -mb-px ${activeTab === 'overview'
+              ? 'text-gray-900 font-bold border-black'
+              : 'text-gray-500 hover:text-gray-800 font-medium border-transparent'
+              }`}
           >
-            <Compass size={15} />
             Event Overview
           </button>
           <button
             type="button"
             onClick={() => setTab('requirements')}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
-              activeTab === 'requirements'
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-            }`}
+            className={`pb-3 text-sm font-semibold transition-colors shrink-0 whitespace-nowrap border-b-2 -mb-px ${activeTab === 'requirements'
+              ? 'text-gray-900 font-bold border-black'
+              : 'text-gray-500 hover:text-gray-800 font-medium border-transparent'
+              }`}
           >
-            <Briefcase size={15} />
             Work Requirements
           </button>
           <button
             type="button"
             onClick={() => setTab('attendance')}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
-              activeTab === 'attendance'
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-            }`}
+            className={`pb-3 text-sm font-semibold transition-colors shrink-0 whitespace-nowrap border-b-2 -mb-px ${activeTab === 'attendance'
+              ? 'text-gray-900 font-bold border-black'
+              : 'text-gray-500 hover:text-gray-800 font-medium border-transparent'
+              }`}
           >
-            <UserCheck size={15} />
             Attendance
           </button>
         </div>
@@ -430,8 +425,8 @@ export const ManagerEventDetails: React.FC = () => {
                                     {Array.isArray(val)
                                       ? val.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')
                                       : typeof val === 'object' && val !== null
-                                      ? JSON.stringify(val)
-                                      : String(val)}
+                                        ? JSON.stringify(val)
+                                        : String(val)}
                                   </span>
                                 </div>
                               ))}
