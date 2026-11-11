@@ -715,10 +715,5 @@ describe('Milestone 4 — API Routing for Existing Records & Change to Present O
     });
   });
 
-  after(async () => {
-    if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-    await mongoose.disconnect();
-  });
+
 });

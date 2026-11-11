@@ -899,7 +899,9 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services &
   });
 
   after(async () => {
-    if (server) server.close();
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     await mongoose.disconnect();
   });
 });

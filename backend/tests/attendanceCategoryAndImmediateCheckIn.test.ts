@@ -199,10 +199,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
     });
   });
 
-  after(async () => {
-    if (server) server.close();
-    await mongoose.disconnect();
-  });
+
 
   // =========================================================================
   // Requirement B: Individual Immediate Check-in Persistence

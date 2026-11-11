@@ -993,11 +993,6 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
     });
   });
 
-  after(async () => {
-    if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-    await mongoose.disconnect();
-  });
+
 });
 

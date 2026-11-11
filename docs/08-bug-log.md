@@ -1292,6 +1292,35 @@ On pushing branch `feature/attendance-workflow-and-concerns` to GitHub, both CI 
 
 1. Per BUG-001, EVERY backend test file initializing an Express server or connecting to MongoDB MUST implement an `after()` hook closing the server and disconnecting Mongoose.
 2. When replacing an obsolete workflow with an updated design, ensure legacy UI test suites are reconciled with the new component design so CI suites remain green.
+3. Every test suite must contain strictly ONE consolidated `after()` hook. Never append an additional `after()` block when one already exists in the same describe scope.
+4. Server teardown inside `after()` MUST await `new Promise<void>((resolve) => server.close(() => resolve()))` to ensure underlying sockets release before `mongoose.disconnect()` drops the test database.
+
+---
+
+### Recurrence Record — 2026-11-11
+
+#### Feature / Module
+GitHub Actions CI / `backend/tests/` Teardown Hooks
+
+#### Error / Symptom
+On creating PR for `feature/attendance-ui-polishing-and-responsiveness`, GitHub Actions `CI / Frontend (Lint, Test, Build)` passed 100%, but `CI / Backend (Type-Check, Test, Build)` failed during `npm test`.
+
+#### Root Cause
+Commit `1fdbc2a` appended `after()` blocks to `attendanceCheckIn.test.ts`, `attendanceCategoryAndImmediateCheckIn.test.ts`, `attendanceApiRoutingAndPresentCorrection.test.ts`, and `attendanceConcernsAndDeadlines.test.ts` without removing earlier `after()` blocks already declared earlier in those files.
+During `node:test` execution, executing two `after()` hooks in the same suite attempted to invoke `server.close()` and `mongoose.disconnect()` twice, throwing `ERR_SERVER_NOT_RUNNING` and closing connection handles prematurely. Additionally, `attendanceCheckOut.test.ts`, `attendanceCorrectionAndApproval.test.ts`, and `adminEventAssignment.test.ts` did not await `server.close()`.
+
+#### Solution
+1. Consolidated teardown across all affected test files into exactly one clean, awaited `after()` hook per file:
+   ```ts
+   after(async () => {
+     if (server) {
+       await new Promise<void>((resolve) => server.close(() => resolve()));
+     }
+     await mongoose.disconnect();
+   });
+   ```
+2. Verified zero files have multiple `after()` blocks.
+3. Verified `npm --prefix backend run type-check` and `npm --prefix backend run build` compile with 0 errors.
 
 
 

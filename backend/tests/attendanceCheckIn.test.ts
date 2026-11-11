@@ -266,15 +266,7 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
     });
   });
 
-  after(async () => {
-    await User.deleteMany({});
-    await Event.deleteMany({});
-    await WorkRequirement.deleteMany({});
-    await AttendanceSession.deleteMany({});
-    await Attendance.deleteMany({});
-    server.close();
-    await mongoose.disconnect();
-  });
+
 
   beforeEach(async () => {
     await AttendanceSession.deleteMany({});
@@ -796,6 +788,11 @@ describe('Milestone 4 — Phase 4.2: Exception-Based Check-in Backend Services &
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+    await User.deleteMany({});
+    await Event.deleteMany({});
+    await WorkRequirement.deleteMany({});
+    await AttendanceSession.deleteMany({});
+    await Attendance.deleteMany({});
     await mongoose.disconnect();
   });
 });

@@ -85,7 +85,9 @@ describe('Admin Event Assignment API', () => {
   });
 
   after(async () => {
-    server.close();
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     await mongoose.disconnect();
   });
 
