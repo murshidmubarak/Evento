@@ -21,6 +21,13 @@ export const validateCreateOrder = (req: Request, res: Response, next: NextFunct
       res.status(400).json({ success: false, message: 'Payment amount must be a number greater than 0' });
       return;
     }
+    if (requestedAmount > 500000) {
+      res.status(400).json({
+        success: false,
+        message: 'Payment amount exceeds the maximum single transaction limit of ₹5,00,000 allowed by the payment gateway. You can pay this balance incrementally across milestones or in installments of up to ₹5,00,000.',
+      });
+      return;
+    }
   }
   
   next();

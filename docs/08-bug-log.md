@@ -1360,3 +1360,56 @@ In `attendanceCorrectionAndApproval.test.ts`, `finalizeCheckIn` is invoked in `b
 ### Rule
 
 1. Test fixtures that programmatically invoke `finalizeCheckIn` to seed state for downstream testing must specify `{ skipTimingGuard: true }` so tests execute reliably at any time of day across any runner timezone.
+
+---
+
+## BUG-028 — Razorpay ₹5,00,000 Single Transaction Limit Masked as 500 Internal Server Error
+
+### Date
+
+2026-11-12
+
+### Feature / Module
+
+Payments / Order Creation / `backend/src/modules/payments/service/payment.service.ts`, `backend/src/modules/payments/validation/payment.validation.ts`, `frontend/src/pages/client/ClientAdvancePayment.tsx`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When a client attempted to pay a high-value quotation balance (e.g. ₹16,34,300) via `POST /api/payments/create-order`:
+1. The request failed with `500 Internal Server Error` (`Failed to create Razorpay order.`).
+2. The browser console logged `paymentsApi.ts:56 POST http://localhost:5000/api/payments/create-order 500 (Internal Server Error)`.
+3. In the client portal, the user was shown generic "Failed to initiate payment. Please try again." without explaining why the payment failed or why smaller payments succeeded.
+
+### Root Cause
+
+1. **Razorpay Gateway Limit**: Razorpay (standard test mode and standard merchant accounts in India) enforces a maximum single-transaction order limit of ₹5,00,000 (50,000,000 paise). Any order request exceeding ₹5,00,000 is rejected with HTTP 400 (`BAD_REQUEST_ERROR: Amount exceeds maximum amount allowed.`).
+2. **Backend Error Masking**: In `PaymentService.createAdvanceOrder` and `createInstallmentOrder`, the catch block around `this.razorpay.orders.create` swallowed the actual error without logging it via `console.error` and unconditionally re-threw a generic HTTP 500 `ApiError.internal('Failed to create Razorpay order.')`.
+3. **Missing Pre-Gateway Validation**: Neither the backend validation middleware nor the service layer verified the gateway's maximum per-transaction limit before executing external API requests.
+4. **Missing Client Guidance**: The client checkout UI allowed users to select "Full Balance" or enter custom amounts exceeding ₹5,00,000 without explaining the gateway limit or guiding the user to pay incrementally across milestone installments.
+
+### Solution
+
+1. **Backend Validation Guard**: Added explicit transaction limit validation in `validateCreateOrder` (`payment.validation.ts`) and `PaymentService` (`createAdvanceOrder`, `createInstallmentOrder`) checking `amount > 500000` (defined as `MAX_RAZORPAY_TRANSACTION_AMOUNT = 500000`) and returning HTTP 400 with actionable guidance:
+   `The requested payment amount exceeds the maximum payment gateway limit of ₹5,00,000 per transaction. You can pay this balance incrementally across milestones or in smaller custom payments (up to ₹5,00,000 each).`
+2. **Transparent Error Logging & Propagation**: Updated the catch block in `createAdvanceOrder` and `createInstallmentOrder` to log the underlying error via `console.error` and forward `error.error.description` as HTTP 400 whenever Razorpay returns a client error, preventing gateway errors from being masked as internal server errors.
+3. **Frontend UI Guidance & Pre-Check**:
+   - In `ClientAdvancePayment.tsx`, added `MAX_GATEWAY_TXN_AMOUNT = 500000`.
+   - In Option C ("Full Quotation Settlement"), added a badge and helper notice when the remaining balance exceeds ₹5,00,000.
+   - In Option B ("Custom Payment"), validated that single inputs cannot exceed ₹5,00,000 and instructed the client to pay in multiple payments.
+   - Displayed an explanatory amber banner when the selected amount exceeds ₹5,00,000 explaining the limit and how to pay little by little.
+   - Disabled the primary payment CTA button and updated its label to `"Exceeds ₹5,00,000 Limit — Pay Little by Little"` when an excessive amount is selected.
+
+### Rule
+
+1. The backend is the single source of truth for financial transactions. Validate payment gateway constraints (e.g. ₹5,00,000 single transaction limit) authoritatively in the backend. Never rely on the client alone.
+2. Never silently mask third-party gateway client errors (HTTP 400) as internal server errors (HTTP 500). Log gateway errors explicitly and return transparent, actionable feedback.
+3. For amounts exceeding payment gateway limits, guide users to pay incrementally across scheduled milestone installments or smaller custom amounts.
+
