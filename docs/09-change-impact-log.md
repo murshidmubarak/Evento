@@ -2076,6 +2076,32 @@ Implemented complete browser and device push notification system for EventOps ER
 
 ---
 
+### [2026-11-12] Payment Gateway Maximum Transaction Limit & Incremental Payment Guidance (Razorpay ₹5,00,000 Limit)
+- **Requested Change**:
+  - Enforce backend validation and error handling for Razorpay's maximum transaction limit of ₹5,00,000 per order (`MAX_RAZORPAY_TRANSACTION_AMOUNT = 500000`).
+  - Stop masking Razorpay gateway 400 rejection errors as 500 Internal Server Errors; log gateway failures with `console.error` and forward `error.error.description` as HTTP 400.
+  - Implement transparent client UI messaging when total balance or payment amount exceeds ₹5,00,000, explaining the limit and guiding clients to pay little by little across milestone installments or custom payments up to ₹5,00,000 each.
+  - Disable the primary payment button when the selected amount exceeds ₹5,00,000 to prevent invalid checkout attempts.
+- **Impact Level**: MEDIUM (Financial validation and client checkout error-handling enhancement).
+- **Directly Affected Files**:
+  - `backend/src/modules/payments/validation/payment.validation.ts`
+  - `backend/src/modules/payments/service/payment.service.ts`
+  - `frontend/src/pages/client/ClientAdvancePayment.tsx`
+  - `docs/08-bug-log.md`
+  - `docs/09-change-impact-log.md`
+- **Affected Modules**: Payments Module, Client Portal (Advance & Installment Payments).
+- **Affected APIs**: `POST /api/payments/create-order`.
+- **Database Schema Changes**: None.
+- **Security & Financial Rules**:
+  - Backend is the authoritative source of truth; client-side parameters are never trusted.
+  - All transaction amount constraints validated strictly on server before gateway execution.
+- **Verification Results**:
+  - Backend TypeScript compilation (`npm run type-check`): 0 errors, exit code 0.
+  - Frontend TypeScript compilation (`npx tsc -b frontend`): 0 errors, exit code 0.
+  - Unit and boundary tests (5,00,000 pass, 5,00,001 reject, 16,34,300 reject): all PASSED cleanly.
+
+---
+
 ### [2026-11-13] Milestone 4 Phase 4.4: Exception-Based Category-Wise Checkout Architecture
 - **Requested Change**:
   - Implement an Exception-Based, Category-Wise Checkout Workflow across backend and frontend.
@@ -2325,6 +2351,3 @@ Implemented complete browser and device push notification system for EventOps ER
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Backend Build (`npm --prefix backend run build`): compiled `dist/` cleanly, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
-
-
-

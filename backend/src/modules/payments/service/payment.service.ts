@@ -13,6 +13,8 @@ import { Payment } from '../model/payment.model.js';
 import { PaymentReminderLog } from '../model/payment-reminder-log.model.js';
 import { verifyRazorpayWebhookSignature } from '../utils/webhook-signature.js';
 
+export const MAX_RAZORPAY_TRANSACTION_AMOUNT = 500000;
+
 export class PaymentService {
   private paymentRepository: PaymentRepository;
   private eventRepository: EventRepository;
@@ -275,6 +277,12 @@ export class PaymentService {
       targetAmount = outstandingAdvance;
     }
 
+    if (targetAmount > MAX_RAZORPAY_TRANSACTION_AMOUNT) {
+      throw ApiError.badRequest(
+        `The requested payment amount of ₹${targetAmount.toLocaleString('en-IN')} exceeds the maximum payment gateway limit of ₹5,00,000 per transaction. You can pay this balance incrementally across milestones or in smaller custom payments (up to ₹5,00,000 each).`
+      );
+    }
+
     // Compute planned allocations across paymentPlan
     const { allocations } = this.computeAllocation(acceptedQuotation, allVerified, targetAmount, 0);
 
@@ -354,8 +362,12 @@ export class PaymentService {
         isFullPayment: payment.isFullPayment,
       };
     } catch (error: any) {
+      console.error('Razorpay advance order creation error:', error);
       payment.status = 'failed';
       await payment.save();
+      if (error?.statusCode === 400 && error?.error?.description) {
+        throw ApiError.badRequest(`Payment gateway error: ${error.error.description}`);
+      }
       throw ApiError.internal('Failed to create Razorpay order.');
     }
   }
@@ -504,6 +516,12 @@ export class PaymentService {
       targetAmount = outstandingAmount;
     }
 
+    if (targetAmount > MAX_RAZORPAY_TRANSACTION_AMOUNT) {
+      throw ApiError.badRequest(
+        `The requested payment amount of ₹${targetAmount.toLocaleString('en-IN')} exceeds the maximum payment gateway limit of ₹5,00,000 per transaction. You can pay this balance incrementally across milestones or in smaller custom payments (up to ₹5,00,000 each).`
+      );
+    }
+
     // Compute planned allocations across paymentPlan
     const { allocations } = this.computeAllocation(acceptedQuotation, allVerified, targetAmount, installmentIndex);
 
@@ -587,8 +605,12 @@ export class PaymentService {
         isFullPayment: payment.isFullPayment,
       };
     } catch (error: any) {
+      console.error('Razorpay installment order creation error:', error);
       payment.status = 'failed';
       await payment.save();
+      if (error?.statusCode === 400 && error?.error?.description) {
+        throw ApiError.badRequest(`Payment gateway error: ${error.error.description}`);
+      }
       throw ApiError.internal('Failed to create Razorpay order.');
     }
   }

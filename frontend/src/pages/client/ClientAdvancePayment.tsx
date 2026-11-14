@@ -34,6 +34,8 @@ import type {
   VerifyPaymentResponse,
   PaymentAllocationPreview,
 } from '../../features/payments/payment.types';
+
+const MAX_GATEWAY_TXN_AMOUNT = 500000; // Razorpay single transaction maximum limit in INR
 import { formatCurrency, formatDate } from '../../utils/formatters';
 
 const loadRazorpayScript = (): Promise<boolean> => {
@@ -184,6 +186,8 @@ export const ClientAdvancePayment = () => {
       setAmountError('Payment amount must be greater than zero.');
     } else if (num > totalQuotationOutstanding) {
       setAmountError(`Payment amount cannot exceed the total balance of ${formatCurrency(totalQuotationOutstanding)}.`);
+    } else if (num > MAX_GATEWAY_TXN_AMOUNT) {
+      setAmountError(`Maximum ₹5,00,000 per transaction (gateway limit). You can pay this balance little by little in multiple payments.`);
     }
   };
 
@@ -205,6 +209,15 @@ export const ClientAdvancePayment = () => {
         setAmountError(`Payment amount cannot exceed total outstanding balance of ${formatCurrency(totalQuotationOutstanding)}.`);
         return;
       }
+      if (parsedCustomAmount > MAX_GATEWAY_TXN_AMOUNT) {
+        setAmountError('Payment amount exceeds the ₹5,00,000 gateway transaction limit. You can pay this balance little by little in multiple payments.');
+        return;
+      }
+    }
+
+    if (selectedPayableAmount > MAX_GATEWAY_TXN_AMOUNT) {
+      setAmountError(`Payment amount of ${formatCurrency(selectedPayableAmount)} exceeds the maximum gateway limit of ₹5,00,000 per transaction. Please choose a milestone installment or pay little by little up to ₹5,00,000.`);
+      return;
     }
 
     try {
@@ -987,11 +1000,20 @@ export const ClientAdvancePayment = () => {
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <span className="text-xs font-semibold text-slate-900 block truncate">
-                                    Full Quotation Settlement
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-slate-900 block truncate">
+                                      Full Quotation Settlement
+                                    </span>
+                                    {totalQuotationOutstanding > MAX_GATEWAY_TXN_AMOUNT && (
+                                      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0">
+                                        Exceeds ₹5L Gateway Limit
+                                      </span>
+                                    )}
+                                  </div>
                                   <span className="text-[11px] text-slate-500 block truncate">
-                                    Settle all remaining milestones in one transaction
+                                    {totalQuotationOutstanding > MAX_GATEWAY_TXN_AMOUNT
+                                      ? 'Total balance exceeds ₹5,00,000 single transaction limit — please pay in milestones or custom installments below'
+                                      : 'Settle all remaining milestones in one transaction'}
                                   </span>
                                 </div>
                               </div>
@@ -1079,6 +1101,24 @@ export const ClientAdvancePayment = () => {
                         </div>
                       </div>
 
+                      {/* ─── Gateway Exceeded Explanatory Alert ─── */}
+                      {selectedPayableAmount > MAX_GATEWAY_TXN_AMOUNT && (
+                        <div className="p-4 rounded-xl bg-amber-50/90 border border-amber-200/90 text-amber-900 text-xs flex items-start gap-3 shadow-2xs animate-in fade-in duration-200">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-semibold text-amber-950">
+                              Payment Gateway Single-Transaction Limit: ₹5,00,000
+                            </p>
+                            <p className="text-amber-800 leading-relaxed">
+                              The selected amount of <strong>{formatCurrency(selectedPayableAmount)}</strong> exceeds Razorpay's single-transaction limit of <strong>₹5,00,000</strong>.
+                            </p>
+                            <p className="text-amber-800 leading-relaxed pt-0.5">
+                              💡 <strong>How to pay:</strong> You can easily pay this balance <strong>little by little</strong> across your scheduled milestone installments above, or choose <strong>Custom Payment</strong> to pay in flexible portions up to <strong>₹5,00,000</strong> each.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       <button
                         type="button"
                         id="btn-pay-razorpay"
@@ -1088,6 +1128,7 @@ export const ClientAdvancePayment = () => {
                           isVerifying ||
                           selectedPayableAmount <= 0 ||
                           selectedPayableAmount > totalQuotationOutstanding ||
+                          selectedPayableAmount > MAX_GATEWAY_TXN_AMOUNT ||
                           !!amountError ||
                           (!isScheduleConsistent && paymentOption !== 'current_installment')
                         }
@@ -1102,6 +1143,11 @@ export const ClientAdvancePayment = () => {
                           <>
                             <Loader2 className="w-4 h-4 animate-spin text-white" />
                             <span>Confirming Signature...</span>
+                          </>
+                        ) : selectedPayableAmount > MAX_GATEWAY_TXN_AMOUNT ? (
+                          <>
+                            <AlertTriangle className="w-4 h-4 text-amber-400" />
+                            <span>Exceeds ₹5,00,000 Limit — Pay Little by Little</span>
                           </>
                         ) : (
                           <>
