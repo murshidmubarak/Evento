@@ -2369,3 +2369,17 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Module: Transaction Callback Counter Reset on Retry
+- **Requested Change**:
+  - Fix counter accumulation bug in `finalizeCategoryCheckIn` and `recordCategoryActualDeparture` where `onTimeCount`, `lateCount`, `absentCount`, and `affectedCount` accumulated stale values when `runInTransaction` retried.
+- **Impact Level**: LOW (Idempotency and transaction safety enhancement).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/service/attendance.service.ts`: Re-initialized summary counters inside transaction callbacks.
+  - `docs/08-bug-log.md`: Logged BUG-034.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.

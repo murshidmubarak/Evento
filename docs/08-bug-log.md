@@ -1611,3 +1611,48 @@ operator: 'strictEqual'
 
 All checkout finalization tests and API callers must ensure check-in is finalized/confirmed prior to attempting checkout finalization. Initial check-ins attempted after the event day has ended must be rejected with HTTP 403 Forbidden.
 
+---
+
+## BUG-034 — Category Check-in Confirmation Counter Accumulation Across Transaction Retries (onTimeCount Leak)
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Independent Category-Wise Check-in Confirmation / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During CI integration test execution (`attendanceCategoryCheckInIndependence.test.ts:398:14`), confirming Category A check-in for 2 assigned workers failed with assertion error:
+```text
+code: 'ERR_ASSERTION',
+actual: 3,
+expected: 2,
+operator: 'strictEqual'
+```
+Where `totalProcessed` was 2, but `onTimeCount` was 3.
+
+### Root Cause
+
+In `AttendanceService.finalizeCategoryCheckIn` and `recordCategoryActualDeparture`, summary counter variables (`onTimeCount`, `lateCount`, `absentCount`, `affectedCount`, etc.) were declared outside the `runInTransaction(async (dbSession) => { ... })` callback.
+
+When MongoDB's `session.withTransaction` encountered a transient retry, or when `runInTransaction` fell back from a failed transaction attempt to standalone execution, the transaction callback was executed more than once. Because the counter variables were not re-initialized to 0 inside the transaction callback, counter increments from previous aborted attempts accumulated into subsequent attempts (e.g., 1 from an aborted attempt + 2 from the successful retry = 3).
+
+### Solution
+
+Re-initialized all summary counter variables (`onTimeCount = 0; lateCount = 0; absentCount = 0;` and `affectedCount = 0; normalCount = 0; exceptionCount = 0; absentCount = 0;`) inside the transaction callback at the beginning of each attempt, ensuring that transaction retries and fallbacks are strictly idempotent and cannot leak previous partial counts.
+
+### Rule
+
+Any accumulator or counter variables populated inside a database transaction callback (`runInTransaction` / `withTransaction`) must be initialized or reset inside the callback so that retry attempts always start with a clean state.
+

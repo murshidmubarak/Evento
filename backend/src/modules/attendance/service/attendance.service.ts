@@ -1416,6 +1416,9 @@ export class AttendanceService {
     let absentCount = 0;
 
     await runInTransaction(async (dbSession) => {
+      onTimeCount = 0;
+      lateCount = 0;
+      absentCount = 0;
       for (const [wId, workerInfo] of categoryWorkerMap.entries()) {
         const existingAtt = existingMap.get(wId);
         const reportingDate = workerReportingDateMap.get(wId)!;
@@ -2221,6 +2224,10 @@ export class AttendanceService {
     let absentCount = 0;
 
     await runInTransaction(async (dbSession) => {
+      affectedCount = 0;
+      normalCount = 0;
+      exceptionCount = 0;
+      absentCount = 0;
       // 1. Save category actual departure in session
       await this.sessionRepo.saveCategoryActualDeparture(
         eventId,
