@@ -12,6 +12,7 @@ import { WorkRequirement } from '../src/modules/work-requirements/model/work-req
 import { AttendanceSession } from '../src/modules/attendance/model/attendance-session.model.js';
 import { Attendance } from '../src/modules/attendance/model/attendance.model.js';
 import { Notification } from '../src/modules/notifications/model/notification.model.js';
+import { attendanceService } from '../src/modules/attendance/service/attendance.service.js';
 
 describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times, Immediate Check-in & Corrections', () => {
   let server: any;
@@ -687,7 +688,7 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       assert.strictEqual(att3.checkOut || null, null);
     });
 
-    it('should directly finalize checkout without prior check-in finalization, automatically defaulting unmarked workers to On Time', async () => {
+    it('should finalize checkout after check-in finalization, automatically defaulting unmarked workers to On Time', async () => {
       const directEventId = new mongoose.Types.ObjectId().toString();
       await Event.create({
         _id: directEventId,
@@ -737,7 +738,17 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
       );
       assert.strictEqual(lateRes.status, 200);
 
-      // Finalize checkout directly without calling finalize-checkin
+      // Finalize check-in first to satisfy prerequisite and default unmarked worker B to On Time
+      await attendanceService.finalizeCheckIn(
+        managerId,
+        'event_manager',
+        directEventId,
+        'chk_direct_checkin_1',
+        {},
+        { skipTimingGuard: true }
+      );
+
+      // Finalize checkout
       const checkoutRes = await fetch(
         `http://localhost:${port}/api/attendance/events/${directEventId}/finalize-checkout`,
         {

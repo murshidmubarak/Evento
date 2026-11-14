@@ -2351,3 +2351,21 @@ Implemented complete browser and device push notification system for EventOps ER
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Backend Build (`npm --prefix backend run build`): compiled `dist/` cleanly, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Test Suites: Alignment with Mandatory Check-in Finalization Prerequisite
+- **Requested Change**:
+  - Align legacy integration tests in `attendanceConcernsAndDeadlines.test.ts` and `attendanceCategoryAndImmediateCheckIn.test.ts` with the approved business rule requiring check-in finalization prior to checkout finalization.
+  - Fix the CI assertion failure (`actual: 400, expected: 200`) occurring on `POST /api/attendance/events/:eventId/finalize-checkout` calls that lacked prior check-in finalization.
+- **Impact Level**: LOW (Test fixture alignment with verified production business logic).
+- **Directly Affected Files**:
+  - `backend/tests/attendanceConcernsAndDeadlines.test.ts`: Added `attendanceService.finalizeCheckIn(..., { skipTimingGuard: true })` before `finalize-checkout`.
+  - `backend/tests/attendanceCategoryAndImmediateCheckIn.test.ts`: Added `attendanceService.finalizeCheckIn(..., { skipTimingGuard: true })` before `finalize-checkout` and updated test description.
+  - `docs/08-bug-log.md`: Logged BUG-033.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Database Safety Compliance (Rule 26)**:
+  - 100% adherence to Rule 26. Zero dummy data written to `eventops`. Test suites execute strictly against isolated `eventops_test` with complete teardown cleanup.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.

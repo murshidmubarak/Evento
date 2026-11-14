@@ -1567,3 +1567,47 @@ When a manager attempted to record a valid category departure or individual Earl
 
 All local wall-clock date and time inputs must be converted to canonical UTC instants using exact Asia/Kolkata timezone offset (`+05:30`). Departure dates must be explicitly specified by the user and never implicitly calculated.
 
+---
+
+## BUG-033 — CI Backend Test Suite Failure (HTTP 400 vs Expected 200) Due to Unfinalized Check-in Prerequisite in Legacy Test Fixtures
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Attendance Test Suites / `backend/tests/attendanceConcernsAndDeadlines.test.ts`, `backend/tests/attendanceCategoryAndImmediateCheckIn.test.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During GitHub Actions CI execution of the backend test suite (`npm test`), the test runner failed with:
+```text
+code: 'ERR_ASSERTION',
+actual: 400,
+expected: 200,
+operator: 'strictEqual'
+```
+
+### Root Cause
+
+The approved check-in finalization architecture enforced a mandatory lifecycle prerequisite: checkout finalization (`POST /api/attendance/events/:eventId/finalize-checkout`) is strictly blocked and returns HTTP 400 Bad Request (`"Check-in must be finalized before checkout can be finalized"`) if check-in has not yet been finalized.
+
+Two older test fixtures written before this requirement existed (`attendanceConcernsAndDeadlines.test.ts` and `attendanceCategoryAndImmediateCheckIn.test.ts`) called `finalize-checkout` directly without finalizing check-in first. When the backend returned HTTP 400 as mandated by business rules, the tests' legacy assertions `assert.strictEqual(res.status, 200)` threw `ERR_ASSERTION`.
+
+### Solution
+
+Updated both test suites to finalize check-in first (via `attendanceService.finalizeCheckIn` with `{ skipTimingGuard: true }`), provisioning default on-time check-in records for unmarked workers and satisfying the check-in finalization prerequisite before invoking checkout finalization.
+
+### Rule
+
+All checkout finalization tests and API callers must ensure check-in is finalized/confirmed prior to attempting checkout finalization.
+
