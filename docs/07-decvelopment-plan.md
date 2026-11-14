@@ -544,34 +544,33 @@ Rules:
 - Location is declared on-demand by the worker.
 - Distance calculation must happen on the backend using immutable historical cutoff.
 
-17. Phase 15 - Confirmed Work and Attendance
+17. Phase 15 - Confirmed Work and Attendance (Implemented & Verified)
 
-Implement:
-
-Confirmed Work
-Check In
-Check Out
-Attendance history
-Manager attendance summary
-
-Attendance flow:
-
-Confirmed Work
-      ↓
-Check In
-      ↓
-Work
-      ↓
-Check Out
-
-Attendance states:
-
-not_started
-checked_in
-checked_out
-absent
-
-Only confirmed Workers can record attendance.
+Implemented the full enterprise Attendance Lifecycle across backend and frontend:
+- **Phase 4.3 Immediate Check-in Persistence & Exceptions**:
+  - Individual check-in marking (`on_time`, `late`, `absent`) with immediate MongoDB persistence.
+  - Delay calculation from reporting time snapshot: `Math.max(0, arrivalTime - reportingTime)`.
+  - Batch check-in finalization defaulting unrecorded workers to `on_time`.
+- **Phase 4.4 Exception-Based, Category-Wise Checkout Workflow**:
+  - Manager records one authoritative actual departure time per worker category (`POST /api/attendance/events/:eventId/categories/departure`).
+  - Category departure acts as default checkout for all normal eligible workers (`departureStatus: 'normal'`, `checkOutSource: 'category_default'`, `earlyDepartureMinutes: 0`, `overtimeMinutes: 0`).
+  - Manager records individual exceptions only for workers departing earlier or later than category departure (`POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception`).
+  - Dynamic Reclassification Engine: Updating category departure preserves individual exception timestamps and recalculates classifications (`early_departure`, `normal`, `overtime`) and early/overtime minutes dynamically.
+  - Clearing individual exceptions (`DELETE /api/attendance/events/:eventId/workers/:workerId/checkout-exception`) restores category default departure and resets to normal.
+  - Working duration automatically calculated on backend: `Math.floor((checkoutDate - checkInDate) / 60000)`.
+  - Hard 24-Hour Post-Event Modification Lock: Enforced via `calculateEventCorrectionWindow(event)` (`scheduledEventEndAt + 24 hours`). After deadline, all checkout modifications permanently throw HTTP 403 Forbidden.
+  - Strict Absent Worker Exclusion: Absent workers are completely excluded from checkout, duration = 0, and blocked from exception creation.
+  - Non-blocking Finalization: Finalizing checkout authoritatively closes the event attendance lifecycle while permitting corrections during the remaining 24-hour correction window.
+- **Worker Concerns & Corrections**:
+  - Worker attendance dispute submission (`POST /api/attendance/records/:id/concerns`).
+  - Manager concern resolution (`POST /api/attendance/concerns/:id/resolve`) with audit history tracking.
+  - Final verification guard: Approval blocked while open concerns exist.
+- **Verification & Test Coverage**:
+  - 35/35 backend tests in `attendanceCheckOut.test.ts` (100% passing).
+  - 25/25 backend tests in `attendanceConcernsAndDeadlines.test.ts` (100% passing).
+  - 21/21 backend tests in `attendanceCategoryAndImmediateCheckIn.test.ts` (100% passing).
+  - 141/141 frontend tests across 22 test suites (100% passing).
+  - Clean TypeScript compilation and production build (0 errors).
 
 18. Phase 16 - Worker Performance
 

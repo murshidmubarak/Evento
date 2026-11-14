@@ -6,8 +6,12 @@ import type {
   IndividualCheckInPayload,
   FinalizeCheckInPayload,
   FinalizeCheckInSummary,
+  FinalizeCategoryCheckInSummary,
   FinalizeCheckOutPayload,
   FinalizeCheckOutSummary,
+  RecordCategoryDeparturePayload,
+  RecordCategoryDepartureResult,
+  RecordWorkerCheckOutExceptionPayload,
   CorrectAttendancePayload,
   VerifyAttendancePayload,
   AttendanceVerificationSummary,
@@ -80,6 +84,79 @@ export const attendanceApi = {
         'Idempotency-Key': idempotencyKey,
       },
     });
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin
+   * Finalizes or re-confirms check-in specifically for a worker category.
+   * Requires an Idempotency-Key header.
+   */
+  async finalizeCategoryCheckIn(
+    eventId: string,
+    workerType: string,
+    payload: FinalizeCheckInPayload,
+    idempotencyKey: string
+  ): Promise<FinalizeCategoryCheckInSummary> {
+    const encodedWorkerType = encodeURIComponent(workerType);
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: FinalizeCategoryCheckInSummary;
+    }>(`/attendance/events/${eventId}/categories/${encodedWorkerType}/finalize-checkin`, payload, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/events/:eventId/categories/departure
+   * Records or updates the category actual departure time and recalculates worker checkouts.
+   */
+  async recordCategoryDeparture(
+    eventId: string,
+    payload: RecordCategoryDeparturePayload
+  ): Promise<RecordCategoryDepartureResult> {
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: RecordCategoryDepartureResult;
+    }>(`/attendance/events/${eventId}/categories/departure`, payload);
+    return response.data.data;
+  },
+
+  /**
+   * POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception
+   * Records or updates an individual worker's Early Departure or Overtime exception.
+   */
+  async recordWorkerCheckOutException(
+    eventId: string,
+    workerId: string,
+    payload: RecordWorkerCheckOutExceptionPayload
+  ): Promise<AttendanceRosterItem> {
+    const response = await apiClient.post<{
+      success: boolean;
+      message: string;
+      data: AttendanceRosterItem;
+    }>(`/attendance/events/${eventId}/workers/${workerId}/checkout-exception`, payload);
+    return response.data.data;
+  },
+
+  /**
+   * DELETE /api/attendance/events/:eventId/workers/:workerId/checkout-exception
+   * Clears an individual checkout exception and restores the category default checkout.
+   */
+  async clearWorkerCheckOutException(
+    eventId: string,
+    workerId: string
+  ): Promise<AttendanceRosterItem> {
+    const response = await apiClient.delete<{
+      success: boolean;
+      message: string;
+      data: AttendanceRosterItem;
+    }>(`/attendance/events/${eventId}/workers/${workerId}/checkout-exception`);
     return response.data.data;
   },
 

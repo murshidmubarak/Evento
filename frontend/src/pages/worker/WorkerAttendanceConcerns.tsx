@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   attendanceApi,
 } from '../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour } from '../../utils/formatters';
 import type {
   WorkerAttendanceRecordWithConcern,
   AttendanceConcern,
@@ -233,7 +234,7 @@ export const WorkerAttendanceConcerns: React.FC = () => {
                         </span>
                       )}
                       <span>Role: <strong className="text-gray-700">{rec.workerType}</strong></span>
-                      <span>Reporting: <strong className="text-gray-700">{rec.reportingTime}</strong></span>
+                      <span>Reporting: <strong className="text-gray-700">{formatTimeTo12Hour(rec.reportingTime)}</strong></span>
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">

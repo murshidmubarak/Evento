@@ -16,6 +16,105 @@ export interface CategoryFinishTime {
   normalFinishDate?: string;
 }
 
+export interface CategoryActualDeparture {
+  workerType: string;
+  actualDepartureTime: string;
+  actualDepartureDate: string;
+  source?: string;
+  recordedBy?: string;
+  recordedAt?: string;
+  departureRecordedAt?: string;
+}
+
+export interface CategorySummary {
+  workerType: string;
+  totalAssigned?: number;
+  assignedCount?: number;
+  eligibleCount: number;
+  absentCount: number;
+  normalCount: number;
+  earlyCount?: number;
+  earlyDepartureCount?: number;
+  overtimeCount: number;
+  pendingCount: number;
+  actualDepartureTime?: string | null;
+  actualDepartureDate?: string | null;
+  departureRecordedAt?: string | null;
+  status?: string;
+  checkInFinalized?: boolean;
+  checkInFinalizedAt?: string | null;
+  checkInFinalizedBy?: string | null;
+  checkInChangesPending?: boolean;
+  checkInRevision?: number;
+  canFinalizeCheckIn?: boolean;
+  canReFinalizeCheckIn?: boolean;
+  canModifyCheckout?: boolean;
+  ineligibleOvertimeRequiredCount?: number;
+}
+
+export interface CategoryCheckInConfirmation {
+  workerType: string;
+  checkInFinalized: boolean;
+  checkInFinalizedAt?: string | null;
+  checkInFinalizedBy?: string | null;
+  checkInChangesPending: boolean;
+  checkInRevision: number;
+  checkInRevisions?: AttendanceCheckInRevision[];
+  canFinalizeCheckIn: boolean;
+  canReFinalizeCheckIn: boolean;
+  canModifyCheckout: boolean;
+}
+
+export interface FinalizeCategoryCheckInSummary {
+  eventId: string;
+  workerType: string;
+  totalProcessed: number;
+  onTimeCount: number;
+  lateCount: number;
+  absentCount: number;
+  checkInFinalized: boolean;
+  checkInFinalizedAt: string;
+  checkInRevision: number;
+  checkInChangesPending: boolean;
+}
+
+export interface RecordCategoryDeparturePayload {
+  workerType: string;
+  actualDepartureDate: string;
+  actualDepartureTime: string;
+  reason?: string;
+}
+
+export interface RecordCategoryDepartureResult {
+  eventId: string;
+  workerType: string;
+  actualDepartureTime: string;
+  actualDepartureDate: string;
+  affectedWorkersCount: number;
+  normalWorkersCount?: number;
+  normalCount?: number;
+  exceptionWorkersCount?: number;
+  earlyDepartureCount?: number;
+  overtimeCount?: number;
+  absentWorkersCount?: number;
+  departureStatus?: string;
+}
+
+export interface RecordWorkerCheckOutExceptionPayload {
+  actualDepartureDate: string;
+  actualDepartureTime?: string;
+  actualCheckoutTime?: string;
+  reason?: string;
+}
+
+export interface AttendanceCheckInRevision {
+  revision: number;
+  finalizedAt: string;
+  finalizedBy?: string;
+  changeReason?: string;
+  committedSummary?: Record<string, unknown>;
+}
+
 export interface AttendanceSession {
   _id: string;
   eventId: string;
@@ -23,6 +122,11 @@ export interface AttendanceSession {
   checkInFinalized: boolean;
   checkInFinalizedAt?: string;
   checkInFinalizedBy?: string;
+  checkInChangesPending?: boolean;
+  checkInRevision?: number;
+  checkInRevisions?: AttendanceCheckInRevision[];
+  categoryCheckInConfirmations?: CategoryCheckInConfirmation[];
+  categoryActualDepartures?: CategoryActualDeparture[];
   actualNormalFinishTime?: string;
   actualNormalFinishDate?: string;
   categoryFinishTimes?: CategoryFinishTime[];
@@ -74,11 +178,13 @@ export interface AttendanceRosterItem {
   checkInSource: string; // 'system_default' | 'manager_actual' | 'not_recorded'
   delayMinutes: number;
   checkOut?: string | null;
-  checkOutSource?: string; // 'system_default' | 'manager_actual' | 'not_recorded'
+  actualDepartureTime?: string;
+  checkOutSource?: string; // 'category_default' | 'individual_exception' | 'manager_actual' | 'system_default' | 'not_recorded'
   departureStatus?: string; // 'normal' | 'early_departure' | 'overtime' | 'not_recorded'
   earlyDepartureMinutes?: number;
   overtimeMinutes?: number;
   durationMinutes?: number;
+  totalWorkingDurationMinutes?: number;
   verificationStatus?: 'pending_review' | 'approved' | 'rejected';
   verifiedBy?: string;
   verifiedAt?: string;
@@ -108,11 +214,21 @@ export interface AttendanceRosterResponse {
   isAfterEventDay?: boolean;
   eventOperationalDate?: string;
   currentOperationalDate?: string;
+  checkInFinalized?: boolean;
+  checkInFinalizedAt?: string;
+  checkInFinalizedBy?: string;
+  checkInChangesPending?: boolean;
+  checkInRevision?: number;
   session: {
     checkInFinalized: boolean;
     checkInFinalizedAt?: string;
+    checkInFinalizedBy?: string;
+    checkInChangesPending?: boolean;
+    checkInRevision?: number;
+    checkInRevisions?: AttendanceCheckInRevision[];
     actualNormalFinishTime?: string;
     actualNormalFinishDate?: string;
+    categoryActualDepartures?: CategoryActualDeparture[];
     categoryFinishTimes?: CategoryFinishTime[];
     requirementFinishOverrides?: AttendanceRequirementOverride[];
     checkOutFinalized: boolean;
@@ -122,18 +238,44 @@ export interface AttendanceRosterResponse {
     verifiedBy?: string;
     verifiedAt?: string;
     rejectionReason?: string;
+    categoryCheckInConfirmations?: CategoryCheckInConfirmation[];
   };
+  categoryCheckInConfirmations?: CategoryCheckInConfirmation[];
   latestReportingTime: string;
   latestReportingTimestamp: string | null;
   canFinalizeCheckIn: boolean;
+  canReFinalizeCheckIn?: boolean;
+  canEditCheckIn?: boolean;
   totalAssigned: number;
   scheduledEventEndAt?: string;
   correctionDeadlineAt?: string;
   canNormalCorrect?: boolean;
   isAfterCorrectionDeadline?: boolean;
+  canModifyCheckout?: boolean;
+  checkoutModificationDeadlineAt?: string;
+  checkoutModificationTimeRemainingMs?: number;
+  categoryActualDepartures?: CategoryActualDeparture[];
+  categorySummaries?: CategorySummary[];
+  totalEligibleWorkers?: number;
+  totalAbsentWorkers?: number;
+  totalNormalWorkers?: number;
+  totalEarlyDepartureWorkers?: number;
+  totalOvertimeWorkers?: number;
+  totalPendingWorkers?: number;
   openConcernsCount?: number;
   requirements?: AttendanceRosterRequirementItem[];
   roster: AttendanceRosterItem[];
+  summary?: {
+    total: number;
+    present: number;
+    late: number;
+    absent: number;
+    checkedOutCount: number;
+    pendingCheckOutCount: number;
+    normalCount: number;
+    earlyDepartureCount: number;
+    overtimeCount: number;
+  };
 }
 
 export interface LateExceptionInput {

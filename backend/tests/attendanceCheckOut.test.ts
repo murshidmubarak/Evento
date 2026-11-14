@@ -12,6 +12,7 @@ import { WorkRequirement } from '../src/modules/work-requirements/model/work-req
 import { AttendanceSession } from '../src/modules/attendance/model/attendance-session.model.js';
 import { Attendance } from '../src/modules/attendance/model/attendance.model.js';
 import { attendanceService } from '../src/modules/attendance/service/attendance.service.js';
+import { constructKolkataDateTime } from '../src/modules/attendance/utils/attendance-window.util.js';
 
 describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services & APIs', () => {
   let server: any;
@@ -909,6 +910,227 @@ describe('Milestone 4 — Phase 4.4: Exception-Based Checkout Backend Services &
       assert.strictEqual(w4.departureStatus, 'overtime');
       assert.strictEqual(w4.overtimeMinutes, 120);
       assert.strictEqual(w4.durationMinutes, 690);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Section 15: Timezone-Corrected Explicit Date and Time Checkout Suite
+  // ---------------------------------------------------------------------------
+  describe('Timezone-Corrected Explicit Date and Time Checkout Suite', () => {
+    let tzEventId: string;
+    let tzWorkerId: string;
+    const testDateStr = '2026-11-14';
+
+    before(async () => {
+      // Create Worker
+      const w = await User.create({
+        name: 'Tz Worker',
+        email: 'tz_worker@example.com',
+        password: 'password123',
+        role: 'worker',
+        workerType: 'Catering Boy',
+        isActive: true,
+      });
+      tzWorkerId = w._id.toString();
+
+      // Create Event on 2026-11-14 (17:00 to 02:00 next day)
+      const eTz = await Event.create({
+        clientId,
+        eventManagerId: managerAId,
+        title: 'Tz Wedding Event',
+        eventType: 'Wedding',
+        date: new Date(`${testDateStr}T00:00:00.000Z`),
+        startTime: '17:00',
+        endTime: '02:00',
+        location: { address: 'Tz Banquet' },
+        guestCount: 100,
+        status: 'confirmed',
+      });
+      tzEventId = eTz._id.toString();
+
+      await WorkRequirement.create({
+        eventId: eTz._id,
+        workerType: 'Catering Boy',
+        requiredCount: 1,
+        reportingTime: '17:00',
+        status: 'filled',
+        assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(tzWorkerId), assignedAt: new Date() }],
+      });
+
+      // Confirm check-in on event day at 17:00
+      attendanceService.setTestClock(new Date(`${testDateStr}T17:00:00.000+05:30`));
+      await attendanceService.finalizeCategoryCheckIn(
+        managerAId,
+        'event_manager',
+        tzEventId,
+        'Catering Boy',
+        'idem_tz_confirm_1',
+        {},
+        { skipTimingGuard: true }
+      );
+    });
+
+    after(() => {
+      attendanceService.setTestClock(null);
+    });
+
+    it('1. converts 14-11-2026 15:55 Asia/Kolkata to canonical UTC instant 2026-11-14T10:25:00.000Z', () => {
+      const converted = constructKolkataDateTime('2026-11-14', '15:55');
+      assert.strictEqual(converted.toISOString(), '2026-11-14T10:25:00.000Z');
+    });
+
+    it('2. accepts departure 15:55 IST (03:55 PM) when current server time is 2026-11-14T11:12:00.000Z (04:42 PM IST)', async () => {
+      // Server clock at 11:12 UTC (16:42 IST)
+      attendanceService.setTestClock(new Date('2026-11-14T11:12:00.000Z'));
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/categories/departure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          workerType: 'Catering Boy',
+          actualDepartureDate: '2026-11-14',
+          actualDepartureTime: '15:55',
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const body = await res.json();
+      assert.strictEqual(body.success, true);
+      assert.strictEqual(body.data.actualDepartureTime, '15:55');
+      assert.strictEqual(new Date(body.data.actualDepartureDate).toISOString(), '2026-11-14T10:25:00.000Z');
+    });
+
+    it('3. rejects departure 17:00 IST when current server time is 2026-11-14T11:12:00.000Z (16:42 IST) with 400 Bad Request', async () => {
+      attendanceService.setTestClock(new Date('2026-11-14T11:12:00.000Z'));
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/categories/departure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          workerType: 'Catering Boy',
+          actualDepartureDate: '2026-11-14',
+          actualDepartureTime: '17:00',
+        }),
+      });
+
+      assert.strictEqual(res.status, 400);
+      const body = await res.json();
+      assert.match(body.message, /future/i);
+    });
+
+    it('4. calculates accurate 540 min working duration for cross-midnight explicit date selection (15-11-2026 02:00 IST with checkin at 14-11-2026 17:00 IST)', async () => {
+      // Advance clock past 02:00 IST next day (02:30 IST = 2026-11-14T21:00:00.000Z)
+      attendanceService.setTestClock(new Date('2026-11-14T21:00:00.000Z'));
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/categories/departure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          workerType: 'Catering Boy',
+          actualDepartureDate: '2026-11-15',
+          actualDepartureTime: '02:00',
+        }),
+      });
+
+      assert.strictEqual(res.status, 200);
+      const body = await res.json();
+      assert.strictEqual(body.success, true);
+
+      // Verify worker duration: 17:00 IST (14th) to 02:00 IST (15th) = 9 hours = 540 mins
+      const att = await Attendance.findOne({ eventId: tzEventId, workerId: tzWorkerId });
+      assert.ok(att);
+      assert.strictEqual(att.durationMinutes, 540);
+      assert.strictEqual(att.departureStatus, 'normal');
+      assert.strictEqual(new Date(att.checkOut!).toISOString(), '2026-11-14T20:30:00.000Z');
+    });
+
+    it('5. removal of implicit rollover: 02:00 with date 2026-11-14 does not add +24h and is rejected because 02:00 is earlier than 17:00 check-in', async () => {
+      attendanceService.setTestClock(new Date('2026-11-14T21:00:00.000Z'));
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/workers/${tzWorkerId}/checkout-exception`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          actualDepartureDate: '2026-11-14',
+          actualDepartureTime: '02:00',
+        }),
+      });
+
+      // 02:00 on 2026-11-14 is 15 hours before 17:00 check-in -> must be rejected without implicit rollover!
+      assert.strictEqual(res.status, 400);
+      const body = await res.json();
+      assert.match(body.message, /must be strictly later than.*check-in/i);
+    });
+
+    it('6. strict check-in chronology rejects departure timestamp <= effective check-in timestamp', async () => {
+      attendanceService.setTestClock(new Date('2026-11-14T21:00:00.000Z'));
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/workers/${tzWorkerId}/checkout-exception`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          actualDepartureDate: '2026-11-14',
+          actualDepartureTime: '17:00', // Exactly equal to check-in
+        }),
+      });
+
+      assert.strictEqual(res.status, 400);
+      const body = await res.json();
+      assert.match(body.message, /must be strictly later than/i);
+    });
+
+    it('7. rejects missing or invalid actualDepartureDate format with 400 Bad Request', async () => {
+      const resMissing = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/categories/departure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          workerType: 'Catering Boy',
+          actualDepartureTime: '18:00',
+        }),
+      });
+      assert.strictEqual(resMissing.status, 400);
+      const bodyMissing = await resMissing.json();
+      assert.ok(
+        bodyMissing.error?.errors?.some((e: string) => /actualDepartureDate/i.test(e)) ||
+        /actualDepartureDate/i.test(bodyMissing.message)
+      );
+
+      const resInvalid = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${tzEventId}/categories/departure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managerAToken}`,
+        },
+        body: JSON.stringify({
+          workerType: 'Catering Boy',
+          actualDepartureDate: '14-11-2026', // wrong format, not YYYY-MM-DD
+          actualDepartureTime: '18:00',
+        }),
+      });
+      assert.strictEqual(resInvalid.status, 400);
+      const bodyInvalid = await resInvalid.json();
+      assert.ok(
+        bodyInvalid.error?.errors?.some((e: string) => /actualDepartureDate/i.test(e)) ||
+        /actualDepartureDate/i.test(bodyInvalid.message)
+      );
     });
   });
 

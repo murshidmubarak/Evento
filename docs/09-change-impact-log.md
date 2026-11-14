@@ -2073,3 +2073,258 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - All 37 automated frontend tests passed.
   - Production build succeeded with 0 errors.
+
+---
+
+### [2026-11-13] Milestone 4 Phase 4.4: Exception-Based Category-Wise Checkout Architecture
+- **Requested Change**:
+  - Implement an Exception-Based, Category-Wise Checkout Workflow across backend and frontend.
+  - Manager records one actual departure time per worker category (`categoryActualDepartures`), acting as the authoritative default checkout for normal workers in that category (`checkOutSource: 'category_default'`, `departureStatus: 'normal'`).
+  - Exceptional workers (Early Departure or Overtime) receive individual departure timestamps entered by the manager (`checkOutSource: 'individual_exception'`).
+  - Automatic backend calculation of working durations: `Math.floor((effectiveCheckout - effectiveCheckIn) / 60000)`.
+  - Dynamic Reclassification Engine: Updating a category departure automatically updates normal workers while preserving individual exception timestamps, reclassifying exceptions dynamically (Early Departure, Normal, or Overtime) against the updated category departure.
+  - Hard 24-Hour Post-Event Modification Lock: Enforced via `calculateEventCorrectionWindow(event)` (`scheduledEventEndAt + 24 hours`). After deadline expiration, all checkout mutations are permanently rejected with HTTP 403 Forbidden.
+  - Finalization Window Rule: Finalizing checkout does not prematurely prevent modifications during the remaining 24-hour window.
+  - Strict Absent Worker Exclusion: Absent workers are completely excluded from checkout, duration = 0, and blocked from exception creation.
+  - Chronology Guards: Check-in >= category departure rejects category default application. Check-out <= check-in rejected. Future timestamps rejected.
+- **Impact Level**: CRITICAL / HIGH (Approved by Developer with 8 clarifications).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/model/attendance.model.ts`
+  - `backend/src/modules/attendance/model/attendance-session.model.ts`
+  - `backend/src/modules/attendance/repository/attendance-session.repository.ts`
+  - `backend/src/modules/attendance/repository/attendance.repository.ts`
+  - `backend/src/modules/attendance/validation/attendance.validation.ts`
+  - `backend/src/modules/attendance/service/attendance.service.ts`
+  - `backend/src/modules/attendance/controller/attendance.controller.ts`
+  - `backend/src/modules/attendance/routes/attendance.routes.ts`
+  - `backend/tests/attendanceCheckOut.test.ts`
+  - `frontend/src/features/attendance/attendance.types.ts`
+  - `frontend/src/features/attendance/attendanceApi.ts`
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`
+  - `frontend/src/components/manager/attendance/FinalizedAttendanceView.tsx`
+  - `frontend/src/components/manager/attendance/ReviewCheckoutModal.tsx`
+  - `frontend/src/tests/attendanceCheckOutUI.test.tsx`
+- **Affected Modules**:
+  - Attendance Domain (Backend models, session repository, service, controllers, routes)
+  - Event Manager Portal (Attendance Workspace, Category Cards, Review Modal, Finalized View)
+- **Affected APIs**:
+  - `POST /api/attendance/events/:eventId/categories/departure` (New)
+  - `POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception` (New)
+  - `DELETE /api/attendance/events/:eventId/workers/:workerId/checkout-exception` (New)
+  - `POST /api/attendance/events/:eventId/finalize-checkout` (Enhanced with session category departures fallback)
+  - `GET /api/attendance/events/:eventId/roster` (Enhanced with category departures, summaries, and 24h deadline metadata)
+- **Database Schema Changes**:
+  - Extended `attendance.model.ts` TimestampSource enum with `category_default` and `individual_exception`.
+  - Added `ICategoryActualDeparture` & `ICategoryActualDepartureRevision` schemas to `attendance-session.model.ts` while retaining backward-compatible `categoryFinishTimes`.
+- **Database Safety Compliance (Rule 26)**:
+  - 100% adherence to Rule 26. Zero dummy data written to `eventops`.
+  - Test suites executed strictly against isolated `eventops_test` with complete teardown cleanup.
+- **Verification Results**:
+  - Backend Integration Suite (`attendanceCheckOut.test.ts`): 36/36 tests passing (100%).
+  - Backend Concerns Suite (`attendanceConcernsAndDeadlines.test.ts`): 25/25 tests passing (100%).
+  - Frontend Vitest Suite (`attendanceCheckOutUI.test.tsx` + all 21 other suites): 141/141 tests passing (100%).
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors.
+  - Frontend Build (`npm --prefix frontend run build`): 0 errors.
+
+---
+
+### [2026-11-13] Attendance Checkout Refinement: Event-Day Only Departure Setting & Post-Event Day Closure
+- **Requested Change**:
+  - Enforce that departure time can only be set or updated by the assigned Event Manager on the scheduled event day (`isEventDay`).
+  - Checkout editing is permanently closed after the scheduled event day has passed (`currentOperationalDate > eventOperationalDate` or `> endOperationalDate` for overnight shifts).
+  - Explicitly eliminate any post-event day changing options.
+  - Strict backend validation:
+    - Attempting to set category departures or exceptions before event day returns HTTP 400 Bad Request (`cannot set before event day`).
+    - Attempting to set category departures or exceptions after event day returns HTTP 403 Forbidden (`Checkout editing is closed because the scheduled event day has ended. Departure times can only be set on the event day.`).
+    - Only assigned Event Manager (or Admin) can record departures.
+  - Frontend workspace reflects `canModifyCheckout` strictly during active event day, locking UI controls and surfacing closed banner once event day ends.
+- **Impact Level**: LOW-MEDIUM (Validation boundary tightening on checkout endpoints).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/utils/attendance-window.util.ts`
+  - `backend/src/modules/attendance/service/attendance.service.ts`
+  - `backend/tests/attendanceCheckOut.test.ts`
+  - `frontend/src/features/attendance/attendance.types.ts`
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`
+  - `frontend/src/tests/attendanceCheckOutUI.test.tsx`
+  - `docs/04-status-and-business-rules.md`
+  - `docs/05-api-design.md`
+- **Verification Results**:
+  - Backend Integration Suite (`attendanceCheckOut.test.ts`): 36/36 tests passing (100%).
+  - Frontend Vitest Suite (`attendanceCheckOutUI.test.tsx`): 11/11 tests passing (100%).
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors.
+  - Frontend Build (`npm --prefix frontend run build`): 0 errors.
+
+---
+
+### [2026-11-14] Attendance Module: Check-in Finalization, Event-Day Post-Finalization Corrections & Re-finalization Workflow
+- **Requested Change**:
+  - Implement complete Check-in Finalization and Re-finalization workflow in the Attendance module:
+    1. Dedicated "Review & Finalize Check-in" workflow with summary counts (Total Assigned, Default Present, Late, Absent, Needs Attention).
+    2. Unmarked workers atomically default to Present / On Time.
+    3. Event-day corrections: After check-in finalization, managers are permitted to correct worker check-ins strictly during the event operational date (`isEventDay`).
+    4. Post-finalization edits invalidate previous check-in finalization, setting `checkInChangesPending: true` and triggering a "Review & Re-finalize Check-in" requirement.
+    5. Re-finalization clears pending state, increments `checkInRevision`, logs revision history with change reason, and automatically recalculates working durations for any recorded checkouts.
+    6. Post-event day lockout: After the scheduled event day ends (`isAfterEventDay`), initial check-ins and check-in corrections are permanently blocked with HTTP 403 Forbidden.
+    7. Permanent Concern and Arrival Locks: Closed Late and Absent concerns remain permanently locked against edits and re-finalization.
+    8. Absent Worker Exclusion: Absent workers remain excluded from checkout with zero active duration; transitioning to Absent post-checkout clears checkout and resets duration to 0.
+    9. Checkout Prerequisite: Checkout finalization is strictly blocked while check-in has not been finalized or while check-in changes are pending re-finalization.
+- **Impact Level**: HIGH (Explicitly approved by developer before execution).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/model/attendance-session.model.ts`
+  - `backend/src/modules/attendance/repository/attendance-session.repository.ts`
+  - `backend/src/modules/attendance/service/attendance.service.ts`
+  - `backend/src/modules/attendance/validation/attendance.validation.ts`
+  - `backend/tests/attendanceCheckInFinalization.test.ts`
+  - `frontend/src/features/attendance/attendance.types.ts`
+  - `frontend/src/components/manager/attendance/ReviewCheckinModal.tsx`
+  - `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`
+  - `frontend/src/tests/attendanceCheckInUI.test.tsx`
+  - `docs/04-status-and-business-rules.md`
+  - `docs/05-api-design.md`
+  - `docs/06-architecture.md`
+  - `docs/07-development-plan.md`
+- **Database Safety Compliance (Rule 26)**:
+  - 100% adherence to Rule 26. Zero dummy data written to `eventops`.
+  - All test runs executed exclusively against `eventops_test` with complete teardown cleanup.
+- **Verification Results**:
+  - Backend Integration Suite (`attendanceCheckInFinalization.test.ts`): 17/17 tests passing (100%).
+  - Backend Regression Suites:
+    - `attendanceCheckOut.test.ts`: 36/36 tests passing (100%).
+    - `attendanceCheckIn.test.ts`: 24/24 tests passing (100%).
+  - Frontend Vitest Suites (`attendanceCheckInUI.test.tsx`, `attendanceCheckOutUI.test.tsx`): 100% passing.
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors.
+  - Frontend Production Build (`npm --prefix frontend run build`): 0 errors.
+
+---
+
+### [2026-11-14] Attendance Module: Independent Category-Wise Check-in Confirmation & Category-Specific Checkout Eligibility
+- **Requested Change**:
+  - Implement independent category-wise check-in confirmation and checkout eligibility across the Attendance module:
+    1. Granular Check-in Confirmation: Each worker category has independent check-in review, confirmation, revision tracking, and pending state (`categoryCheckInConfirmations` subdocument schema).
+    2. Category-Specific Checkout Eligibility: Confirming Category A immediately unlocks Category A's checkout (actual category departure time entry and individual Early Departure/Overtime exceptions) without waiting for unrelated unconfirmed categories. Unconfirmed categories remain safely checkout-locked.
+    3. Scoped Event-Day Invalidation: An attendance edit on a Category A worker strictly marks `category.checkInChangesPending: true` for Category A only. Category B remains untouched.
+    4. Canonical API: Canonical endpoint `POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin` supporting Idempotency-Key deduplication, scoped exception lists, and revision history.
+    5. Partial Category Eligibility: When category departure is recorded, workers who checked in at or after the departure timestamp are safely excluded from the category default and flagged as requiring an individual overtime exception (`ineligibleOvertimeRequiredCount: 1`), while all eligible workers who checked in earlier receive default checkout without failing the batch operation.
+    6. Strict Chronology: Backend strictly validates that checkout timestamp is strictly later than effective check-in timestamp (`actualCheckoutTimestamp > effectiveCheckInTimestamp`).
+    7. Dynamic Reclassification: When category departure changes, worker individual exception timestamps are preserved, and their departure status/minutes are automatically reclassified against the new departure.
+    8. Closed Concern Locks: Closed Late and Absent concerns permanently lock arrival information against edits and re-finalization; non-absent workers with closed concerns remain eligible for checkout updates within the modification window.
+- **Impact Level**: HIGH / CRITICAL (Explicitly approved by user before execution).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/model/attendance-session.model.ts`
+  - `backend/src/modules/attendance/repository/attendance-session.repository.ts`
+  - `backend/src/modules/attendance/validation/attendance.validation.ts`
+  - `backend/src/modules/attendance/controller/attendance.controller.ts`
+  - `backend/src/modules/attendance/routes/attendance.routes.ts`
+  - `backend/src/modules/attendance/service/attendance.service.ts`
+  - `backend/tests/attendanceCategoryCheckInIndependence.test.ts`
+  - `backend/tests/attendanceCheckOut.test.ts`
+  - `frontend/src/features/attendance/attendance.types.ts`
+  - `frontend/src/features/attendance/attendanceApi.ts`
+  - `frontend/src/components/manager/attendance/ReviewCheckinModal.tsx`
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`
+  - `docs/04-status-and-business-rules.md`
+  - `docs/05-api-design.md`
+  - `docs/06-architecture.md`
+  - `docs/08-bug-log.md`
+  - `docs/09-change-impact-log.md`
+- **Database Safety Compliance (Rule 26)**:
+  - 100% adherence to Rule 26. Zero dummy data written to `eventops`.
+  - All automated test executions executed exclusively against isolated `eventops_test` with complete teardown cleanup.
+- **Verification Results**:
+  - Category Independence Integration Suite (`attendanceCategoryCheckInIndependence.test.ts`): 27/27 tests passing (100%).
+  - Backend Regression Suites:
+    - `attendanceCheckInFinalization.test.ts`: 17/17 tests passing (100%).
+    - `attendanceCheckOut.test.ts`: 36/36 tests passing (100%).
+    - `attendanceCheckIn.test.ts`: 24/24 tests passing (100%).
+  - Total Passing Tests: 104 tests passed across all attendance suites (0 failures).
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 TypeScript/build errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Module: 12-Hour AM/PM Time Format Display Upgrade
+- **Requested Change**:
+  - Replace 24-hour military/railway ("train") time displays across the Attendance Check-in and Checkout pages, cards, tables, modal dialogs, and notifications with 12-hour AM/PM format (e.g. `08:00 AM`, `05:30 PM`, `12:00 PM`, `12:00 AM`).
+- **Impact Level**: LOW / MEDIUM (Frontend presentation and user experience enhancement).
+- **Directly Affected Files**:
+  - `frontend/src/utils/formatters.ts`: Added canonical `formatTimeTo12Hour` helper handling 24h strings, ISO Date strings (Asia/Kolkata timezone), Date instances, and AM/PM strings.
+  - `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`: Scheduled shift column, Late modal header, Late modal description, and arrival validation cues.
+  - `frontend/src/components/manager/attendance/ReviewCheckinModal.tsx`: Scheduled and actual arrival times.
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`: Actual departure badge, check-in and checkout worker timestamps, and modal reference text.
+  - `frontend/src/components/manager/attendance/CheckoutFinishingTimeCard.tsx`: Category batch apply button, override finish times, and resolved finish time summary table.
+  - `frontend/src/components/manager/attendance/CheckoutRosterTable.tsx`: Worker reporting times, applicable normal finish times, and normal checkout help subtext.
+  - `frontend/src/components/manager/attendance/ReviewCheckoutModal.tsx`: Category actual departure badges.
+  - `frontend/src/components/manager/attendance/FinalizedAttendanceView.tsx`: Check-in, check-out, and scheduled reporting times.
+  - `frontend/src/components/manager/attendance/CorrectionModal.tsx`: Arrival and departure timestamps, reporting times, and applicable finish times.
+  - `frontend/src/components/manager/attendance/AttendanceTimingBanner.tsx`: Latest shift timing threshold display.
+  - `frontend/src/components/manager/attendance/AttendanceSummaryCards.tsx`: Latest reporting time metric card.
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Toast notifications and banners mentioning arrival or departure times.
+  - `frontend/src/pages/worker/WorkerAttendanceConcerns.tsx`: Worker scheduled reporting time display.
+  - `frontend/src/tests/timeFormat.test.ts`: 9 new unit tests verifying morning AM, noon PM, evening PM, midnight AM, ISO Date strings, Date instances, and edge-case handling.
+  - `frontend/src/tests/attendanceCategoryAndImmediateCheckInUI.test.tsx`: Updated test assertions to match 12-hour AM/PM display strings.
+- **Verification Results**:
+  - `timeFormat.test.ts`: 9/9 tests passing (100%).
+  - Attendance Frontend Test Suites (`attendance*.test.tsx`): 47/47 tests passing (100%).
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 TypeScript/build errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Module: 12-Hour Clock Time Selector on Checkout Page
+- **Requested Change**:
+  - Replace manual text-based time entry inputs (`type="text"`) across the Checkout page with interactive 12-hour clock time pickers (`type="time"`), eliminating manual text typing and colons.
+- **Impact Level**: LOW (Frontend interactive control upgrade).
+- **Directly Affected Files**:
+  - `frontend/src/utils/formatters.ts`: Added `formatTimeTo24Hour` utility to normalize any 12-hour AM/PM string, ISO Date, or Date instance into HTML5 time-input compatible `HH:mm` format.
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`: Replaced text inputs for Category Departure and Individual Early/Overtime Exceptions with 12-hour clock time selectors and formatted live AM/PM badges.
+  - `frontend/src/components/manager/attendance/CheckoutFinishingTimeCard.tsx`: Replaced text inputs with time pickers for default finishing time, category finish times, and override times.
+  - `frontend/src/components/manager/attendance/CheckoutRosterTable.tsx`: Replaced text inputs with time pickers for inline early departure and overtime exceptions.
+  - `frontend/src/components/manager/attendance/CorrectionModal.tsx`: Replaced text inputs with time pickers for actual arrival and checkout times.
+  - `frontend/src/tests/timeFormat.test.ts`: Added unit tests for `formatTimeTo24Hour`.
+- **Verification Results**:
+  - `timeFormat.test.ts`: 13/13 tests passing (100%).
+  - Attendance Frontend Test Suites (`attendance*.test.tsx`): 47/47 tests passing (100%).
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Module: Checkout Timezone Correction & Explicit Date Selection
+- **Requested Change**:
+  - Fix the checkout validation bug where manager-entered departure times were incorrectly interpreted as UTC instead of `Asia/Kolkata` local time (`+05:30`), causing valid past departure times (e.g. 03:55 PM IST when current time was 04:42 PM IST) to be falsely rejected as future times.
+  - Require explicit calendar date (`actualDepartureDate: YYYY-MM-DD`) AND time (`actualDepartureTime: HH:mm`) for every category actual departure and individual Early Departure/Overtime exception.
+  - Remove implicit overnight date rollover (+24 hours when `depMins <= repMins`) from checkout date construction; cross-midnight events must be explicitly handled by the manager selecting the next calendar date.
+  - Enforce future-time server clock validation uniformly without test-environment bypass (`process.env.NODE_ENV !== 'test'`).
+  - Maintain accurate cross-midnight duration calculation, strict check-in chronology ($T_{\text{checkout}} > T_{\text{checkin}}$), dynamic exception reclassification, and 24-hour post-event editing deadline.
+- **Impact Level**: HIGH / CRITICAL (Explicitly authorized by user).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/utils/attendance-window.util.ts`: Added `isValidDateString` and `constructKolkataDateTime(dateVal, timeStr24h)`.
+  - `backend/src/modules/attendance/validation/attendance.validation.ts`: Updated `validateCategoryDeparture` and `validateWorkerCheckOutException` to require and validate `actualDepartureDate` (`YYYY-MM-DD`).
+  - `backend/src/modules/attendance/service/attendance.service.ts`: Replaced date construction with canonical `constructKolkataDateTime`, removed implicit rollover, added injectable `testClockProvider`, and enforced strict server-clock future validation without test bypasses.
+  - `backend/package.json`: Added `test:file` script.
+  - `backend/tests/attendanceCheckOut.test.ts`: Added explicit `actualDepartureDate` to all test payloads; added Section 15 suite with 7 dedicated test cases.
+  - `backend/tests/attendanceCategoryCheckInIndependence.test.ts`: Integrated `attendanceService` test clock and explicit dates.
+  - `backend/tests/attendanceCheckInFinalization.test.ts`: Integrated `attendanceService` test clock.
+  - `frontend/src/features/attendance/attendance.types.ts`: Added `actualDepartureDate: string` to payloads.
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Passed event operational date as `defaultDate` to `<CheckoutCategoryCard />`.
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`: Added date picker inputs for category departure and individual exceptions.
+  - `docs/04-status-and-business-rules.md`, `docs/05-api-design.md`, `docs/06-architecture.md`: Updated specifications.
+  - `docs/08-bug-log.md`: Logged BUG-031.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Database Safety Compliance (Rule 26)**:
+  - 100% adherence to Rule 26. Zero writes to actual database `eventops`. All test executions ran strictly against `eventops_test` with complete teardown cleanup.
+- **Verification Results**:
+  - Backend Integration Suites:
+    - `attendanceCheckOut.test.ts`: 31/31 tests passing (100%).
+    - `attendanceCategoryCheckInIndependence.test.ts`: 27/27 tests passing (100%).
+    - `attendanceCheckInFinalization.test.ts`: 17/17 tests passing (100%).
+    - `attendanceCheckIn.test.ts`: 24/24 tests passing (100%).
+    - Total backend attendance tests passing: 99/99 (100%).
+  - Frontend Test Suites (`vitest run`): 154/154 tests passing across 23 test files (100%).
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Backend Build (`npm --prefix backend run build`): compiled `dist/` cleanly, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+
+

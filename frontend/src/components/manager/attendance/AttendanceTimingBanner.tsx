@@ -1,5 +1,6 @@
 import React from 'react';
 import { Clock, CheckCircle2, Lock } from 'lucide-react';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 
 interface AttendanceTimingBannerProps {
   latestReportingTime: string;
@@ -58,11 +59,11 @@ export const AttendanceTimingBanner: React.FC<AttendanceTimingBannerProps> = ({
               Check-in Finalization Locked Until Latest Shift
             </h4>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-200/80 text-blue-900 text-[11px] font-semibold rounded-full border border-blue-300">
-              Available after {latestReportingTime || 'scheduled time'}
+              Available after {latestReportingTime ? formatTimeTo12Hour(latestReportingTime) : 'scheduled time'}
             </span>
           </div>
           <p className="text-xs text-blue-800 leading-relaxed">
-            Finalization will become available once the latest scheduled shift starts (<strong>{latestReportingTime}</strong>).
+            Finalization will become available once the latest scheduled shift starts (<strong>{formatTimeTo12Hour(latestReportingTime)}</strong>).
             You can prepare late and absent exceptions now. Final submission requires the backend timing guard to pass.
           </p>
         </div>
@@ -85,7 +86,7 @@ export const AttendanceTimingBanner: React.FC<AttendanceTimingBannerProps> = ({
           </span>
         </div>
         <p className="text-xs text-emerald-800 leading-relaxed">
-          The latest scheduled shift time (<strong>{latestReportingTime}</strong>) has arrived.
+          The latest scheduled shift time (<strong>{formatTimeTo12Hour(latestReportingTime)}</strong>) has arrived.
           Any worker without an explicit late or absent exception will be automatically recorded as Present / On Time.
         </p>
       </div>

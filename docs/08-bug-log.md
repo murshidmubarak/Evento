@@ -1360,3 +1360,158 @@ In `attendanceCorrectionAndApproval.test.ts`, `finalizeCheckIn` is invoked in `b
 ### Rule
 
 1. Test fixtures that programmatically invoke `finalizeCheckIn` to seed state for downstream testing must specify `{ skipTimingGuard: true }` so tests execute reliably at any time of day across any runner timezone.
+
+---
+
+## BUG-028 — Attendance Test Suite Parallel Database Dropping & Departure Payload Field Alignment
+
+### Date
+
+2026-11-13
+
+### Feature / Module
+
+Milestone 4 — Phase 4.4: Exception-Based Category-Wise Checkout Architecture / `backend/tests/` & `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. When running multiple backend attendance test files concurrently in one `npx tsx --test` command, tests in the longer-running file failed with assertion errors (`att is null`, HTTP 404/500).
+2. During backend type checking, `tsc --noEmit` flagged `error TS2339: Property 'actualDepartureTime' does not exist on type 'RecordWorkerCheckOutExceptionPayload'`.
+
+### Root Cause
+
+1. By default, `node:test` runs separate test files in parallel. The teardown `after()` hook of each test file calls `cleanupTestDatabase()` which drops the isolated test database `eventops_test`. When one test suite finishes, its teardown dropped the test database while sibling test suites were actively querying it.
+2. In `attendance.service.ts`, `RecordWorkerCheckOutExceptionPayload` was defined with only `actualCheckoutTime`, but the new category-wise exception API accepted both `actualDepartureTime` and `actualCheckoutTime`.
+
+### Solution
+
+1. Ensured test runner commands run sequentially (`--test-concurrency=1`) or test files individually, preventing overlapping database teardown.
+2. Updated `RecordWorkerCheckOutExceptionPayload` to define optional `actualDepartureTime?: string;` alongside `actualCheckoutTime?: string;`, supporting both property conventions seamlessly.
+
+### Rule
+
+1. Multi-file automated test runs against a shared test database (`eventops_test`) must be executed sequentially (`--test-concurrency=1`) to prevent premature teardown interference.
+2. Payload interfaces must explicitly declare all supported alias fields to maintain clean TypeScript compilation.
+
+---
+
+## BUG-029 — Attendance Check-in Finalization Timing Guard & Pre-Event Day Evaluation
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Check-in Finalization, Event-Day Post-Finalization Corrections & Re-finalization Workflow / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When testing check-in finalization on a future event in `attendanceCheckIn.test.ts`, the test expected the error message `Cannot finalize check-in before the latest reporting time`, but received `Check-in cannot be finalized before the scheduled event day`.
+
+### Root Cause
+
+`finalizeCheckIn` evaluated `windowInfo.isBeforeEventDay` before checking `now.getTime() < latestReportingTimestamp.getTime()`. While both conditions correctly reject uncommenced shifts with HTTP 400 Bad Request, the earliest reporting timestamp guard is the authoritative domain validation for both same-day uncommenced shifts and future dates.
+
+### Solution
+
+Removed the redundant early string check in `finalizeCheckIn` and relied on the comprehensive timing guard (`latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()`). Since all future events have reporting timestamps in the future, the timing guard consistently rejects future events with `Cannot finalize check-in before the latest reporting time...`.
+
+### Rule
+
+1. Check-in finalization timing evaluation must rely on `latestReportingTimestamp` comparison to provide a consistent, clear rejection message across all uncommenced shifts.
+
+---
+
+## BUG-030 — Category Departure Chronology Anomaly with Late-Arriving Workers (Partial Category Eligibility Solution)
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Category-Wise Checkout & Worker Departure / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+In multi-worker shifts where a worker checked in late at or after the category departure time (e.g. checked in at 17:30 while category departure was set to 17:00), setting category departure would fail the entire batch or risk applying an invalid checkout earlier than check-in.
+
+### Root Cause
+
+Category actual departure updates previously applied the departure timestamp indiscriminately to all non-absent workers in the category, conflicting with the business rule that checkout must be strictly later than check-in.
+
+### Solution
+
+Implemented Partial Category Eligibility: workers who checked in at or after the category departure time are safely excluded from the category default and left in a pending individual overtime exception state (`ineligibleOvertimeRequiredCount: 1`), while all eligible workers who checked in earlier receive the category departure normally.
+
+### Rule
+
+1. When applying category default checkout, evaluate `checkIn < categoryDeparture` for each worker. Workers who checked in at or after the category departure must be excluded from the category default and flagged as requiring an individual overtime exception.
+
+---
+
+## BUG-031 — Checkout Departure False Future Rejection Due to Raw UTC Construction and Implicit Overnight Rollover
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Checkout Departure & Exception APIs / `backend/src/modules/attendance/service/attendance.service.ts`, `backend/src/modules/attendance/utils/attendance-window.util.ts`, `backend/src/modules/attendance/validation/attendance.validation.ts`, `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When a manager attempted to record a valid category departure or individual Early Departure exception (for example, entering 03:55 PM IST when current system time was 04:42 PM IST), the backend rejected the request with HTTP 400 Bad Request: `"Individual departure time cannot be in the future"` or `"Category departure time cannot be in the future"`.
+
+### Root Cause
+
+1. `constructDateTime` in `AttendanceService` previously combined event calendar dates with departure time strings using raw UTC methods (`date.setUTCHours(h, m, 0, 0)`). Since Asia/Kolkata is UTC+05:30, entering `15:55` was interpreted as `15:55:00.000Z` UTC (equivalent to 09:25 PM IST), placing the timestamp 5 hours and 30 minutes in the future relative to authoritative server time (`11:12:00.000Z` UTC = 04:42 PM IST).
+2. Implicit +24 hour overnight date rollover (`if (depMins <= repMins) departureDate.setTime(...)`) caused unintentional date advancement when shifts spanned across midnight or when early departures were recorded.
+3. Category departure and individual exception endpoints accepted only time strings (`HH:mm`), omitting explicit calendar date selection.
+
+### Solution
+
+1. Added `constructKolkataDateTime(dateVal, timeStr24h)` to `attendance-window.util.ts`, parsing `YYYY-MM-DD` and `HH:mm` into canonical UTC instants with the exact Asia/Kolkata offset (`+05:30`). For example, `constructKolkataDateTime('2026-11-14', '15:55')` correctly constructs `2026-11-14T10:25:00.000Z`.
+2. Updated `validateCategoryDeparture` and `validateWorkerCheckOutException` validation schemas to require `actualDepartureDate` in `YYYY-MM-DD` format.
+3. Removed implicit +24 hour rollover in `AttendanceService`; managers explicitly choose the departure date (e.g. selecting the next calendar day for cross-midnight shifts).
+4. Updated frontend `CheckoutCategoryCard.tsx` to include explicit date pickers for category departure and individual exceptions.
+5. Added injectable `testClockProvider` in `AttendanceService` to ensure future timing validation runs consistently in all environments without `NODE_ENV !== 'test'` bypasses.
+
+### Rule
+
+All local wall-clock date and time inputs must be converted to canonical UTC instants using exact Asia/Kolkata timezone offset (`+05:30`). Departure dates must be explicitly specified by the user and never implicitly calculated.
+

@@ -5,6 +5,7 @@ import {
   calculateOvertimeMinutes,
   parseTimeToMinutes,
 } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour, formatTimeTo24Hour } from '../../../utils/formatters';
 import {
   Clock,
   AlertCircle,
@@ -41,18 +42,7 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
   const [searchTerm, setSearchTerm] = React.useState('');
 
   const formatRecordedTime = (timeVal: string | Date | null | undefined): string => {
-    if (!timeVal) return '—';
-    try {
-      const d = new Date(timeVal);
-      if (isNaN(d.getTime())) return String(timeVal);
-      return d.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return String(timeVal);
-    }
+    return formatTimeTo12Hour(timeVal);
   };
 
   const handleTypeToggle = (worker: AttendanceRosterItem, newType: WorkerCheckOutExceptionType) => {
@@ -227,7 +217,7 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
                     {/* Role */}
                     <td className="py-3.5 px-3">
                       <span className="text-gray-700 font-medium block">{worker.workerType}</span>
-                      <span className="text-[10px] text-gray-400">Rep: {worker.reportingTime}</span>
+                      <span className="text-[10px] text-gray-400">Rep: {formatTimeTo12Hour(worker.reportingTime)}</span>
                     </td>
 
                     {/* Check-in Status */}
@@ -261,7 +251,7 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
                     <td className="py-3.5 px-3">
                       <div className="space-y-0.5">
                         <span className="font-bold text-gray-900 text-xs inline-flex items-center gap-1">
-                          {applicableFinish}
+                          {formatTimeTo12Hour(applicableFinish)}
                           {(() => {
                             const repMins = parseTimeToMinutes(worker.reportingTime);
                             const finMins = parseTimeToMinutes(applicableFinish);
@@ -345,7 +335,7 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
                             <div className="flex items-center gap-1.5 text-[11px] text-emerald-800 font-semibold">
                               <Sparkles size={11} className="text-emerald-600" />
                               <span>
-                                System default checkout at <strong>{applicableFinish}</strong>
+                                System default checkout at <strong>{formatTimeTo12Hour(applicableFinish)}</strong>
                               </span>
                             </div>
                           )}
@@ -354,14 +344,14 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
                           {selectedType === 'early' && (
                             <div className="space-y-1 max-w-xs">
                               <div className="relative">
-                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                 <input
-                                  type="text"
-                                  value={exc?.actualCheckoutTime || ''}
+                                  type="time"
+                                  value={formatTimeTo24Hour(exc?.actualCheckoutTime)}
                                   onChange={(e) => handleTimeInputChange(worker, e.target.value)}
                                   disabled={disabled}
                                   placeholder="Departure Time (e.g. 15:30)"
-                                  className={`w-full pl-7 pr-3 py-1 text-xs rounded-lg border bg-white focus:outline-none ${
+                                  className={`w-full pl-7 pr-3 py-1 text-xs font-semibold rounded-lg border bg-white focus:outline-none cursor-pointer ${
                                     exc?.error
                                       ? 'border-rose-300 text-rose-900'
                                       : 'border-amber-300 text-gray-900'
@@ -386,14 +376,14 @@ export const CheckoutRosterTable: React.FC<CheckoutRosterTableProps> = ({
                           {selectedType === 'overtime' && (
                             <div className="space-y-1 max-w-xs">
                               <div className="relative">
-                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                 <input
-                                  type="text"
-                                  value={exc?.actualCheckoutTime || ''}
+                                  type="time"
+                                  value={formatTimeTo24Hour(exc?.actualCheckoutTime)}
                                   onChange={(e) => handleTimeInputChange(worker, e.target.value)}
                                   disabled={disabled}
                                   placeholder="Checkout Time (e.g. 21:00)"
-                                  className={`w-full pl-7 pr-3 py-1 text-xs rounded-lg border bg-white focus:outline-none ${
+                                  className={`w-full pl-7 pr-3 py-1 text-xs font-semibold rounded-lg border bg-white focus:outline-none cursor-pointer ${
                                     exc?.error
                                       ? 'border-rose-300 text-rose-900'
                                       : 'border-purple-300 text-gray-900'

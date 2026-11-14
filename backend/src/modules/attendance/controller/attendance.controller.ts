@@ -81,6 +81,99 @@ export class AttendanceController {
   });
 
   /**
+   * POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin
+   * Executes manager exception-based check-in confirmation for a specific worker category with idempotency.
+   */
+  finalizeCategoryCheckIn = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId, workerType: paramWorkerType } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const idempotencyKey = (req.headers['idempotency-key'] || req.headers['x-idempotency-key']) as string;
+
+    if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+      throw ApiError.badRequest('Idempotency-Key header is required');
+    }
+
+    const workerType = paramWorkerType ? decodeURIComponent(paramWorkerType) : req.body.workerType;
+    if (!workerType || typeof workerType !== 'string' || !workerType.trim()) {
+      throw ApiError.badRequest('workerType is required');
+    }
+
+    const result = await attendanceService.finalizeCategoryCheckIn(
+      userId,
+      userRole,
+      eventId,
+      workerType.trim(),
+      idempotencyKey.trim(),
+      req.body
+    );
+
+    new ApiResponse(200, `Check-in confirmed successfully for category '${workerType}'`, result).send(res);
+  });
+
+  /**
+   * POST /api/attendance/events/:eventId/categories/departure
+   * Records or updates the category actual departure time and recalculates worker checkouts.
+   */
+  recordCategoryDeparture = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.recordCategoryDeparture(
+      userId,
+      userRole,
+      eventId,
+      req.body
+    );
+
+    new ApiResponse(200, 'Category departure recorded successfully', result).send(res);
+  });
+
+  /**
+   * POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception
+   * Records or updates an individual worker's Early Departure or Overtime exception.
+   */
+  recordWorkerCheckOutException = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId, workerId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.recordWorkerCheckOutException(
+      userId,
+      userRole,
+      eventId,
+      workerId,
+      req.body
+    );
+
+    new ApiResponse(200, 'Worker checkout exception recorded successfully', result).send(res);
+  });
+
+  /**
+   * DELETE /api/attendance/events/:eventId/workers/:workerId/checkout-exception
+   * Clears an individual checkout exception and restores the category default checkout.
+   */
+  clearWorkerCheckOutException = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw ApiError.unauthorized('Authentication required');
+    const { eventId, workerId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const result = await attendanceService.clearWorkerCheckOutException(
+      userId,
+      userRole,
+      eventId,
+      workerId
+    );
+
+    new ApiResponse(200, 'Worker checkout exception cleared successfully', result).send(res);
+  });
+
+  /**
    * POST /api/attendance/events/:eventId/finalize-checkout
    * Executes manager exception-based checkout finalization with idempotency.
    */

@@ -132,6 +132,87 @@ export const validateCheckInFinalization = (req: Request, _res: Response, next: 
 };
 
 /**
+ * Validates category-specific check-in confirmation payload.
+ */
+export const validateCategoryCheckInFinalization = (req: Request, _res: Response, next: NextFunction): void => {
+  const { eventId, workerType: paramWorkerType } = req.params;
+  const errors: string[] = [];
+
+  if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+    errors.push('Invalid event ID format');
+  }
+
+  const rawWorkerType = paramWorkerType ? decodeURIComponent(paramWorkerType) : req.body.workerType;
+  if (!rawWorkerType || typeof rawWorkerType !== 'string' || !rawWorkerType.trim()) {
+    errors.push('workerType is required and must be a non-empty string');
+  }
+
+  const { lateExceptions, absentExceptions } = req.body;
+
+  const lateWorkerIds = new Set<string>();
+  const absentWorkerIds = new Set<string>();
+
+  // Validate lateExceptions if present
+  if (lateExceptions !== undefined && lateExceptions !== null) {
+    if (!Array.isArray(lateExceptions)) {
+      errors.push('lateExceptions must be an array');
+    } else {
+      lateExceptions.forEach((item, index) => {
+        if (!item || typeof item !== 'object') {
+          errors.push(`lateExceptions[${index}] must be an object`);
+          return;
+        }
+
+        const { workerId, actualArrivalTime } = item;
+
+        if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
+          errors.push(`lateExceptions[${index}].workerId must be a valid ObjectId`);
+        } else if (lateWorkerIds.has(workerId)) {
+          errors.push(`Duplicate workerId '${workerId}' in lateExceptions`);
+        } else {
+          lateWorkerIds.add(workerId);
+        }
+
+        const timeCheck = isValidTimeString(actualArrivalTime);
+        if (!timeCheck.valid) {
+          errors.push(`lateExceptions[${index}].actualArrivalTime: ${timeCheck.error}`);
+        }
+      });
+    }
+  }
+
+  // Validate absentExceptions if present
+  if (absentExceptions !== undefined && absentExceptions !== null) {
+    if (!Array.isArray(absentExceptions)) {
+      errors.push('absentExceptions must be an array');
+    } else {
+      absentExceptions.forEach((workerId, index) => {
+        if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
+          errors.push(`absentExceptions[${index}] must be a valid ObjectId`);
+        } else if (absentWorkerIds.has(workerId)) {
+          errors.push(`Duplicate workerId '${workerId}' in absentExceptions`);
+        } else {
+          absentWorkerIds.add(workerId);
+        }
+      });
+    }
+  }
+
+  // Mutual exclusion check
+  for (const workerId of lateWorkerIds) {
+    if (absentWorkerIds.has(workerId)) {
+      errors.push(`Worker '${workerId}' cannot be marked both late and absent (cannot appear in both lateExceptions and absentExceptions)`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
  * Validates individual worker check-in payload.
  */
 export const validateIndividualCheckIn = (req: Request, _res: Response, next: NextFunction): void => {
@@ -561,6 +642,147 @@ export const validateResolveConcern = (req: Request, _res: Response, next: NextF
         }
       }
     }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+/**
+ * Validates a YYYY-MM-DD calendar date string.
+ */
+export const isValidDateString = (dateVal: unknown): { valid: boolean; normalized?: string; error?: string } => {
+  if (typeof dateVal !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
+    return { valid: false, error: 'Date must be in YYYY-MM-DD format' };
+  }
+  const trimmed = dateVal.trim();
+  const [y, m, d] = trimmed.split('-').map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) {
+    return { valid: false, error: 'Invalid calendar month or day' };
+  }
+  const dateObj = new Date(Date.UTC(y, m - 1, d));
+  if (
+    dateObj.getUTCFullYear() !== y ||
+    dateObj.getUTCMonth() !== m - 1 ||
+    dateObj.getUTCDate() !== d
+  ) {
+    return { valid: false, error: 'Date does not exist on calendar' };
+  }
+  return { valid: true, normalized: trimmed };
+};
+
+/**
+ * Validates category actual departure recording payload.
+ */
+export const validateCategoryDeparture = (req: Request, _res: Response, next: NextFunction): void => {
+  const { eventId } = req.params;
+  const errors: string[] = [];
+
+  if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+    errors.push('Invalid event ID format');
+  }
+
+  const { workerType, actualDepartureDate, actualDepartureTime, reason } = req.body;
+
+  if (!workerType || typeof workerType !== 'string' || !workerType.trim()) {
+    errors.push('workerType is required and must be a non-empty string');
+  }
+
+  if (!actualDepartureDate || typeof actualDepartureDate !== 'string' || !actualDepartureDate.trim()) {
+    errors.push('actualDepartureDate is required (YYYY-MM-DD)');
+  } else {
+    const dateCheck = isValidDateString(actualDepartureDate);
+    if (!dateCheck.valid) {
+      errors.push(`actualDepartureDate: ${dateCheck.error}`);
+    }
+  }
+
+  if (!actualDepartureTime || typeof actualDepartureTime !== 'string' || !actualDepartureTime.trim()) {
+    errors.push('actualDepartureTime is required');
+  } else {
+    const timeCheck = isValidTimeString(actualDepartureTime);
+    if (!timeCheck.valid) {
+      errors.push(`actualDepartureTime: ${timeCheck.error}`);
+    }
+  }
+
+  if (reason !== undefined && reason !== null) {
+    if (typeof reason !== 'string') {
+      errors.push('reason must be a string');
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
+ * Validates worker checkout exception payload.
+ */
+export const validateWorkerCheckOutException = (req: Request, _res: Response, next: NextFunction): void => {
+  const { eventId, workerId } = req.params;
+  const errors: string[] = [];
+
+  if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+    errors.push('Invalid event ID format');
+  }
+  if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
+    errors.push('Invalid worker ID format');
+  }
+
+  const { actualDepartureDate, actualCheckoutTime, actualDepartureTime, reason } = req.body;
+  const rawTime = actualDepartureTime || actualCheckoutTime;
+
+  if (!actualDepartureDate || typeof actualDepartureDate !== 'string' || !actualDepartureDate.trim()) {
+    errors.push('actualDepartureDate is required (YYYY-MM-DD)');
+  } else {
+    const dateCheck = isValidDateString(actualDepartureDate);
+    if (!dateCheck.valid) {
+      errors.push(`actualDepartureDate: ${dateCheck.error}`);
+    }
+  }
+
+  if (!rawTime || typeof rawTime !== 'string' || !rawTime.trim()) {
+    errors.push('actualDepartureTime or actualCheckoutTime is required');
+  } else {
+    const timeCheck = isValidTimeString(rawTime);
+    if (!timeCheck.valid) {
+      errors.push(`actualDepartureTime: ${timeCheck.error}`);
+    }
+  }
+
+  if (reason !== undefined && reason !== null) {
+    if (typeof reason !== 'string') {
+      errors.push('reason must be a string');
+    } else if (reason.trim().length > 0 && reason.trim().length < 5) {
+      errors.push('reason must be at least 5 characters if provided');
+    }
+  }
+
+  if (errors.length > 0) {
+    return next(ApiError.badRequest('Validation failed', errors));
+  }
+
+  next();
+};
+
+/**
+ * Validates clearing an individual checkout exception.
+ */
+export const validateClearWorkerCheckOutException = (req: Request, _res: Response, next: NextFunction): void => {
+  const { eventId, workerId } = req.params;
+  const errors: string[] = [];
+
+  if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+    errors.push('Invalid event ID format');
+  }
+  if (!workerId || !mongoose.Types.ObjectId.isValid(workerId)) {
+    errors.push('Invalid worker ID format');
   }
 
   if (errors.length > 0) {

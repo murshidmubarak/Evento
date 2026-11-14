@@ -4,7 +4,12 @@ export type ArrivalStatus = 'on_time' | 'late' | 'absent' | 'unrecorded';
 export type DepartureStatus = 'normal' | 'early_departure' | 'overtime' | 'not_recorded';
 export type OperationalAttendanceStatus = 'not_started' | 'checked_in' | 'checked_out' | 'absent';
 export type VerificationStatus = 'pending_review' | 'approved' | 'rejected';
-export type TimestampSource = 'manager_actual' | 'system_default' | 'not_recorded';
+export type TimestampSource =
+  | 'category_default'
+  | 'individual_exception'
+  | 'manager_actual'
+  | 'system_default'
+  | 'not_recorded';
 
 export interface IAttendanceCorrection {
   modifiedBy: Types.ObjectId;
@@ -86,12 +91,18 @@ const attendanceCorrectionSchema = new Schema<IAttendanceCorrection>(
     modifiedAt: { type: Date, default: Date.now },
     field: { type: String, required: true },
     previousValue: { type: String },
-    previousSource: { type: String, enum: ['manager_actual', 'system_default', 'not_recorded'] },
+    previousSource: {
+      type: String,
+      enum: ['category_default', 'individual_exception', 'manager_actual', 'system_default', 'not_recorded'],
+    },
     previousStatus: { type: String },
     previousArrivalStatus: { type: String },
     previousDepartureStatus: { type: String },
     newValue: { type: String },
-    newSource: { type: String, enum: ['manager_actual', 'system_default', 'not_recorded'] },
+    newSource: {
+      type: String,
+      enum: ['category_default', 'individual_exception', 'manager_actual', 'system_default', 'not_recorded'],
+    },
     newStatus: { type: String },
     newArrivalStatus: { type: String },
     newDepartureStatus: { type: String },
@@ -114,7 +125,7 @@ const attendanceSchema = new Schema<IAttendance>(
     checkIn: { type: Date },
     checkInSource: {
       type: String,
-      enum: ['manager_actual', 'system_default', 'not_recorded'],
+      enum: ['category_default', 'individual_exception', 'manager_actual', 'system_default', 'not_recorded'],
       default: 'not_recorded',
     },
     arrivalStatus: {
@@ -129,7 +140,7 @@ const attendanceSchema = new Schema<IAttendance>(
     checkOut: { type: Date },
     checkOutSource: {
       type: String,
-      enum: ['manager_actual', 'system_default', 'not_recorded'],
+      enum: ['category_default', 'individual_exception', 'manager_actual', 'system_default', 'not_recorded'],
       default: 'not_recorded',
     },
     departureStatus: {

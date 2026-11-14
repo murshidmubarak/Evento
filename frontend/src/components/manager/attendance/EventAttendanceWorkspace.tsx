@@ -3,15 +3,13 @@ import {
   attendanceApi,
   parseTimeToMinutes,
 } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 import type {
   AttendanceSession,
   AttendanceRosterResponse,
   FinalizeCheckOutPayload,
   CategoryFinishTimeInput,
   IndividualCheckInPayload,
-  RequirementFinishOverrideInput,
-  EarlyDepartureExceptionInput,
-  OvertimeExceptionInput,
   AttendanceRosterItem,
   CorrectAttendancePayload,
   VerifyAttendancePayload,
@@ -21,12 +19,11 @@ import {
   type WorkerExceptionState,
 } from './AttendanceRosterTable';
 import {
-  CheckoutFinishingTimeCard,
-} from './CheckoutFinishingTimeCard';
+  ReviewCheckinModal,
+} from './ReviewCheckinModal';
 import {
-  CheckoutRosterTable,
-  type WorkerCheckOutExceptionState,
-} from './CheckoutRosterTable';
+  CheckoutCategoryCard,
+} from './CheckoutCategoryCard';
 import {
   ReviewCheckoutModal,
 } from './ReviewCheckoutModal';
@@ -42,11 +39,13 @@ import {
 import {
   Loader2,
   AlertCircle,
+  AlertTriangle,
   RotateCw,
   CheckCircle2,
   ShieldCheck,
   Undo2,
   Clock,
+  Lock,
 } from 'lucide-react';
 
 interface EventAttendanceWorkspaceProps {
@@ -72,23 +71,24 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   const [rosterData, setRosterData] = useState<AttendanceRosterResponse | null>(null);
 
   // ---------------------------------------------------------
-  // Check-in Exception State
+  // Check-in Exception & Finalization State
   // ---------------------------------------------------------
   const [checkInExceptions, setCheckInExceptions] = useState<Record<string, WorkerExceptionState>>({});
+  const [isCheckInReviewOpen, setIsCheckInReviewOpen] = useState(false);
+  const [selectedCheckInCategory, setSelectedCheckInCategory] = useState<string | null>(null);
+  const [checkInIdempotencyKey, setCheckInIdempotencyKey] = useState<string>('');
 
   // ---------------------------------------------------------
   // Checkout State
   // ---------------------------------------------------------
   const [defaultFinishTime, setDefaultFinishTime] = useState<string>('');
   const [categoryFinishTimes, setCategoryFinishTimes] = useState<Record<string, string>>({});
-  const [requirementOverrides, setRequirementOverrides] = useState<Record<string, string>>({});
-  const [checkoutExceptions, setCheckoutExceptions] = useState<Record<string, WorkerCheckOutExceptionState>>({});
   const [isCheckoutReviewOpen, setIsCheckoutReviewOpen] = useState(false);
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>('');
   const [checkoutPayloadHash, setCheckoutPayloadHash] = useState<string>('');
 
-  // Active workspace tab when checkout is not yet finalized
-  const [activeStageTab, setActiveStageTab] = useState<'checkin' | 'checkout_form' | 'checkin_history'>('checkin');
+  // Active workspace tab
+  const [activeStageTab, setActiveStageTab] = useState<'checkin' | 'checkout_form' | 'checkin_history' | 'finalized'>('checkin');
 
   // ---------------------------------------------------------
   // Phase 4.5: Correction & Verification State
@@ -117,11 +117,13 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
       const activeSession = sess || rost.session;
 
-      if (activeSession?.checkInFinalized && !activeSession?.checkOutFinalized) {
-        setActiveStageTab('checkout_form');
+      if (activeSession?.checkOutFinalized) {
+        setActiveStageTab((prev) => (prev === 'checkin' ? 'finalized' : prev));
+      } else if (activeSession?.checkInFinalized) {
+        setActiveStageTab((prev) => (prev === 'checkin' ? 'checkout_form' : prev));
       }
 
-      // Populate default finish time, category finish times, and overrides if session already has them
+      // Populate default finish time and category finish times if session already has them
       if (activeSession?.actualNormalFinishTime) {
         setDefaultFinishTime((prev) => prev || activeSession.actualNormalFinishTime!);
       }
@@ -131,13 +133,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           catMap[c.workerType] = c.normalFinishTime;
         });
         setCategoryFinishTimes((prev) => (Object.keys(prev).length === 0 ? catMap : prev));
-      }
-      if (activeSession?.requirementFinishOverrides && activeSession.requirementFinishOverrides.length > 0) {
-        const ovMap: Record<string, string> = {};
-        activeSession.requirementFinishOverrides.forEach((o) => {
-          ovMap[o.requirementId] = o.normalFinishTime;
-        });
-        setRequirementOverrides((prev) => (Object.keys(prev).length === 0 ? ovMap : prev));
       }
 
       // Initialize check-in exceptions from roster data for workers with saved records
@@ -231,7 +226,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           payload.arrivalStatus === 'absent'
             ? `${worker.workerName} attendance successfully updated to Absent.`
             : payload.arrivalStatus === 'late'
-              ? `${worker.workerName} attendance successfully updated to Late (${payload.actualArrivalTime}).`
+              ? `${worker.workerName} attendance successfully updated to Late (${formatTimeTo12Hour(payload.actualArrivalTime)}).`
               : `${worker.workerName} attendance successfully updated to Present / On Time.`
         );
       } else {
@@ -242,7 +237,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           payload.arrivalStatus === 'absent'
             ? `${name} check-in successfully confirmed and saved as Absent.`
             : payload.arrivalStatus === 'late'
-              ? `${name} check-in successfully confirmed and saved as Late (${payload.actualArrivalTime}).`
+              ? `${name} check-in successfully confirmed and saved as Late (${formatTimeTo12Hour(payload.actualArrivalTime)}).`
               : `${name} check-in successfully confirmed and saved as Present / On Time.`
         );
       }
@@ -253,45 +248,179 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
     }
   };
 
-  // ---------------------------------------------------------
-  // Checkout Handlers & Calculations
-  // ---------------------------------------------------------
-  const handleCheckoutExceptionChange = (workerId: string, state: WorkerCheckOutExceptionState) => {
-    setCheckoutExceptions((prev) => ({
-      ...prev,
-      [workerId]: state,
-    }));
+  const handleOpenCheckInReview = () => {
+    setSelectedCheckInCategory(null);
+    const newKey = `chkin_${eventId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    setCheckInIdempotencyKey(newKey);
+    setIsCheckInReviewOpen(true);
   };
 
-  const handleResetCheckoutExceptions = () => {
-    setCheckoutExceptions({});
+  const handleOpenCategoryCheckInReview = (workerType: string) => {
+    setSelectedCheckInCategory(workerType);
+    const newKey = `chkin_${eventId}_${workerType}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    setCheckInIdempotencyKey(newKey);
+    setIsCheckInReviewOpen(true);
   };
 
-  const defaultFinishTimeError = useMemo(() => {
-    if (!defaultFinishTime.trim()) return undefined;
-    if (parseTimeToMinutes(defaultFinishTime) === null) {
-      return 'Please enter a valid time (e.g. 17:00, 05:00 PM, or 20:30)';
-    }
-    return undefined;
-  }, [defaultFinishTime]);
+  const handleRegenerateCheckInKey = () => {
+    const prefix = selectedCheckInCategory ? `chkin_${eventId}_${selectedCheckInCategory}_` : `chkin_${eventId}_`;
+    const newKey = `${prefix}${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    setCheckInIdempotencyKey(newKey);
+  };
 
-  const categoryErrors = useMemo(() => {
-    const errs: Record<string, string> = {};
-    Object.entries(categoryFinishTimes).forEach(([cat, timeStr]) => {
-      if (timeStr && parseTimeToMinutes(timeStr) === null) {
-        errs[cat] = 'Invalid time format (e.g. 23:00 or 11:00 PM)';
+  const handleConfirmFinalizeCheckIn = async (keyToUse: string) => {
+    try {
+      const lateExceptions = Object.entries(checkInExceptions)
+        .filter(([_, state]) => state.type === 'late' && state.actualArrivalTime)
+        .map(([workerId, state]) => ({
+          workerId,
+          actualArrivalTime: state.actualArrivalTime!,
+        }));
+
+      const absentExceptions = Object.entries(checkInExceptions)
+        .filter(([_, state]) => state.type === 'absent')
+        .map(([workerId]) => workerId);
+
+      if (selectedCheckInCategory) {
+        // Scoped to category
+        const catWorkers = (rosterData?.roster || []).filter(
+          (w) => w.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+        );
+        const catWorkerIds = new Set(catWorkers.map((w) => w.workerId));
+
+        const scopedLate = lateExceptions.filter((l) => catWorkerIds.has(l.workerId));
+        const scopedAbsent = absentExceptions.filter((wId) => catWorkerIds.has(wId));
+
+        await attendanceApi.finalizeCategoryCheckIn(
+          eventId,
+          selectedCheckInCategory,
+          {
+            lateExceptions: scopedLate.length > 0 ? scopedLate : undefined,
+            absentExceptions: scopedAbsent.length > 0 ? scopedAbsent : undefined,
+          },
+          keyToUse
+        );
+
+        const confirmedCat = selectedCheckInCategory;
+        setIsCheckInReviewOpen(false);
+        setSelectedCheckInCategory(null);
+        setSuccessNotice(
+          `Check-in has been successfully confirmed for category '${confirmedCat}'! Checkout for this category is now unlocked.`
+        );
+        await loadAttendanceData(true);
+        return;
       }
-    });
-    return errs;
-  }, [categoryFinishTimes]);
 
-  const hasCategoryErrors = Object.keys(categoryErrors).length > 0;
+      const isReFinalize = Boolean(
+        session?.checkInFinalized ||
+        rosterData?.session?.checkInFinalized ||
+        rosterData?.checkInFinalized
+      );
+      const currentRev = rosterData?.checkInRevision || session?.checkInRevision || 1;
+
+      await attendanceApi.finalizeCheckIn(
+        eventId,
+        {
+          lateExceptions: lateExceptions.length > 0 ? lateExceptions : undefined,
+          absentExceptions: absentExceptions.length > 0 ? absentExceptions : undefined,
+        },
+        keyToUse
+      );
+
+      setIsCheckInReviewOpen(false);
+      setSuccessNotice(
+        isReFinalize
+          ? `Check-in has been successfully re-finalized (Revision ${currentRev + 1})!`
+          : 'Check-in has been successfully finalized! All assigned workers are confirmed.'
+      );
+      await loadAttendanceData(true);
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        const latestSession = await attendanceApi.getSession(eventId);
+        if (latestSession.checkInFinalized && !latestSession.checkInChangesPending) {
+          setIsCheckInReviewOpen(false);
+          setSelectedCheckInCategory(null);
+          await loadAttendanceData(true);
+          setSuccessNotice('Check-in is already finalized in its latest state.');
+          return;
+        }
+        throw err;
+      }
+      throw err;
+    }
+  };
+
+  // ---------------------------------------------------------
+  // Checkout Category-Wise Handlers
+  // ---------------------------------------------------------
+  const handleSaveCategoryDeparture = async (
+    workerType: string,
+    departureDate: string,
+    departureTime: string,
+    reason?: string
+  ) => {
+    try {
+      await attendanceApi.recordCategoryDeparture(eventId, {
+        workerType,
+        actualDepartureDate: departureDate,
+        actualDepartureTime: departureTime,
+        reason,
+      });
+      setSuccessNotice(`Category actual departure saved for ${workerType.replace(/_/g, ' ')} (${departureDate} ${formatTimeTo12Hour(departureTime)}).`);
+      await loadAttendanceData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save category departure.';
+      setErrorMessage(msg);
+      throw err;
+    }
+  };
+
+  const handleMarkWorkerCheckOutException = async (
+    workerId: string,
+    departureDate: string,
+    departureTime: string,
+    reason?: string
+  ) => {
+    try {
+      const res = await attendanceApi.recordWorkerCheckOutException(eventId, workerId, {
+        actualDepartureDate: departureDate,
+        actualDepartureTime: departureTime,
+        reason,
+      });
+      setSuccessNotice(
+        `Recorded individual checkout exception: ${res.departureStatus === 'early_departure' ? 'Early Departure' : 'Overtime'} (${formatTimeTo12Hour(res.actualDepartureTime || res.checkOut || departureTime)}).`
+      );
+      await loadAttendanceData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save worker checkout exception.';
+      setErrorMessage(msg);
+      throw err;
+    }
+  };
+
+  const handleClearWorkerCheckOutException = async (workerId: string) => {
+    try {
+      await attendanceApi.clearWorkerCheckOutException(eventId, workerId);
+      setSuccessNotice('Cleared exception. Worker returned to category default checkout.');
+      await loadAttendanceData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to clear worker checkout exception.';
+      setErrorMessage(msg);
+      throw err;
+    }
+  };
 
   const isFinishingTimeConfigured = useMemo(() => {
+    if (rosterData?.categorySummaries && rosterData.categorySummaries.length > 0) {
+      const pendingCategories = rosterData.categorySummaries.filter(
+        (c) => c.eligibleCount > 0 && (!c.actualDepartureTime || !c.actualDepartureTime.trim())
+      );
+      return pendingCategories.length === 0;
+    }
+
     const hasValidDefault = Boolean(defaultFinishTime.trim() && parseTimeToMinutes(defaultFinishTime) !== null);
     if (hasValidDefault) return true;
 
-    // If no valid default finish time, verify that every distinct category present in the roster has a valid finish time
     const distinctWorkerTypes = new Set((rosterData?.roster || []).map((r) => r.workerType));
     if (distinctWorkerTypes.size === 0) {
       return Object.values(categoryFinishTimes).some((t) => t && t.trim() && parseTimeToMinutes(t) !== null);
@@ -306,100 +435,69 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
     return true;
   }, [defaultFinishTime, categoryFinishTimes, rosterData]);
 
-  const checkoutLiveCounts = useMemo(() => {
-    const roster = rosterData?.roster || [];
-    let normal = 0;
-    let early = 0;
-    let overtime = 0;
-    let absent = 0;
-    let hasValidationError = false;
-
-    roster.forEach((r) => {
-      const isAbsent = r.arrivalStatus === 'absent' || r.status === 'absent';
-      if (isAbsent) {
-        absent++;
-        return;
-      }
-
-      const exc = checkoutExceptions[r.workerId];
-      if (!exc || exc.type === 'normal') {
-        normal++;
-      } else if (exc.type === 'early') {
-        early++;
-        if (exc.error || !exc.actualCheckoutTime || parseTimeToMinutes(exc.actualCheckoutTime) === null) {
-          hasValidationError = true;
-        }
-      } else if (exc.type === 'overtime') {
-        overtime++;
-        if (exc.error || !exc.actualCheckoutTime || parseTimeToMinutes(exc.actualCheckoutTime) === null) {
-          hasValidationError = true;
-        }
-      }
-    });
-
-    return { normal, early, overtime, absent, hasValidationError };
-  }, [rosterData, checkoutExceptions]);
-
   const currentCheckoutPayload = useMemo((): FinalizeCheckOutPayload => {
-    const overridesList: RequirementFinishOverrideInput[] = Object.entries(requirementOverrides)
-      .filter(([_, time]) => time && time.trim())
-      .map(([requirementId, normalFinishTime]) => ({ requirementId, normalFinishTime: normalFinishTime.trim() }));
-
-    const categoriesList: CategoryFinishTimeInput[] = Object.entries(categoryFinishTimes)
-      .filter(([_, time]) => time && time.trim())
-      .map(([workerType, normalFinishTime]) => ({ workerType, normalFinishTime: normalFinishTime.trim() }));
-
-    const earlyExceptions: EarlyDepartureExceptionInput[] = [];
-    const overtimeExceptions: OvertimeExceptionInput[] = [];
-
-    const roster = rosterData?.roster || [];
-    roster.forEach((r) => {
-      const isAbsent = r.arrivalStatus === 'absent' || r.status === 'absent';
-      if (isAbsent) return;
-
-      const exc = checkoutExceptions[r.workerId];
-      if (exc?.type === 'early' && exc.actualCheckoutTime && !exc.error) {
-        earlyExceptions.push({
-          workerId: r.workerId,
-          actualCheckoutTime: exc.actualCheckoutTime.trim(),
-        });
-      } else if (exc?.type === 'overtime' && exc.actualCheckoutTime && !exc.error) {
-        overtimeExceptions.push({
-          workerId: r.workerId,
-          actualCheckoutTime: exc.actualCheckoutTime.trim(),
-        });
-      }
-    });
+    const categoriesList: CategoryFinishTimeInput[] = (rosterData?.categoryActualDepartures || []).map((c) => ({
+      workerType: c.workerType,
+      normalFinishTime: c.actualDepartureTime,
+    }));
 
     return {
       actualNormalFinishTime: defaultFinishTime.trim() || undefined,
       categoryFinishTimes: categoriesList.length > 0 ? categoriesList : undefined,
-      requirementFinishOverrides: overridesList.length > 0 ? overridesList : undefined,
-      earlyDepartureExceptions: earlyExceptions.length > 0 ? earlyExceptions : undefined,
-      overtimeExceptions: overtimeExceptions.length > 0 ? overtimeExceptions : undefined,
     };
-  }, [defaultFinishTime, categoryFinishTimes, requirementOverrides, checkoutExceptions, rosterData]);
+  }, [defaultFinishTime, rosterData]);
 
   const computedCheckoutHash = useMemo(() => {
     return JSON.stringify({
-      finish: currentCheckoutPayload.actualNormalFinishTime,
-      categories: (currentCheckoutPayload.categoryFinishTimes || []).sort((a, b) =>
-        a.workerType.localeCompare(b.workerType)
-      ),
-      overrides: (currentCheckoutPayload.requirementFinishOverrides || []).sort((a, b) =>
-        a.requirementId.localeCompare(b.requirementId)
-      ),
-      early: (currentCheckoutPayload.earlyDepartureExceptions || []).sort((a, b) =>
-        a.workerId.localeCompare(b.workerId)
-      ),
-      overtime: (currentCheckoutPayload.overtimeExceptions || []).sort((a, b) =>
-        a.workerId.localeCompare(b.workerId)
-      ),
+      categories: (rosterData?.categoryActualDepartures || []).map((c) => ({
+        type: c.workerType,
+        time: c.actualDepartureTime,
+      })),
+      rosterCheckout: (rosterData?.roster || []).map((w) => ({
+        id: w.workerId,
+        source: w.checkOutSource,
+        status: w.departureStatus,
+        out: w.checkOut,
+      })),
     });
-  }, [currentCheckoutPayload]);
+  }, [rosterData]);
+
+  const isCheckInFinalized = Boolean(
+    session?.checkInFinalized ||
+    rosterData?.session?.checkInFinalized ||
+    rosterData?.checkInFinalized
+  );
+
+  const isCheckInChangesPending = Boolean(
+    session?.checkInChangesPending ||
+    rosterData?.session?.checkInChangesPending ||
+    rosterData?.checkInChangesPending
+  );
+
+  const allCategoriesConfirmed = useMemo(() => {
+    if (!rosterData?.categorySummaries || rosterData.categorySummaries.length === 0) return false;
+    return rosterData.categorySummaries.every((c) => c.checkInFinalized && !c.checkInChangesPending);
+  }, [rosterData]);
+
+  const anyCategoryChangesPending = useMemo(() => {
+    if (!rosterData?.categorySummaries || rosterData.categorySummaries.length === 0) return false;
+    return rosterData.categorySummaries.some((c) => c.checkInChangesPending);
+  }, [rosterData]);
 
   const handleOpenCheckoutReview = () => {
-    if (!isFinishingTimeConfigured || hasCategoryErrors || checkoutLiveCounts.hasValidationError) return;
+    if (!isCheckInFinalized && !allCategoriesConfirmed) {
+      setErrorMessage(
+        'Check-in must be confirmed for all worker categories before overall checkout can be finalized.'
+      );
+      return;
+    }
+    if (isCheckInChangesPending || anyCategoryChangesPending) {
+      setErrorMessage(
+        'Cannot finalize checkout while check-in has pending changes. Please re-confirm check-in first.'
+      );
+      return;
+    }
+    if (!isFinishingTimeConfigured) return;
     if (!checkoutIdempotencyKey || computedCheckoutHash !== checkoutPayloadHash) {
       const newKey = `chkout_${eventId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       setCheckoutIdempotencyKey(newKey);
@@ -429,7 +527,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           setSuccessNotice('Checkout was already finalized for this event.');
           return;
         }
-        // True conflict: re-throw so modal displays conflict message while retaining unsaved exception state
         throw err;
       }
       throw err;
@@ -524,7 +621,6 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
     })
     : undefined;
   const roster = rosterData?.roster || [];
-  const requirements = rosterData?.requirements || [];
 
   return (
     <div className="space-y-6">
@@ -545,7 +641,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         </div>
       )}
 
-      {/* Top Error Alert (Only when an error occurs) */}
+      {/* Top Error Alert */}
       {errorMessage && (
         <div className="bg-rose-50 border border-rose-200 text-rose-900 text-xs p-4 rounded-xl flex items-center justify-between animate-in fade-in">
           <div className="flex items-center gap-2">
@@ -567,48 +663,64 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         <div>
           <h3 className="text-base font-bold text-gray-900 tracking-tight">
             {activeStageTab === 'checkout_form'
-              ? 'Checkout Workspace'
+              ? 'Category-Wise Checkout Workspace'
+              : activeStageTab === 'finalized'
+              ? 'Finalized Attendance Summary'
               : 'Check-in Exceptions Workspace'}
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">
             {activeStageTab === 'checkout_form'
-              ? 'Manage worker departures, finish times, and departure exceptions.'
+              ? 'Record actual category departures. Only early or overtime workers require individual exception entries.'
+              : activeStageTab === 'finalized'
+              ? 'Official finalized attendance records and duration breakdowns.'
               : 'Staff not marked late or absent are recorded as Present / On Time.'}
           </p>
         </div>
 
-        {!isCheckoutFinalized && (
-          <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+          {isCheckoutFinalized && (
             <button
               type="button"
-              onClick={() => setActiveStageTab('checkin')}
+              onClick={() => setActiveStageTab('finalized')}
               className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
-                activeStageTab === 'checkin'
+                activeStageTab === 'finalized'
                   ? 'bg-gray-900 text-white font-bold shadow-xs'
                   : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
               }`}
             >
-              Check-in
+              Summary
             </button>
+          )}
 
-            <button
-              type="button"
-              onClick={() => setActiveStageTab('checkout_form')}
-              className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
-                activeStageTab === 'checkout_form'
-                  ? 'bg-gray-900 text-white font-bold shadow-xs'
-                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
-              }`}
-            >
-              Checkout
-            </button>
-          </div>
-        )}
+          <button
+            type="button"
+            onClick={() => setActiveStageTab('checkin')}
+            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
+              activeStageTab === 'checkin'
+                ? 'bg-gray-900 text-white font-bold shadow-xs'
+                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+            }`}
+          >
+            Check-in
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveStageTab('checkout_form')}
+            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
+              activeStageTab === 'checkout_form'
+                ? 'bg-gray-900 text-white font-bold shadow-xs'
+                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+            }`}
+          >
+            Checkout {isCheckoutFinalized && rosterData?.canModifyCheckout ? '(Active)' : ''}
+          </button>
+        </div>
       </div>
 
-      {isCheckoutFinalized ? (
+      {activeStageTab === 'finalized' ? (
         /* =========================================================================
-            STAGE 3: FULL ATTENDANCE FINALIZED (Read-Only)
+            STAGE 3: FULL ATTENDANCE FINALIZED (Read-Only Summary)
         ========================================================================= */
         <FinalizedAttendanceView
           session={session || rosterData!.session}
@@ -620,10 +732,217 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         />
       ) : activeStageTab === 'checkin' ? (
         /* =========================================================================
-            STAGE 1: CHECK-IN EXCEPTIONS (Immediate Saving Workflow)
+            STAGE 1: CHECK-IN EXCEPTIONS & FINALIZATION
         ========================================================================= */
         <div className="space-y-6">
-          {/* Check-in Roster Table with Immediate Persistence */}
+          {/* Pending Re-finalization Banner */}
+          {isCheckInChangesPending && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-4 rounded-xl flex items-center justify-between shadow-2xs">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                <div>
+                  <span className="font-bold">Check-in Changes Pending:</span>
+                  <span className="ml-1 text-amber-800">
+                    Attendance records were updated after initial finalization. Re-finalization is required before checkout can be finalized.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenCheckInReview}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-2xs transition-colors shrink-0"
+              >
+                Review & Re-finalize Check-in
+              </button>
+            </div>
+          )}
+
+          {/* Post-Event Day Lock Notice */}
+          {rosterData?.isAfterEventDay && (
+            <div className="bg-gray-100 border border-gray-200 text-gray-700 text-xs p-4 rounded-xl flex items-center gap-2 shadow-2xs">
+              <Lock size={16} className="text-gray-500 shrink-0" />
+              <div>
+                <span className="font-bold">Check-in Editing Closed:</span>
+                <span className="ml-1 text-gray-600">
+                  The scheduled event day has ended. Ordinary check-in status and arrival time modifications are permanently locked.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Check-in Control Bar */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-gray-900">Assigned Worker Check-in</h4>
+                {isCheckInFinalized ? (
+                  isCheckInChangesPending ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                      Changes Pending (Rev {rosterData?.checkInRevision || session?.checkInRevision || 1})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      Check-in Finalized ✓ (Rev {rosterData?.checkInRevision || session?.checkInRevision || 1})
+                    </span>
+                  )
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                    Not Finalized
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {isCheckInFinalized
+                  ? isCheckInChangesPending
+                    ? 'Attendance details were adjusted. Review summary and re-finalize to confirm updated records.'
+                    : `Check-in is finalized${
+                        rosterData?.session?.checkInFinalizedAt
+                          ? ` on ${new Date(rosterData.session.checkInFinalizedAt).toLocaleDateString('en-IN', {
+                              timeZone: 'Asia/Kolkata',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}`
+                          : ''
+                      }. Event-day corrections remain permitted.`
+                  : 'Review exceptions: mark Late or Absent. Unmarked workers follow default Present / On Time.'}
+              </p>
+            </div>
+
+            <div className="shrink-0">
+              {!isCheckInFinalized ? (
+                <button
+                  type="button"
+                  onClick={handleOpenCheckInReview}
+                  disabled={!rosterData?.canFinalizeCheckIn || eventStatus === 'cancelled'}
+                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors"
+                >
+                  <CheckCircle2 size={15} />
+                  Review & Finalize Check-in
+                </button>
+              ) : isCheckInChangesPending ? (
+                <button
+                  type="button"
+                  onClick={handleOpenCheckInReview}
+                  disabled={eventStatus === 'cancelled'}
+                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs transition-colors animate-pulse"
+                >
+                  <CheckCircle2 size={15} />
+                  Review & Re-finalize Check-in
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg cursor-default"
+                >
+                  <CheckCircle2 size={15} className="text-emerald-600" />
+                  Finalized ✓
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Independent Category Check-in Confirmation Cards */}
+          {rosterData?.categorySummaries && rosterData.categorySummaries.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                  Category Check-in Status & Eligibility
+                </h5>
+                <span className="text-[11px] text-gray-400">
+                  Confirming a category unlocks its checkout independently
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {rosterData.categorySummaries.map((cat) => {
+                  const isCatConfirmed = Boolean(cat.checkInFinalized);
+                  const isCatChangesPending = Boolean(cat.checkInChangesPending);
+
+                  return (
+                    <div
+                      key={cat.workerType}
+                      className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs flex flex-col justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-gray-900 text-sm">{cat.workerType}</span>
+                          {isCatConfirmed ? (
+                            isCatChangesPending ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <AlertTriangle size={11} />
+                                Re-confirm (Rev {(cat.checkInRevision || 1) + 1})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                <CheckCircle2 size={11} />
+                                Confirmed (Rev {cat.checkInRevision || 1})
+                              </span>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200">
+                              <Clock size={11} />
+                              Pending Confirmation
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                          <span>Assigned: <strong className="text-gray-800">{cat.totalAssigned}</strong></span>
+                          <span>•</span>
+                          <span>Present: <strong className="text-emerald-700">{cat.normalCount}</strong></span>
+                          <span>•</span>
+                          <span>Absent: <strong className="text-red-700">{cat.absentCount}</strong></span>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-gray-400">
+                          {isCatConfirmed && !isCatChangesPending ? (
+                            <span className="text-emerald-700 font-semibold">Checkout Unlocked</span>
+                          ) : (
+                            <span>Checkout Locked</span>
+                          )}
+                        </span>
+                        {!isCatConfirmed ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
+                            disabled={!cat.canFinalizeCheckIn || eventStatus === 'cancelled'}
+                            className="px-3 py-1.5 inline-flex items-center gap-1 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg transition-colors shadow-2xs"
+                          >
+                            <CheckCircle2 size={13} />
+                            Review & Confirm
+                          </button>
+                        ) : isCatChangesPending ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
+                            disabled={eventStatus === 'cancelled'}
+                            className="px-3 py-1.5 inline-flex items-center gap-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors shadow-2xs animate-pulse"
+                          >
+                            <AlertTriangle size={13} />
+                            Review & Re-confirm
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors inline-flex items-center gap-1"
+                          >
+                            <CheckCircle2 size={12} className="text-emerald-600" />
+                            Confirmed ✓
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <AttendanceRosterTable
             roster={roster}
             exceptions={checkInExceptions}
@@ -642,54 +961,76 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
         </div>
       ) : (
         /* =========================================================================
-            STAGE 2: CHECKOUT WORKSPACE (Category-Wise Finishing Times)
+            STAGE 2: CHECKOUT WORKSPACE (Category-Wise Actual Departures)
         ========================================================================= */
         <div className="space-y-6">
-          {/* Checkout Stage Banner */}
-          <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-emerald-50/90 border border-emerald-200 rounded-2xl p-5 flex items-start sm:items-center justify-between gap-4 shadow-xs">
+          {/* Category-Wise Check-in Status Notice */}
+          {rosterData?.categorySummaries &&
+            rosterData.categorySummaries.some((c) => !c.checkInFinalized || c.checkInChangesPending) && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-4 rounded-xl flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                  <div>
+                    <span className="font-bold">Category Check-in Notice:</span>
+                    <span className="ml-1 text-amber-800">
+                      Some categories have unconfirmed check-in or pending changes. Each category unlocks independently once its check-in is confirmed on the Check-in tab.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveStageTab('checkin')}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-2xs transition-colors shrink-0"
+                >
+                  Go to Check-in
+                </button>
+              </div>
+            )}
+          {/* 24-Hour Modification Window Status Banner */}
+          <div
+            className={`border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${
+              rosterData?.canModifyCheckout
+                ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-emerald-50/90 border-emerald-200'
+                : 'bg-gradient-to-r from-amber-50/90 via-rose-50/80 to-amber-50/90 border-amber-300'
+            }`}
+          >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 border border-emerald-300">
-                <Clock size={20} />
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                  rosterData?.canModifyCheckout
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                }`}
+              >
+                {rosterData?.canModifyCheckout ? <Clock size={20} /> : <Lock size={20} />}
               </div>
               <div className="space-y-0.5">
-                <h4 className="text-sm font-bold text-emerald-950">
-                  Checkout Stage Active — Enter Normal Finishing Time
+                <h4
+                  className={`text-sm font-bold ${
+                    rosterData?.canModifyCheckout ? 'text-emerald-950' : 'text-amber-950'
+                  }`}
+                >
+                  {rosterData?.canModifyCheckout
+                    ? 'Category Checkout Workspace — Active on Event Day'
+                    : 'Checkout Editing Closed (Locked)'}
                 </h4>
-                <p className="text-xs text-emerald-800">
-                  Once shifts conclude, specify the normal finishing times per category and record any early departures or overtime.
+                <p
+                  className={`text-xs ${
+                    rosterData?.canModifyCheckout ? 'text-emerald-800' : 'text-amber-800'
+                  }`}
+                >
+                  {rosterData?.canModifyCheckout
+                    ? 'Departure time entry and modifications are permitted during the scheduled event day. Record actual category departure times below.'
+                    : 'Checkout departure times can only be set on the scheduled event day and are permanently closed after the event day. Further edits are disabled.'}
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-              {/* Stage View Switcher for Historical Check-in Baseline */}
-              <div className="inline-flex rounded-xl bg-emerald-100/70 p-1 border border-emerald-200/80 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveStageTab('checkout_form')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkout_form'
-                    ? 'bg-white text-emerald-950 shadow-2xs'
-                    : 'text-emerald-800 hover:text-emerald-950'
-                    }`}
-                >
-                  Checkout Workspace
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveStageTab('checkin_history')}
-                  className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all ${activeStageTab === 'checkin_history'
-                    ? 'bg-white text-emerald-950 shadow-2xs'
-                    : 'text-emerald-800 hover:text-emerald-950'
-                    }`}
-                >
-                  <span>Check-in Baseline</span>
-                </button>
-              </div>
-
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveStageTab('checkin')}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-300 rounded-xl shadow-2xs transition-colors shrink-0"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl shadow-2xs transition-colors shrink-0"
               >
                 <Undo2 size={13} />
                 <span>← Back to Check-in</span>
@@ -697,115 +1038,167 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             </div>
           </div>
 
-          {/* Active Checkout Sub-view: Either historical Check-in Baseline or Checkout Workspace */}
-          {activeStageTab === 'checkin_history' ? (
-            <FinalizedAttendanceView
-              session={{ ...(session || rosterData?.session), checkOutFinalized: false } as any}
-              roster={roster}
-              onRefresh={() => loadAttendanceData(true)}
-              onOpenCorrection={(w) => setCorrectionWorker(w)}
-              onOpenVerification={(act) => setVerificationAction(act)}
-            />
-          ) : (
-            <>
-              {/* Finishing Time Configuration Card */}
-              <CheckoutFinishingTimeCard
-                defaultFinishTime={defaultFinishTime}
-                onDefaultFinishTimeChange={setDefaultFinishTime}
-                defaultFinishTimeError={defaultFinishTimeError}
-                categoryFinishTimes={categoryFinishTimes}
-                onCategoryFinishTimesChange={setCategoryFinishTimes}
-                categoryErrors={categoryErrors}
-                overrides={requirementOverrides}
-                onOverridesChange={setRequirementOverrides}
-                requirements={requirements}
-                disabled={false}
-              />
+          {/* Checkout Overall Summary Counters */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total Staff</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">{rosterData?.summary?.total ?? roster.length}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Eligible</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">
+                {(rosterData?.summary?.total ?? roster.length) - (rosterData?.summary?.absent ?? 0)}
+              </p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Normal</p>
+              <p className="text-xl font-bold text-emerald-700 mt-0.5">{rosterData?.summary?.normalCount ?? 0}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">Early Departure</p>
+              <p className="text-xl font-bold text-amber-700 mt-0.5">{rosterData?.summary?.earlyDepartureCount ?? 0}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-indigo-600 uppercase tracking-wider">Overtime</p>
+              <p className="text-xl font-bold text-indigo-700 mt-0.5">{rosterData?.summary?.overtimeCount ?? 0}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wider">Absent Excluded</p>
+              <p className="text-xl font-bold text-rose-700 mt-0.5">{rosterData?.summary?.absent ?? 0}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pending Out</p>
+              <p className="text-xl font-bold text-gray-700 mt-0.5">{rosterData?.summary?.pendingCheckOutCount ?? 0}</p>
+            </div>
+          </div>
 
-              {/* Checkout Action Toolbar */}
-              <div className="bg-white rounded-2xl border border-gray-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <h3 className="text-sm font-bold text-gray-900">Checkout Exceptions Management</h3>
-                  <p className="text-xs text-gray-500">
-                    Checked-in staff default to normal checkout at their applicable finishing time.
-                  </p>
-                </div>
+          {/* Checkout Action Toolbar */}
+          <div className="bg-white rounded-2xl border border-gray-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <h3 className="text-sm font-bold text-gray-900">Category Departure Management</h3>
+              <p className="text-xs text-gray-500">
+                Record actual departure times per category. Normal workers inherit this timestamp as their checkout.
+              </p>
+            </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => loadAttendanceData(true)}
-                    disabled={isRefreshing}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
-                  >
-                    <RotateCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
-                    <span>Refresh</span>
-                  </button>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => loadAttendanceData(true)}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+              >
+                <RotateCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+                <span>Refresh</span>
+              </button>
 
-                  {(checkoutLiveCounts.early > 0 || checkoutLiveCounts.overtime > 0) && (
-                    <button
-                      type="button"
-                      onClick={handleResetCheckoutExceptions}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-colors"
-                    >
-                      <Undo2 size={13} />
-                      <span>Reset Exceptions</span>
-                    </button>
-                  )}
+              <button
+                type="button"
+                onClick={handleOpenCheckoutReview}
+                disabled={!isFinishingTimeConfigured || roster.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors shrink-0"
+                title={
+                  !isFinishingTimeConfigured
+                    ? 'Record actual departure times for categories with eligible workers to finalize'
+                    : 'Review summary and finalize checkout'
+                }
+              >
+                <ShieldCheck size={14} />
+                Review & Finalize Checkout
+              </button>
+            </div>
+          </div>
 
-                  <button
-                    type="button"
-                    onClick={handleOpenCheckoutReview}
-                    disabled={
-                      !isFinishingTimeConfigured ||
-                      hasCategoryErrors ||
-                      checkoutLiveCounts.hasValidationError ||
-                      roster.length === 0
-                    }
-                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors shrink-0"
-                    title={
-                      !isFinishingTimeConfigured
-                        ? 'Enter an Event Default or Category Normal Finishing Time to continue'
-                        : hasCategoryErrors
-                          ? 'Resolve category finishing time format errors before finalizing'
-                          : checkoutLiveCounts.hasValidationError
-                            ? 'Resolve departure time errors before finalizing'
-                            : 'Review summary and finalize checkout'
-                    }
-                  >
-                    <ShieldCheck size={14} />
-                    Review & Finalize Checkout
-                  </button>
-                </div>
+          {/* Category-Wise Checkout Cards */}
+          <div className="space-y-5">
+            {rosterData?.categorySummaries && rosterData.categorySummaries.length > 0 ? (
+              rosterData.categorySummaries.map((catSummary) => {
+                const savedDep = rosterData.categoryActualDepartures?.find(
+                  (d) => d.workerType.toLowerCase() === catSummary.workerType.toLowerCase()
+                );
+                return (
+                  <CheckoutCategoryCard
+                    key={catSummary.workerType}
+                    category={catSummary}
+                    roster={roster}
+                    savedDeparture={savedDep}
+                    defaultDate={rosterData?.eventOperationalDate || (typeof rosterData?.eventDate === 'string' ? rosterData.eventDate.split('T')[0] : '')}
+                    onSaveDeparture={handleSaveCategoryDeparture}
+                    onMarkException={handleMarkWorkerCheckOutException}
+                    onClearException={handleClearWorkerCheckOutException}
+                    disabled={!rosterData.canModifyCheckout || eventStatus === 'cancelled'}
+                    isLocked={!rosterData.canModifyCheckout}
+                  />
+                );
+              })
+            ) : (
+              <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-gray-500 text-xs">
+                No worker categories found for this event roster.
               </div>
+            )}
+          </div>
 
-              {/* Checkout Roster Table */}
-              <CheckoutRosterTable
-                roster={roster}
-                defaultFinishTime={defaultFinishTime}
-                categoryFinishTimes={categoryFinishTimes}
-                overrides={requirementOverrides}
-                exceptions={checkoutExceptions}
-                onExceptionChange={handleCheckoutExceptionChange}
-                disabled={false}
-              />
-
-              {/* Review Checkout Modal */}
-              <ReviewCheckoutModal
-                isOpen={isCheckoutReviewOpen}
-                onClose={() => setIsCheckoutReviewOpen(false)}
-                onConfirm={handleConfirmFinalizeCheckout}
-                roster={roster}
-                defaultFinishTime={defaultFinishTime}
-                categoryFinishTimes={categoryFinishTimes}
-                overrides={requirementOverrides}
-                exceptions={checkoutExceptions}
-                idempotencyKey={checkoutIdempotencyKey}
-                onRegenerateKey={handleRegenerateCheckoutKey}
-              />
-            </>
-          )}
+          {/* Review Checkout Modal */}
+          <ReviewCheckoutModal
+            isOpen={isCheckoutReviewOpen}
+            onClose={() => setIsCheckoutReviewOpen(false)}
+            onConfirm={handleConfirmFinalizeCheckout}
+            roster={roster}
+            categorySummaries={rosterData?.categorySummaries || []}
+            defaultFinishTime={defaultFinishTime}
+            categoryFinishTimes={categoryFinishTimes}
+            idempotencyKey={checkoutIdempotencyKey}
+            onRegenerateKey={handleRegenerateCheckoutKey}
+          />
         </div>
+      )}
+
+      {/* Review & Finalize / Re-finalize Check-in Modal */}
+      {isCheckInReviewOpen && (
+        <ReviewCheckinModal
+          isOpen={isCheckInReviewOpen}
+          onClose={() => {
+            setIsCheckInReviewOpen(false);
+            setSelectedCheckInCategory(null);
+          }}
+          onConfirm={handleConfirmFinalizeCheckIn}
+          roster={roster}
+          exceptions={checkInExceptions}
+          idempotencyKey={checkInIdempotencyKey}
+          onRegenerateKey={handleRegenerateCheckInKey}
+          categoryName={selectedCheckInCategory || undefined}
+          workerType={selectedCheckInCategory || undefined}
+          isReFinalize={
+            selectedCheckInCategory
+              ? Boolean(
+                  rosterData?.categorySummaries?.find(
+                    (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+                  )?.checkInFinalized
+                )
+              : isCheckInFinalized
+          }
+          currentRevision={
+            selectedCheckInCategory
+              ? rosterData?.categorySummaries?.find(
+                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+                )?.checkInRevision || 1
+              : rosterData?.checkInRevision || session?.checkInRevision || 1
+          }
+          previousFinalizedAt={
+            selectedCheckInCategory
+              ? rosterData?.categorySummaries?.find(
+                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+                )?.checkInFinalizedAt || undefined
+              : rosterData?.session?.checkInFinalizedAt || session?.checkInFinalizedAt
+          }
+          previousFinalizedBy={
+            selectedCheckInCategory
+              ? rosterData?.categorySummaries?.find(
+                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+                )?.checkInFinalizedBy || undefined
+              : rosterData?.session?.checkInFinalizedBy || session?.checkInFinalizedBy
+          }
+        />
       )}
 
       {/* Phase 4.5: Correction Modal */}

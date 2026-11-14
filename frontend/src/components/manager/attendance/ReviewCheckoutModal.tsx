@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import type { AttendanceRosterItem } from '../../../features/attendance/attendance.types';
+import type { AttendanceRosterItem, CategorySummary } from '../../../features/attendance/attendance.types';
 import type { WorkerCheckOutExceptionState } from './CheckoutRosterTable';
-import { parseTimeToMinutes } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Sparkles,
   Loader2,
   X,
   ShieldCheck,
@@ -18,10 +17,11 @@ interface ReviewCheckoutModalProps {
   onClose: () => void;
   onConfirm: (idempotencyKey: string) => Promise<void>;
   roster: AttendanceRosterItem[];
-  defaultFinishTime: string;
+  categorySummaries?: CategorySummary[];
+  defaultFinishTime?: string;
   categoryFinishTimes?: Record<string, string>;
-  overrides: Record<string, string>;
-  exceptions: Record<string, WorkerCheckOutExceptionState>;
+  overrides?: Record<string, string>;
+  exceptions?: Record<string, WorkerCheckOutExceptionState>;
   idempotencyKey: string;
   onRegenerateKey?: () => void;
 }
@@ -31,10 +31,11 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
   onClose,
   onConfirm,
   roster,
-  defaultFinishTime,
-  categoryFinishTimes,
-  overrides,
-  exceptions,
+  categorySummaries = [],
+  defaultFinishTime: _defaultFinishTime,
+  categoryFinishTimes: _categoryFinishTimes,
+  overrides: _overrides = {},
+  exceptions = {},
   idempotencyKey,
   onRegenerateKey,
 }) => {
@@ -43,27 +44,23 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Breakdown calculations
-  const earlyList: Array<{
-    worker: AttendanceRosterItem;
-    applicableFinish: string;
-    actualCheckout: string;
-    earlyMinutes?: number;
-  }> = [];
+  // Category counts
+  const totalCategories = categorySummaries.length;
+  const categoriesWithDeparture = categorySummaries.filter(
+    (c) => c.actualDepartureTime && c.actualDepartureTime.trim()
+  ).length;
+  const categoriesPending = categorySummaries.filter(
+    (c) => c.eligibleCount > 0 && (!c.actualDepartureTime || !c.actualDepartureTime.trim())
+  ).length;
 
-  const overtimeList: Array<{
-    worker: AttendanceRosterItem;
-    applicableFinish: string;
-    actualCheckout: string;
-    overtimeMinutes?: number;
-  }> = [];
-
-  const normalList: Array<{
-    worker: AttendanceRosterItem;
-    applicableFinish: string;
-  }> = [];
-
+  // Worker lists and metrics
+  const normalList: AttendanceRosterItem[] = [];
+  const earlyList: AttendanceRosterItem[] = [];
+  const overtimeList: AttendanceRosterItem[] = [];
   const absentList: AttendanceRosterItem[] = [];
+  const pendingWorkerList: AttendanceRosterItem[] = [];
+
+  let totalDurationMinutes = 0;
 
   roster.forEach((worker) => {
     const isAbsent = worker.arrivalStatus === 'absent' || worker.status === 'absent';
@@ -72,32 +69,24 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
       return;
     }
 
-    const applicableFinish =
-      overrides[worker.requirementId] ||
-      (categoryFinishTimes && categoryFinishTimes[worker.workerType]) ||
-      defaultFinishTime ||
-      '—';
-    const exc = exceptions[worker.workerId];
+    totalDurationMinutes += worker.durationMinutes || 0;
 
-    if (exc?.type === 'early') {
-      earlyList.push({
-        worker,
-        applicableFinish,
-        actualCheckout: exc.actualCheckoutTime || '',
-      });
-    } else if (exc?.type === 'overtime') {
-      overtimeList.push({
-        worker,
-        applicableFinish,
-        actualCheckout: exc.actualCheckoutTime || '',
-      });
+    // Check status from record or exceptions
+    const exc = exceptions[worker.workerId];
+    if (worker.departureStatus === 'early_departure' || exc?.type === 'early') {
+      earlyList.push(worker);
+    } else if (worker.departureStatus === 'overtime' || exc?.type === 'overtime') {
+      overtimeList.push(worker);
+    } else if (worker.departureStatus === 'normal' || worker.checkOut) {
+      normalList.push(worker);
     } else {
-      normalList.push({
-        worker,
-        applicableFinish,
-      });
+      pendingWorkerList.push(worker);
     }
   });
+
+  const canFinalize =
+    (totalCategories === 0 || categoriesPending === 0) &&
+    pendingWorkerList.length === 0;
 
   const handleFinalize = async () => {
     try {
@@ -113,6 +102,12 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const formatDurationTotal = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m (${mins} mins)`;
   };
 
   return (
@@ -134,7 +129,7 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
                 Review & Finalize Event Checkout
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Verify the checkout summary before committing permanent attendance records.
+                Verify the category departures, working durations, and exceptions before committing finalization.
               </p>
             </div>
           </div>
@@ -156,14 +151,14 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
               <div className="flex items-start gap-2.5">
                 <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="font-bold text-xs text-rose-950">Finalization Encountered an Issue</p>
+                  <p className="font-bold text-xs text-rose-950">Finalization Issue</p>
                   <p className="text-[11px] text-rose-800 mt-0.5 leading-relaxed">{errorMessage}</p>
                 </div>
               </div>
               {onRegenerateKey && (
                 <div className="pt-2 border-t border-rose-200/60 flex items-center justify-between">
                   <span className="text-[10px] text-rose-700">
-                    If this was a key collision, regenerate the key to proceed without losing your inputs.
+                    If this was an idempotency key collision, regenerate the key to proceed.
                   </span>
                   <button
                     type="button"
@@ -181,6 +176,34 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
             </div>
           )}
 
+          {/* Categories Overview Card */}
+          {totalCategories > 0 && (
+            <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-4">
+              <h4 className="font-bold text-gray-900 text-xs mb-2 flex items-center justify-between">
+                <span>Worker Categories ({totalCategories})</span>
+                <span className="text-gray-500 font-normal">
+                  {categoriesWithDeparture} of {totalCategories} recorded
+                </span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                {categorySummaries.map((cat) => (
+                  <div key={cat.workerType} className="flex items-center justify-between p-2 rounded-lg bg-white border border-gray-200">
+                    <span className="font-medium text-gray-800">{cat.workerType}</span>
+                    {cat.actualDepartureTime ? (
+                      <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] border border-emerald-200">
+                        Departure: {formatTimeTo12Hour(cat.actualDepartureTime)}
+                      </span>
+                    ) : (
+                      <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[10px] border border-amber-200">
+                        Pending Departure
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Metrics Breakdown Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 bg-gray-50 border border-gray-200/80 rounded-xl">
@@ -192,149 +215,63 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-emerald-700 block">Normal Default</span>
               <span className="text-lg font-black text-emerald-900">{normalList.length}</span>
-              <span className="text-[10px] text-emerald-700 block mt-0.5">System Default</span>
+              <span className="text-[10px] text-emerald-700 block mt-0.5">Category Default</span>
             </div>
 
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-amber-700 block">Early Departures</span>
               <span className="text-lg font-black text-amber-900">{earlyList.length}</span>
-              <span className="text-[10px] text-amber-700 block mt-0.5">Departed Early</span>
+              <span className="text-[10px] text-amber-700 block mt-0.5">Individual Exceptions</span>
             </div>
 
-            <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
-              <span className="text-[10px] uppercase font-bold text-purple-700 block">Overtime</span>
-              <span className="text-lg font-black text-purple-900">{overtimeList.length}</span>
-              <span className="text-[10px] text-purple-700 block mt-0.5">Extra Hours</span>
-            </div>
-          </div>
-
-          {/* Finishing Time Configuration Info */}
-          <div className="bg-gray-50/70 border border-gray-200/80 rounded-xl p-3.5 space-y-2">
-            <h4 className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
-              <Clock size={14} className="text-emerald-700" />
-              Finishing Time Configuration
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              <div>
-                <span className="text-gray-500">Event Default Finish Time: </span>
-                <strong className="text-gray-900 font-semibold">{defaultFinishTime}</strong>
-              </div>
-              <div>
-                <span className="text-gray-500">Requirement Overrides: </span>
-                <strong className="text-gray-900 font-semibold">
-                  {Object.keys(overrides).length > 0 ? `${Object.keys(overrides).length} override(s)` : 'None'}
-                </strong>
-              </div>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-blue-700 block">Overtime</span>
+              <span className="text-lg font-black text-blue-900">{overtimeList.length}</span>
+              <span className="text-[10px] text-blue-700 block mt-0.5">Individual Exceptions</span>
             </div>
           </div>
 
-          {/* Exception Details Lists */}
-          {earlyList.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="font-bold text-amber-900 text-xs">
-                Early Departure Exceptions ({earlyList.length})
-              </h4>
-              <div className="border border-amber-200 rounded-xl divide-y divide-amber-100 bg-amber-50/30 overflow-hidden max-h-36 overflow-y-auto">
-                {earlyList.map(({ worker, applicableFinish, actualCheckout }) => {
-                  const repMins = parseTimeToMinutes(worker.reportingTime);
-                  const finMins = parseTimeToMinutes(applicableFinish);
-                  const coMins = parseTimeToMinutes(actualCheckout);
-                  const isFinNextDay = repMins !== null && finMins !== null && finMins <= repMins;
-                  const isCoNextDay = repMins !== null && coMins !== null && coMins <= repMins;
-
-                  return (
-                    <div key={worker.workerId} className="p-2.5 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-gray-900">{worker.workerName}</span>
-                        <span className="text-gray-500 text-[10px] block">
-                          {worker.workerType} • Finish: {applicableFinish}
-                          {isFinNextDay && (
-                            <span className="ml-1 px-1 py-0.2 rounded text-[8px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                              +1 Day
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <span className="font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-lg border border-amber-200 inline-flex items-center gap-1">
-                        Out: {actualCheckout}
-                        {isCoNextDay && (
-                          <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-amber-200 text-amber-900 border border-amber-300">
-                            +1 Day
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+          {/* Total Durations Summary */}
+          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-1 text-emerald-900">
+            <div className="flex items-center justify-between font-bold text-xs">
+              <span className="flex items-center gap-1.5">
+                <Clock size={14} className="text-emerald-700" />
+                <span>Total Recorded Working Durations</span>
+              </span>
+              <span className="text-sm font-black text-emerald-950">
+                {formatDurationTotal(totalDurationMinutes)}
+              </span>
             </div>
-          )}
+            <p className="text-[11px] text-emerald-800 leading-relaxed">
+              Every eligible worker’s duration has been calculated from their own effective check-in timestamp to their actual departure.
+            </p>
+          </div>
 
-          {overtimeList.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="font-bold text-purple-900 text-xs">
-                Overtime Exceptions ({overtimeList.length})
-              </h4>
-              <div className="border border-purple-200 rounded-xl divide-y divide-purple-100 bg-purple-50/30 overflow-hidden max-h-36 overflow-y-auto">
-                {overtimeList.map(({ worker, applicableFinish, actualCheckout }) => {
-                  const repMins = parseTimeToMinutes(worker.reportingTime);
-                  const finMins = parseTimeToMinutes(applicableFinish);
-                  const coMins = parseTimeToMinutes(actualCheckout);
-                  const isFinNextDay = repMins !== null && finMins !== null && finMins <= repMins;
-                  const isCoNextDay = repMins !== null && coMins !== null && coMins <= repMins;
-
-                  return (
-                    <div key={worker.workerId} className="p-2.5 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-gray-900">{worker.workerName}</span>
-                        <span className="text-gray-500 text-[10px] block">
-                          {worker.workerType} • Finish: {applicableFinish}
-                          {isFinNextDay && (
-                            <span className="ml-1 px-1 py-0.2 rounded text-[8px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                              +1 Day
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <span className="font-bold text-purple-800 bg-purple-100/80 px-2 py-0.5 rounded-lg border border-purple-200 inline-flex items-center gap-1">
-                        Out: {actualCheckout}
-                        {isCoNextDay && (
-                          <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-purple-200 text-purple-900 border border-purple-300">
-                            +1 Day
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
+          {/* Excluded Absent Workers notice */}
           {absentList.length > 0 && (
-            <div className="p-3 bg-rose-50/50 border border-rose-200/80 rounded-xl text-rose-800 text-xs flex items-center justify-between">
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between">
               <div>
-                <span className="font-bold">Absent Staff Excluded ({absentList.length})</span>
-                <p className="text-[10px] text-rose-600">
-                  Workers marked absent during check-in are excluded from checkout.
-                </p>
+                <span className="font-bold text-gray-800 text-xs block">Absent Workers ({absentList.length})</span>
+                <span className="text-gray-500 text-[11px]">Strictly excluded from checkout. 0 mins duration recorded.</span>
               </div>
-              <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md text-[10px] font-bold">
-                No checkout recorded
+              <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-[10px] font-bold">
+                Excluded
               </span>
             </div>
           )}
 
-          {/* Provenance Notice */}
-          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-1 text-emerald-900">
-            <div className="flex items-center gap-1.5 font-bold text-xs">
-              <Sparkles size={14} className="text-emerald-700" />
-              <span>Timestamp Provenance Disclaimer</span>
+          {/* Pending Workers Blocker Notice */}
+          {pendingWorkerList.length > 0 && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-center gap-2">
+              <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+              <div>
+                <span className="font-bold text-xs block">Pending Checkout Records ({pendingWorkerList.length})</span>
+                <span className="text-[11px]">
+                  All eligible non-absent workers must have a valid checkout before finalization. Please save category departures or record individual exceptions.
+                </span>
+              </div>
             </div>
-            <p className="text-[11px] text-emerald-800 leading-relaxed">
-              All <strong>{normalList.length} staff</strong> marked as Normal (Default) will have their checkout timestamps automatically recorded with <code>system_default</code> provenance matching their applicable finishing time. Exceptions are recorded with <code>manager_actual</code>.
-            </p>
-          </div>
+          )}
 
           {/* Idempotency Audit Footnote */}
           <div className="text-[10px] text-gray-400 font-mono flex items-center justify-between">
@@ -357,7 +294,7 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
           <button
             type="button"
             onClick={handleFinalize}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canFinalize}
             className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors"
           >
             {isSubmitting ? (
@@ -377,4 +314,3 @@ export const ReviewCheckoutModal: React.FC<ReviewCheckoutModalProps> = ({
     </div>
   );
 };
-

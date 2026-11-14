@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { AttendanceRosterRequirementItem } from '../../../features/attendance/attendance.types';
 import { parseTimeToMinutes } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour, formatTimeTo24Hour } from '../../../utils/formatters';
 import { Clock, Plus, Trash2, Sliders, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface CheckoutFinishingTimeCardProps {
@@ -134,12 +135,12 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
             <div className="relative flex-1">
               <input
                 id="event-default-finish"
-                type="text"
-                value={defaultFinishTime}
+                type="time"
+                value={formatTimeTo24Hour(defaultFinishTime)}
                 onChange={(e) => onDefaultFinishTimeChange(e.target.value)}
                 disabled={disabled}
                 placeholder="e.g. 17:00 or 05:00 PM"
-                className={`w-full px-3.5 py-2 text-xs font-semibold rounded-xl border bg-white focus:outline-none focus:ring-2 transition-all ${
+                className={`w-full px-3.5 py-2 text-xs font-semibold rounded-xl border bg-white focus:outline-none focus:ring-2 transition-all cursor-pointer ${
                   defaultFinishTimeError
                     ? 'border-rose-300 focus:ring-rose-500/20 text-rose-900'
                     : 'border-gray-200 focus:ring-emerald-500/20 focus:border-emerald-500 text-gray-900'
@@ -147,9 +148,9 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
               />
             </div>
             {defaultFinishTime && parseTimeToMinutes(defaultFinishTime) !== null && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 shrink-0">
                 <CheckCircle2 size={13} />
-                Valid Time
+                {formatTimeTo12Hour(defaultFinishTime)}
               </span>
             )}
           </div>
@@ -179,7 +180,7 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
                   onClick={handleApplyDefaultToAllCategories}
                   className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 self-start sm:self-auto hover:underline"
                 >
-                  Apply "{defaultFinishTime}" to all categories
+                  Apply "{formatTimeTo12Hour(defaultFinishTime)}" to all categories
                 </button>
               )}
             </div>
@@ -207,20 +208,20 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
 
                     <div className="flex items-center gap-2">
                       <input
-                        type="text"
+                        type="time"
                         disabled={disabled}
-                        value={val}
+                        value={formatTimeTo24Hour(val)}
                         onChange={(e) => handleCategoryChange(cat.workerType, e.target.value)}
                         placeholder="Category finish (e.g. 23:00)"
-                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg border bg-white focus:outline-none focus:ring-1 transition-all ${
+                        className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg border bg-white focus:outline-none focus:ring-1 transition-all cursor-pointer ${
                           err
                             ? 'border-rose-400 focus:ring-rose-400 text-rose-900'
                             : 'border-gray-200 focus:border-emerald-500 focus:ring-emerald-500 text-gray-800'
                         }`}
                       />
                       {isValid && (
-                        <span className="text-emerald-600 shrink-0" title="Valid Time">
-                          <CheckCircle2 size={16} />
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 shrink-0">
+                          {formatTimeTo12Hour(val)}
                         </span>
                       )}
                     </div>
@@ -267,7 +268,7 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
                   <option value="">Select Requirement to Override...</option>
                   {availableReqsForOverride.map((req) => (
                     <option key={req.requirementId} value={req.requirementId}>
-                      {req.workerType} (Report: {req.reportingTime}, Staff: {req.assignedCount})
+                      {req.workerType} (Report: {formatTimeTo12Hour(req.reportingTime)}, Staff: {req.assignedCount})
                     </option>
                   ))}
                 </select>
@@ -275,14 +276,14 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
 
               <div className="w-full sm:w-44">
                 <input
-                  type="text"
-                  value={overrideTimeInput}
+                  type="time"
+                  value={formatTimeTo24Hour(overrideTimeInput)}
                   onChange={(e) => {
                     setOverrideTimeInput(e.target.value);
                     setOverrideInputError(null);
                   }}
                   placeholder="Override Time (e.g. 19:30)"
-                  className="w-full px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-800 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-800 focus:outline-none focus:border-emerald-500 cursor-pointer"
                 />
               </div>
 
@@ -319,7 +320,7 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
                         {req?.workerType || 'Requirement'}
                       </span>
                       <span className="text-[11px] text-indigo-700 inline-flex items-center gap-1.5">
-                        Finish Time: <strong className="font-semibold">{time}</strong>
+                        Finish Time: <strong className="font-semibold">{formatTimeTo12Hour(time)}</strong>
                         {(() => {
                           const repMins = req ? parseTimeToMinutes(req.reportingTime) : null;
                           const ovMins = parseTimeToMinutes(time);
@@ -372,10 +373,10 @@ export const CheckoutFinishingTimeCard: React.FC<CheckoutFinishingTimeCardProps>
                     return (
                       <tr key={req.requirementId} className="hover:bg-gray-50/60 transition-colors">
                         <td className="py-2 px-3 font-medium text-gray-900">{req.workerType}</td>
-                        <td className="py-2 px-3 text-gray-600">{req.reportingTime}</td>
+                        <td className="py-2 px-3 text-gray-600">{formatTimeTo12Hour(req.reportingTime)}</td>
                         <td className="py-2 px-3 font-bold text-gray-900">
                           <span className="inline-flex items-center gap-1.5">
-                            {resolvedTime}
+                            {formatTimeTo12Hour(resolvedTime)}
                             {(() => {
                               const repMins = parseTimeToMinutes(req.reportingTime);
                               const finMins = parseTimeToMinutes(resolvedTime);

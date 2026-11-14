@@ -3452,3 +3452,348 @@ When VAPID credentials are not configured on the server:
 ### Error Responses
 - `404 Not Found`: Device not found or does not belong to authenticated user (prevents cross-user ID enumeration/deletion).
 
+---
+
+# 18. Attendance Exception-Based Category-Wise Checkout APIs
+
+Base: `/api/attendance`
+
+## 18.1 Record Category Actual Departure Time
+**Endpoint**: `POST /api/attendance/events/:eventId/categories/departure`  
+**Access**: Assigned Event Manager, Admin  
+**Purpose**: Record or update the single authoritative actual departure time for an entire worker category. Automatically applies as the default checkout for all eligible non-absent workers in that category (`checkOutSource: 'category_default'`, `departureStatus: 'normal'`) and dynamically reclassifies individual exception workers.
+
+### Request Body
+```json
+{
+  "workerType": "Catering Boy",
+  "actualDepartureDate": "2026-11-14",
+  "actualDepartureTime": "16:00",
+  "reason": "Event banquet concluded on schedule"
+}
+```
+*(Requires explicit calendar date `actualDepartureDate` in `YYYY-MM-DD` format. Converted to canonical UTC instant using exact Asia/Kolkata `+05:30` offset).*
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Category departure time recorded successfully",
+  "data": {
+    "eventId": "6724a1b2c3d4e5f6a7b8c901",
+    "workerType": "Catering Boy",
+    "actualDepartureTime": "16:00",
+    "actualDepartureDate": "2026-11-14T10:30:00.000Z",
+    "affectedWorkersCount": 5,
+    "normalWorkersCount": 4,
+    "exceptionWorkersCount": 1,
+    "absentWorkersCount": 1
+  }
+}
+```
+
+### Error Responses
+- `400 Bad Request`: Invalid time or date format, departure timestamp in the future, event operational day not yet arrived (`cannot set before event day`), or departure earlier than a normal worker's check-in time.
+- `403 Forbidden`: Unassigned event manager or scheduled event day has ended (`Checkout editing is closed because the scheduled event day has ended. Departure times can only be set on the event day.`).
+- `404 Not Found`: Event not found.
+
+---
+
+## 18.2 Record Worker Checkout Exception (Early Departure / Overtime)
+**Endpoint**: `POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception`  
+**Access**: Assigned Event Manager, Admin  
+**Purpose**: Record an individual actual departure timestamp for an exceptional worker who departed earlier or later than the category departure time.
+
+### Request Body
+```json
+{
+  "actualDepartureDate": "2026-11-14",
+  "actualDepartureTime": "14:30",
+  "reason": "Personal medical emergency permitted by supervisor"
+}
+```
+*(Requires explicit calendar date `actualDepartureDate` in `YYYY-MM-DD` format. Accepts either `actualDepartureTime` or `actualCheckoutTime` for backward compatibility).*
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Worker checkout exception recorded successfully",
+  "data": {
+    "workerId": "6724a1b2c3d4e5f6a7b8c902",
+    "name": "Ahmed Khan",
+    "workerType": "Catering Boy",
+    "status": "checked_out",
+    "arrivalStatus": "on_time",
+    "checkIn": "2026-11-13T03:30:00.000Z",
+    "checkOut": "2026-11-13T09:00:00.000Z",
+    "checkOutSource": "individual_exception",
+    "departureStatus": "early_departure",
+    "earlyDepartureMinutes": 90,
+    "overtimeMinutes": 0,
+    "durationMinutes": 330
+  }
+}
+```
+
+### Error Responses
+- `400 Bad Request`: Worker is marked absent, checkout time is earlier than check-in time, or checkout time is in the future.
+- `403 Forbidden`: Unassigned event manager or scheduled event day has ended (`Checkout editing is closed because the scheduled event day has ended. Departure exceptions can only be set on the event day.`).
+- `404 Not Found`: Attendance record not found for worker.
+
+---
+
+## 18.3 Clear Worker Checkout Exception (Return to Category Default)
+**Endpoint**: `DELETE /api/attendance/events/:eventId/workers/:workerId/checkout-exception`  
+**Access**: Assigned Event Manager, Admin  
+**Purpose**: Clears an individual exception, restoring the category default departure timestamp and resetting departure classification to `normal`.
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Worker checkout exception cleared and category default restored",
+  "data": {
+    "workerId": "6724a1b2c3d4e5f6a7b8c902",
+    "checkOutSource": "category_default",
+    "departureStatus": "normal",
+    "earlyDepartureMinutes": 0,
+    "overtimeMinutes": 0,
+    "durationMinutes": 420
+  }
+}
+```
+
+### Error Responses
+- `400 Bad Request`: Worker has no active exception, worker is absent, or category default is invalid relative to worker's check-in.
+- `403 Forbidden`: Unassigned event manager or scheduled event day has ended (`Checkout editing is closed because the scheduled event day has ended.`).
+
+---
+
+## 18.4 Finalize Checkout
+**Endpoint**: `POST /api/attendance/events/:eventId/finalize-checkout`  
+**Access**: Assigned Event Manager, Admin  
+**Headers**: `Idempotency-Key` (mandatory UUID string)  
+**Purpose**: Authoritatively finalizes the checkout lifecycle for all workers across all categories. Automatically reads stored `categoryActualDepartures` from the session if omitted in the payload. Does not block corrections during the remaining 24-hour post-event window.
+
+### Response `200 OK`
+```json
+{
+  "success": true,
+  "message": "Attendance checkout finalized successfully",
+  "data": {
+    "eventId": "6724a1b2c3d4e5f6a7b8c901",
+    "totalProcessed": 10,
+    "normalCheckoutCount": 8,
+    "earlyDepartureCount": 1,
+    "overtimeCount": 1,
+    "absentCount": 0,
+    "checkOutFinalized": true,
+    "checkOutFinalizedAt": "2026-11-13T10:35:00.000Z"
+  }
+}
+```
+
+---
+
+## 18.5 Get Attendance Roster (Checkout Metadata Decoration)
+**Endpoint**: `GET /api/attendance/events/:eventId/roster`  
+**Access**: Assigned Event Manager, Admin  
+**Purpose**: Retrieves full attendance roster decorated with category actual departures, category summary KPIs, and 24-hour modification deadline status.
+
+### Decorated Response Fields:
+```json
+{
+  "success": true,
+  "data": {
+    "eventId": "6724a1b2c3d4e5f6a7b8c901",
+    "canModifyCheckout": true,
+    "checkoutModificationDeadlineAt": "2026-11-14T22:00:00.000Z",
+    "checkoutModificationTimeRemainingMs": 86400000,
+    "categoryActualDepartures": [
+      {
+        "workerType": "Catering Boy",
+        "actualDepartureTime": "16:00",
+        "actualDepartureDate": "2026-11-13T10:30:00.000Z",
+        "recordedBy": "6724a1b2c3d4e5f6a7b8c800",
+        "recordedAt": "2026-11-13T10:30:00.000Z"
+      }
+    ],
+    "categorySummaries": [
+      {
+        "workerType": "Catering Boy",
+        "totalAssigned": 5,
+        "eligibleCount": 4,
+        "absentCount": 1,
+        "normalCount": 3,
+        "earlyCount": 1,
+        "overtimeCount": 0,
+        "pendingCount": 0,
+        "actualDepartureTime": "16:00",
+        "actualDepartureDate": "2026-11-13T10:30:00.000Z"
+      }
+    ],
+    "summary": {
+      "totalAssigned": 5,
+      "eligibleCount": 4,
+      "absentCount": 1,
+      "normalCount": 3,
+      "earlyCount": 1,
+      "overtimeCount": 0,
+      "pendingCount": 0
+    },
+    "workers": [...]
+  }
+}
+```
+
+---
+
+## 18.6 Check-in Finalization & Re-finalization API Specification
+
+### 18.6.1 Finalize or Re-finalize Check-in
+**Endpoint**: `POST /api/attendance/events/:eventId/finalize-checkin`  
+**Access**: Assigned Event Manager, Admin  
+**Header**: `Idempotency-Key` (mandatory string)  
+**Purpose**: Atomically commits initial check-in exceptions or re-finalizes check-in following post-finalization event-day edits. Unmarked workers default to Present / On Time.
+
+#### Request Body (Initial Finalization):
+```json
+{
+  "lateExceptions": [
+    {
+      "workerId": "6724a1b2c3d4e5f6a7b8c801",
+      "actualArrivalTime": "08:30"
+    }
+  ],
+  "absentExceptions": [
+    "6724a1b2c3d4e5f6a7b8c804"
+  ]
+}
+```
+
+#### Request Body (Re-finalization after Event-Day Corrections):
+```json
+{
+  "reason": "Re-finalized check-in after confirming Worker Beta gate arrival log.",
+  "expectedRevision": 1
+}
+```
+
+#### Success Response (200 OK):
+```json
+{
+  "success": true,
+  "message": "Check-in finalized successfully",
+  "data": {
+    "eventId": "6724a1b2c3d4e5f6a7b8c901",
+    "totalProcessed": 4,
+    "onTimeCount": 2,
+    "lateCount": 1,
+    "absentCount": 1,
+    "checkInFinalized": true,
+    "checkInFinalizedAt": "2026-11-14T03:30:00.000Z",
+    "checkInRevision": 2,
+    "checkInChangesPending": false
+  }
+}
+```
+
+#### Error Responses:
+- `400 Bad Request`: Check-in before latest reporting time, invalid timestamps, or missing idempotency key.
+- `401 Unauthorized`: Missing or invalid bearer token.
+- `403 Forbidden`: Worker/Client role, non-assigned manager, or attempting to mark/correct check-in after the scheduled event day has ended.
+- `409 Conflict`: Concurrency conflict, key collision with altered payload, or attempting finalization when already finalized with no pending changes.
+
+---
+
+### 18.6.3 Category-Specific Check-in Finalization & Confirmation API
+**Endpoint**: `POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin`  
+**Authorization**: `admin`, `event_manager` (Assigned Event Manager or Admin only)  
+**Headers**:
+- `Authorization`: `Bearer <token>` (Required)
+- `Idempotency-Key`: `string` (Required — prevents duplicate submissions)
+
+**Path Parameters**:
+- `eventId`: MongoDB ObjectId of the event
+- `workerType`: URL-encoded worker specialization category (e.g. `'Catering%20Boy'`, `'Cameraman%20%2F%20Photographer'`)
+
+**Request Body**:
+```json
+{
+  "lateExceptions": [
+    {
+      "workerId": "6724a1b2c3d4e5f6a7b8c802",
+      "actualArrivalTime": "08:30"
+    }
+  ],
+  "absentExceptions": [
+    "6724a1b2c3d4e5f6a7b8c803"
+  ],
+  "reason": "Initial category check-in confirmation for catering staff"
+}
+```
+
+**Success Response (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Check-in finalized successfully for category 'Catering Boy'",
+  "data": {
+    "eventId": "6724a1b2c3d4e5f6a7b8c801",
+    "workerType": "Catering Boy",
+    "totalProcessed": 4,
+    "onTimeCount": 2,
+    "lateCount": 1,
+    "absentCount": 1,
+    "checkInFinalized": true,
+    "checkInFinalizedAt": "2026-11-14T03:00:00.000Z",
+    "checkInRevision": 1,
+    "checkInChangesPending": false
+  }
+}
+```
+
+**Error Responses**:
+- `400 Bad Request`: Missing `Idempotency-Key` header; worker category not required/assigned; late arrival time $\le$ scheduled reporting time; absent worker included in late exceptions.
+- `401 Unauthorized`: Unauthenticated request.
+- `403 Forbidden`: Authenticated user is not an Admin or the assigned Event Manager; or check-in exceptions submitted after scheduled event day ended.
+- `409 Conflict`: Replay with altered payload under same Idempotency-Key; or category already finalized with different key when no changes are pending.
+
+**Endpoint**: `GET /api/attendance/events/:eventId/roster`  
+Decorated with check-in finalization & revision states:
+```json
+{
+  "success": true,
+  "data": {
+    "checkInFinalized": true,
+    "checkInFinalizedAt": "2026-11-14T03:30:00.000Z",
+    "checkInFinalizedBy": "6724a1b2c3d4e5f6a7b8c800",
+    "checkInChangesPending": false,
+    "checkInRevision": 2,
+    "canFinalizeCheckIn": false,
+    "canReFinalizeCheckIn": false,
+    "canEditCheckIn": true,
+    "session": {
+      "checkInFinalized": true,
+      "checkInChangesPending": false,
+      "checkInRevision": 2,
+      "checkInRevisions": [
+        {
+          "revision": 1,
+          "finalizedAt": "2026-11-14T03:00:00.000Z",
+          "finalizedBy": "6724a1b2c3d4e5f6a7b8c800",
+          "changeReason": "Initial Check-in Finalization"
+        },
+        {
+          "revision": 2,
+          "finalizedAt": "2026-11-14T03:30:00.000Z",
+          "finalizedBy": "6724a1b2c3d4e5f6a7b8c800",
+          "changeReason": "Re-finalized check-in after confirming Worker Beta gate arrival log."
+        }
+      ]
+    }
+  }
+}
+```
+
