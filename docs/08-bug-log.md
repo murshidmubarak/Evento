@@ -1656,3 +1656,48 @@ Re-initialized all summary counter variables (`onTimeCount = 0; lateCount = 0; a
 
 Any accumulator or counter variables populated inside a database transaction callback (`runInTransaction` / `withTransaction`) must be initialized or reset inside the callback so that retry attempts always start with a clean state.
 
+---
+
+## BUG-035 — Legacy UTC Assertion Mismatch (getUTCHours: 3 !== 9) Following Asia/Kolkata Timezone Correction
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Attendance Correction & Verification / `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`
+
+### Severity
+
+Low
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During CI backend test execution, `attendanceApiRoutingAndPresentCorrection.test.ts:531:14` failed with:
+```text
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+3 !== 9
+actual: 3,
+expected: 9,
+operator: 'strictEqual'
+```
+
+### Root Cause
+
+When the worker reporting time was `09:00` (Asia/Kolkata timezone, UTC+05:30), the corrected `checkIn` instant in UTC is `03:30:00.000Z` ($09:00 - 05:30 = 03:30$).
+Prior to the Asia/Kolkata timezone fix in BUG-032, `constructDateTime` incorrectly used raw UTC methods, setting the UTC hour directly to `9`. The older test had asserted `assert.strictEqual(checkInDate.getUTCHours(), 9)` based on that buggy raw UTC behavior.
+Once `constructDateTime` was fixed to generate canonical Asia/Kolkata UTC timestamps, `checkInDate.getUTCHours()` accurately became `3` (and `getUTCMinutes()` became `30`), causing the legacy assertion to fail.
+
+### Solution
+
+Updated lines 484-485 and 531-532 in `attendanceApiRoutingAndPresentCorrection.test.ts` to assert the correct UTC hours (`3`) and minutes (`30`) corresponding to `09:00` Asia/Kolkata.
+
+### Rule
+
+When asserting against UTC methods (`getUTCHours()`, `getUTCMinutes()`) on dates constructed from Asia/Kolkata wall-clock time, calculate the UTC offset accurately (UTC = IST - 5h 30m).
+

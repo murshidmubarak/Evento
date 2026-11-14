@@ -481,8 +481,9 @@ describe('Milestone 4 — API Routing for Existing Records & Change to Present O
       assert.strictEqual(updated.delayMinutes, 0);
 
       const checkInDate = new Date(updated.checkIn!);
-      assert.strictEqual(checkInDate.getUTCHours(), 9);
-      assert.strictEqual(checkInDate.getUTCMinutes(), 0);
+      // 09:00 Asia/Kolkata (+05:30) is 03:30 UTC
+      assert.strictEqual(checkInDate.getUTCHours(), 3);
+      assert.strictEqual(checkInDate.getUTCMinutes(), 30);
 
       // Verify correction history audit trail
       assert.strictEqual(updated.corrections.length, 2);
@@ -528,8 +529,9 @@ describe('Milestone 4 — API Routing for Existing Records & Change to Present O
       assert.ok(updated.checkIn !== null);
 
       const checkInDate = new Date(updated.checkIn!);
-      assert.strictEqual(checkInDate.getUTCHours(), 9);
-      assert.strictEqual(checkInDate.getUTCMinutes(), 0);
+      // 09:00 Asia/Kolkata (+05:30) is 03:30 UTC
+      assert.strictEqual(checkInDate.getUTCHours(), 3);
+      assert.strictEqual(checkInDate.getUTCMinutes(), 30);
 
       assert.strictEqual(updated.corrections.length, 1);
       assert.strictEqual(updated.corrections[0].previousStatus, 'absent');

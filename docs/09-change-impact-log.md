@@ -2383,3 +2383,17 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+---
+
+### [2026-11-14] Attendance Test Suites: UTC Time Assertion Alignment for Asia/Kolkata Reporting Times
+- **Requested Change**:
+  - Update legacy `getUTCHours()` assertions in `attendanceApiRoutingAndPresentCorrection.test.ts` from 9 (which reflected the old raw UTC bug) to 3 (03:30 UTC for 09:00 Asia/Kolkata).
+- **Impact Level**: LOW (Test fixture assertion alignment with verified timezone architecture).
+- **Directly Affected Files**:
+  - `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`: Updated UTC hours and minutes assertions.
+  - `docs/08-bug-log.md`: Logged BUG-035.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
