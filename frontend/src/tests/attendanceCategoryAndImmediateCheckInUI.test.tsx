@@ -293,7 +293,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
       // Confirm modal opens with worker details and scheduled reporting time
       expect(screen.getByText('Update Attendance Status')).toBeInTheDocument();
       expect(screen.getAllByText('Tariq Cameraman').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('09:00').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('09:00 AM').length).toBeGreaterThanOrEqual(1);
 
       // Select Change to Present
       fireEvent.click(screen.getByRole('button', { name: /Change to Present/i }));
@@ -455,7 +455,7 @@ describe('Milestone 4 — Category-wise Finishing Times, Immediate Check-in Pers
         />
       );
 
-      const applyAllBtn = screen.getByRole('button', { name: /Apply "23:00" to all categories/i });
+      const applyAllBtn = screen.getByRole('button', { name: /Apply "(23:00|11:00 PM)" to all categories/i });
       fireEvent.click(applyAllBtn);
 
       expect(mockCategoryChange).toHaveBeenCalledWith({

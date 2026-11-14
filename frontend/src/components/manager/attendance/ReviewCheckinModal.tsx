@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { AttendanceRosterItem } from '../../../features/attendance/attendance.types';
 import type { WorkerExceptionState } from './AttendanceRosterTable';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -21,6 +22,12 @@ interface ReviewCheckinModalProps {
   exceptions: Record<string, WorkerExceptionState>;
   idempotencyKey: string;
   onRegenerateKey?: () => void;
+  isReFinalize?: boolean;
+  currentRevision?: number;
+  previousFinalizedAt?: string;
+  previousFinalizedBy?: string;
+  categoryName?: string;
+  workerType?: string;
 }
 
 export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
@@ -31,12 +38,23 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
   exceptions,
   idempotencyKey,
   onRegenerateKey,
+  isReFinalize = false,
+  currentRevision = 1,
+  previousFinalizedAt,
+  previousFinalizedBy,
+  categoryName,
+  workerType,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRetryPending, setIsRetryPending] = useState(false);
 
   if (!isOpen) return null;
+
+  // Filter roster if workerType is specified
+  const effectiveRoster = workerType
+    ? roster.filter((w) => w.workerType.trim().toLowerCase() === workerType.trim().toLowerCase())
+    : roster;
 
   // Compute breakdown
   const lateList: Array<{
@@ -48,7 +66,7 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
   const absentList: AttendanceRosterItem[] = [];
   const presentList: AttendanceRosterItem[] = [];
 
-  roster.forEach((worker) => {
+  effectiveRoster.forEach((worker) => {
     const exc = exceptions[worker.workerId] || { type: 'present' };
     if (exc.type === 'late') {
       lateList.push({
@@ -96,15 +114,23 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
         {/* Header */}
         <div className="p-6 border-b border-gray-100 flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200 shadow-2xs">
+            <div className={`w-11 h-11 rounded-2xl ${isReFinalize ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'} flex items-center justify-center border shadow-2xs`}>
               <CheckCircle2 size={24} />
             </div>
             <div>
               <h3 id="review-checkin-modal-title" className="text-lg font-extrabold text-gray-900 tracking-tight">
-                Review & Finalize Check-in
+                {categoryName || workerType
+                  ? isReFinalize
+                    ? `Review & Re-confirm Check-in: ${categoryName || workerType} (Rev ${currentRevision + 1})`
+                    : `Review & Confirm Check-in: ${categoryName || workerType}`
+                  : isReFinalize
+                  ? `Review & Re-finalize Check-in (Rev ${currentRevision + 1})`
+                  : 'Review & Finalize Check-in'}
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Verify exceptions before committing permanent attendance records.
+                {isReFinalize
+                  ? 'Re-confirm updated attendance records and commit the next revision.'
+                  : 'Verify exceptions before committing permanent attendance records.'}
               </p>
             </div>
           </div>
@@ -121,6 +147,24 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
 
         {/* Scrollable Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {/* Re-finalization Notice */}
+          {isReFinalize && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 text-xs space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                <span>Re-finalization Notice (Revision {currentRevision + 1})</span>
+              </div>
+              <p className="leading-relaxed">
+                Attendance records were modified after the initial finalization. Re-finalizing will confirm the current attendance roster as <strong>Revision {currentRevision + 1}</strong> and clear the pending changes status.
+                {previousFinalizedAt && (
+                  <span className="block text-[11px] text-amber-800 mt-1 font-mono">
+                    Last finalized: {new Date(previousFinalizedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                    {previousFinalizedBy ? ` by ${previousFinalizedBy}` : ''}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
           {/* Metrics Overview */}
           <div className="grid grid-cols-4 gap-2 sm:gap-3 text-center">
             <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
@@ -167,10 +211,10 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
                     <div>
                       <span className="font-bold text-gray-900">{worker.workerName}</span>
                       <span className="text-gray-500 ml-1.5">({worker.workerType})</span>
-                      <div className="text-[11px] text-gray-400">Scheduled: {worker.reportingTime}</div>
+                      <div className="text-[11px] text-gray-400">Scheduled: {formatTimeTo12Hour(worker.reportingTime)}</div>
                     </div>
                     <div className="text-right">
-                      <div className="font-mono font-bold text-amber-800">Actual: {actualTime}</div>
+                      <div className="font-mono font-bold text-amber-800">Actual: {formatTimeTo12Hour(actualTime)}</div>
                       {delayMinutes !== undefined && (
                         <div className="text-[10px] text-amber-600 font-semibold">+{delayMinutes} min delay</div>
                       )}
@@ -283,17 +327,25 @@ export const ReviewCheckinModal: React.FC<ReviewCheckinModalProps> = ({
               type="button"
               onClick={handleFinalize}
               disabled={isSubmitting}
-              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors"
+              className={`inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white ${
+                isReFinalize
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-emerald-700 hover:bg-emerald-800'
+              } disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors`}
             >
               {isSubmitting ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Finalizing Check-in...
+                  {isReFinalize ? 'Re-confirming Check-in...' : 'Confirming Check-in...'}
                 </>
               ) : (
                 <>
                   <CheckCircle2 size={14} />
-                  Confirm & Finalize Check-in
+                  {isReFinalize
+                    ? `Confirm & Re-confirm (Rev ${currentRevision + 1})`
+                    : categoryName || workerType
+                    ? `Confirm Check-in: ${categoryName || workerType}`
+                    : 'Confirm & Finalize Check-in'}
                 </>
               )}
             </button>

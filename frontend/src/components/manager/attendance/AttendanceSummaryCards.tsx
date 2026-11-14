@@ -1,5 +1,6 @@
 import React from 'react';
 import { Users, UserCheck, Clock, UserX, CalendarClock, ShieldCheck } from 'lucide-react';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 
 interface AttendanceSummaryCardsProps {
   totalAssigned: number;
@@ -88,7 +89,7 @@ export const AttendanceSummaryCards: React.FC<AttendanceSummaryCardsProps> = ({
         </div>
         <div>
           <div className="text-lg font-extrabold text-gray-900 tracking-tight truncate">
-            {latestReportingTime || '—'}
+            {formatTimeTo12Hour(latestReportingTime)}
           </div>
           <div className="text-[11px] text-gray-500 mt-0.5">Barrier threshold</div>
         </div>

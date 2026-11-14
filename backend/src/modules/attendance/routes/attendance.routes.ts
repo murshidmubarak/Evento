@@ -5,7 +5,11 @@ import { attendanceController } from '../controller/attendance.controller.js';
 import { attendanceConcernController } from '../controller/attendance-concern.controller.js';
 import {
   validateCheckInFinalization,
+  validateCategoryCheckInFinalization,
   validateCheckOutFinalization,
+  validateCategoryDeparture,
+  validateWorkerCheckOutException,
+  validateClearWorkerCheckOutException,
   validateAttendanceCorrection,
   validateAttendanceVerification,
   validateIndividualCheckIn,
@@ -104,6 +108,38 @@ router.post(
   authorize('admin', 'event_manager'),
   validateCheckInFinalization,
   attendanceController.finalizeCheckIn
+);
+
+// Independent category-specific check-in confirmation
+router.post(
+  '/events/:eventId/categories/:workerType/finalize-checkin',
+  authorize('admin', 'event_manager'),
+  validateCategoryCheckInFinalization,
+  attendanceController.finalizeCategoryCheckIn
+);
+
+// Category actual departure recording & automatic cascading checkout
+router.post(
+  '/events/:eventId/categories/departure',
+  authorize('admin', 'event_manager'),
+  validateCategoryDeparture,
+  attendanceController.recordCategoryDeparture
+);
+
+// Worker individual checkout exception (Early Departure / Overtime)
+router.post(
+  '/events/:eventId/workers/:workerId/checkout-exception',
+  authorize('admin', 'event_manager'),
+  validateWorkerCheckOutException,
+  attendanceController.recordWorkerCheckOutException
+);
+
+// Clear worker checkout exception and restore category default
+router.delete(
+  '/events/:eventId/workers/:workerId/checkout-exception',
+  authorize('admin', 'event_manager'),
+  validateClearWorkerCheckOutException,
+  attendanceController.clearWorkerCheckOutException
 );
 
 // Exception-based checkout finalization

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { AttendanceRosterItem, AttendanceSession } from '../../../features/attendance/attendance.types';
 import { formatDurationMinutes, isOvernightCheckout } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 import {
   Clock,
   UserX,
@@ -163,23 +164,23 @@ export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = (
     : 'Recently';
 
   const formatRecordedTime = (timeVal: string | Date | null | undefined): string => {
-    if (!timeVal) return '—';
-    try {
-      const d = new Date(timeVal);
-      if (isNaN(d.getTime())) return String(timeVal);
-      return d.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: 'Asia/Kolkata',
-      });
-    } catch {
-      return String(timeVal);
-    }
+    return formatTimeTo12Hour(timeVal);
   };
 
   const getSourceBadge = (source: string | undefined) => {
     switch (source) {
+      case 'category_default':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+            Category default
+          </span>
+        );
+      case 'individual_exception':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+            Individual exception
+          </span>
+        );
       case 'system_default':
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
@@ -634,7 +635,7 @@ export const FinalizedAttendanceView: React.FC<FinalizedAttendanceViewProps> = (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-800">
                           {worker.workerType}
                         </span>
-                        <span className="text-[10px] text-gray-400 block mt-0.5">Rep: {worker.reportingTime}</span>
+                        <span className="text-[10px] text-gray-400 block mt-0.5">Rep: {formatTimeTo12Hour(worker.reportingTime)}</span>
                       </td>
 
                       {/* Check-in */}

@@ -140,6 +140,23 @@ export class AttendanceRepository {
   }
 
   /**
+   * Find all attendance records for an event by worker category (workerType).
+   */
+  async findByEventAndWorkerType(
+    eventId: string,
+    workerType: string,
+    session?: ClientSession
+  ): Promise<IAttendance[]> {
+    if (!mongoose.Types.ObjectId.isValid(eventId)) return [];
+    const query = Attendance.find({
+      eventId: new mongoose.Types.ObjectId(eventId),
+      workerType: { $regex: new RegExp(`^${workerType.trim()}$`, 'i') },
+    }).populate('workerId', 'name email phone businessId');
+    if (session) query.session(session);
+    return query.exec();
+  }
+
+  /**
    * Bulk upserts attendance records matching the { eventId, workerId } unique key.
    * Leverages MongoDB bulkWrite with updateOne(upsert: true).
    */

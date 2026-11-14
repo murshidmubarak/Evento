@@ -1713,3 +1713,150 @@ Domain Event / Notification Creation (e.g. Work Requirement, Payment, Quotation)
    - Deep links directly to relevant in-app views with internal origin validation.
    - Communicates with open tabs via `BroadcastChannel` / `postMessage` to update UI notification counts in real time.
 
+---
+
+## 46. Exception-Based, Category-Wise Attendance Checkout Subsystem Architecture
+
+### High-Level Architecture & Workflow
+```text
+Event Manager (Checkout Workspace)
+   │
+   ├── (1) POST /api/attendance/events/:id/categories/departure
+   │       (Payload: { workerType: "Catering Boy", actualDepartureDate: "2026-11-14", actualDepartureTime: "16:00" })
+   │       ▼
+   │   Attendance Routes (authenticate + authorize('event_manager', 'admin'))
+   │       ▼
+   │   AttendanceValidation.validateCategoryDeparture
+   │       ▼
+   │   AttendanceController.recordCategoryDeparture
+   │       ▼
+   │   AttendanceService.recordCategoryDeparture
+   │       ├── 1. Validates event ownership, non-cancelled status, and operational date
+   │       ├── 2. Validates 24h deadline: Date.now() <= scheduledEventEndAt + 24h
+   │       ├── 3. Canonical Asia/Kolkata UTC instant construction (constructKolkataDateTime)
+   │       ├── 4. Validates departure timestamp is in the past (<= server now) and not in the future
+   │       ├── 5. Checks eligible normal workers check-in chronology (checkIn < categoryDeparture)
+   │       ├── 6. Executes inside MongoDB Multi-Document Transaction:
+   │       │       ├── Saves category departure to AttendanceSession with revision history
+   │       │       ├── Updates all eligible normal workers:
+   │       │       │   checkOut = catDate, checkOutSource = 'category_default',
+   │       │       │   departureStatus = 'normal', duration = (catDate - checkIn)
+   │       │       └── Dynamically reclassifies workers with individual exceptions:
+   │       │           workerDeparture preserved; compares workerDeparture against catDate:
+   │       │           early (<) / normal (==) / overtime (>); recalculates early/overtime minutes
+   │       └── 7. Returns updated category departure summary
+   │
+   ├── (2) POST /api/attendance/events/:id/workers/:workerId/checkout-exception
+   │       (Payload: { actualDepartureDate: "2026-11-14", actualDepartureTime: "14:30", reason: "Early departure approved" })
+   │       ▼
+   │   AttendanceService.recordWorkerCheckOutException
+   │       ├── 1. Validates 24h deadline, operational date, and absent worker exclusion
+   │       ├── 2. Canonical Asia/Kolkata UTC conversion (constructKolkataDateTime)
+   │       ├── 3. Validates actualDepartureTime > checkIn and not in the future (<= server now)
+   │       ├── 3. Evaluates against category departure (or event end):
+   │       │       departure < catDate -> 'early_departure', earlyDepartureMinutes
+   │       │       departure > catDate -> 'overtime', overtimeMinutes
+   │       ├── 4. Updates attendance record with 'individual_exception'
+   │       └── 5. Calculates total duration: (departureDate - checkInDate)
+   │
+   └── (3) POST /api/attendance/events/:id/finalize-checkout
+           (Payload: { categoryFinishTimes?: [...] }, Idempotency-Key)
+           ▼
+       AttendanceService.finalizeCheckOut
+           ├── Resolves category departure timestamps from session if omitted
+           ├── Marks checkOutFinalized = true, lifecycleStatus = 'checkout_finalized'
+           └── Does NOT prematurely block corrections during the 24h post-event window
+```
+
+### Key Architectural Guards
+1. **Source of Truth & Invariant Enforcement**: All duration calculations, category-default propagations, and exception minutes are calculated exclusively on the backend.
+2. **Dynamic Reclassification**: Changing category departure does not overwrite individual exception timestamps; it re-evaluates departure classifications against the updated category reference.
+3. **24-Hour Immutable Lock**: Calculated strictly from authoritative event completion (`scheduledEventEndAt + 24 hours`). Once expired, all mutations throw 403 Forbidden.
+4. **Absent Worker Exemption**: Workers marked absent are completely bypassed from checkout and cannot receive exceptions.
+5. **Database Multi-Document Transactions**: Category updates and dynamic worker reclassifications execute within `session.withTransaction()` guaranteeing atomicity and consistency.
+
+---
+
+## 47. Check-in Finalization, Event-Day Corrections & Re-finalization Subsystem Architecture
+
+### Architectural Workflow
+```text
+Event Manager (Check-in Workspace)
+   │
+   ├── (1) Initial Check-in Finalization: POST /api/attendance/events/:id/finalize-checkin
+   │       Payload: { lateExceptions: [...], absentExceptions: [...] }
+   │       Idempotency-Key: chkin_init_123
+   │       ▼
+   │   AttendanceService.finalizeCheckIn
+   │       ├── 1. Validates event ownership, confirmed/in_progress status, operational event day
+   │       ├── 2. Enforces timing guard (now >= latest reporting time)
+   │       ├── 3. Applies exceptions; unmarked workers default to Present / On Time
+   │       ├── 4. Inside MongoDB Transaction:
+   │       │       ├── Bulk upserts attendance records
+   │       │       └── Atomically sets checkInFinalized = true, checkInRevision = 1, logs revision 1
+   │       └── 5. Returns committed check-in summary
+   │
+   ├── (2) Event-Day Post-Finalization Corrections (isEventDay === true):
+   │       PATCH /api/attendance/records/:attendanceId/correct
+   │       or POST /api/attendance/events/:id/workers/:workerId/checkin
+   │       ▼
+   │   AttendanceService.correctAttendance / recordWorkerCheckIn
+   │       ├── 1. Enforces event operational date (isEventDay); rejects post-event day with 403 Forbidden
+   │       ├── 2. Enforces permanent concern locks (isStatusLocked records rejected with 403)
+   │       ├── 3. If transitioning to Absent: clears checkout timestamp and resets duration to 0
+   │       ├── 4. Validates arrival time is earlier than existing checkout
+   │       ├── 5. Inside Transaction: saves correction and calls markCheckInChangesPending()
+   │       └── 6. Sets session.checkInChangesPending = true (invalidates previous finalization)
+   │
+   ├── (3) Pending State Guard:
+   │       Checkout finalization (POST /finalize-checkout) is strictly blocked while checkInChangesPending === true
+   │
+   └── (4) Check-in Re-finalization: POST /api/attendance/events/:id/finalize-checkin
+           Payload: { reason: "Updated worker arrival", expectedRevision: 1 }
+           ▼
+       AttendanceService.finalizeCheckIn (Re-finalization Mode)
+           ├── 1. Atomic optimistic concurrency check: session.checkInRevision === expectedRevision
+           ├── 2. Clears checkInChangesPending = false, increments checkInRevision to 2
+           ├── 3. Records revision entry in session.checkInRevisions with change reason
+           ├── 4. Preserves locked concern arrival information
+           ├── 5. For workers with existing checkouts: recalculates duration = checkout - checkIn
+           └── 6. Unlocks checkout finalization prerequisite
+```
+
+### Architectural Principles
+1. **Event-Day Mutability with Auditability**: Legitimate corrections remain permitted on the event day, but each edit invalidates previous check-in confirmation and forces a formal re-finalization with revision logging.
+2. **Post-Event Day Lockout (403 Forbidden)**: Once the event operational date ends, ordinary check-in modifications are permanently locked on both backend and frontend.
+3. **Atomic State Transitions**: Multi-document MongoDB transactions ensure that check-in changes and session pending states change atomically, preventing inconsistent intermediate states.
+4. **Checkout Integrity**: Checkout cannot proceed until check-in is cleanly finalized with no pending changes. Duration recalculations occur automatically if arrival timestamps shift.
+
+---
+
+## 25. Independent Category-Wise Check-in Confirmation and Partial Checkout Eligibility
+
+### 25.1 Architecture Overview
+To avoid unnecessary cross-category coupling, each worker category independently executes check-in confirmation, revision tracking, event-day invalidation, and checkout unlocking:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Category Check-in & Checkout Flow              │
+├──────────────────────────────────┬─────────────────────────────────────┤
+│ Category A (e.g. Photography)    │ Category B (e.g. Catering)          │
+├──────────────────────────────────┼─────────────────────────────────────┤
+│ 1. Review Category A workers     │ 1. Shift still in progress          │
+│ 2. Confirm Category A Check-in   │    (Unconfirmed check-in)           │
+│    (checkInFinalized = true)     │                                     │
+│ 3. Category A Checkout UNLOCKED  │ 2. Category B Checkout LOCKED       │
+│    - Record actual departure     │    (Rejects departure/exceptions)   │
+│    - Record individual exception │                                     │
+│ 4. Post-confirmation edit on A1: │ 3. Completely unaffected by A1      │
+│    - Category A pending re-conf  │    edit (remains clean)             │
+│    - Category A checkout paused  │                                     │
+│ 5. Re-confirm Category A         │ 4. Later: Confirm Category B        │
+│    - Category A checkout resumes │    - Category B Checkout UNLOCKED   │
+└──────────────────────────────────┴─────────────────────────────────────┘
+```
+
+### 25.2 Partial Category Eligibility Architecture
+When a category departure is recorded, workers who arrived late at or after the category departure (`checkIn >= categoryDeparture`) are safely excluded from the category default and retained in a pending individual overtime exception state (`ineligibleOvertimeRequiredCount > 0`). Eligible workers who arrived before the departure time receive the category default checkout normally without failing the batch operation.
+
+

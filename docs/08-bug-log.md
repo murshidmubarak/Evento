@@ -1413,3 +1413,291 @@ When a client attempted to pay a high-value quotation balance (e.g. ₹16,34,300
 2. Never silently mask third-party gateway client errors (HTTP 400) as internal server errors (HTTP 500). Log gateway errors explicitly and return transparent, actionable feedback.
 3. For amounts exceeding payment gateway limits, guide users to pay incrementally across scheduled milestone installments or smaller custom amounts.
 
+---
+
+## BUG-029 — Attendance Test Suite Parallel Database Dropping & Departure Payload Field Alignment
+
+### Date
+
+2026-11-13
+
+### Feature / Module
+
+Milestone 4 — Phase 4.4: Exception-Based Category-Wise Checkout Architecture / `backend/tests/` & `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. When running multiple backend attendance test files concurrently in one `npx tsx --test` command, tests in the longer-running file failed with assertion errors (`att is null`, HTTP 404/500).
+2. During backend type checking, `tsc --noEmit` flagged `error TS2339: Property 'actualDepartureTime' does not exist on type 'RecordWorkerCheckOutExceptionPayload'`.
+
+### Root Cause
+
+1. By default, `node:test` runs separate test files in parallel. The teardown `after()` hook of each test file calls `cleanupTestDatabase()` which drops the isolated test database `eventops_test`. When one test suite finishes, its teardown dropped the test database while sibling test suites were actively querying it.
+2. In `attendance.service.ts`, `RecordWorkerCheckOutExceptionPayload` was defined with only `actualCheckoutTime`, but the new category-wise exception API accepted both `actualDepartureTime` and `actualCheckoutTime`.
+
+### Solution
+
+1. Ensured test runner commands run sequentially (`--test-concurrency=1`) or test files individually, preventing overlapping database teardown.
+2. Updated `RecordWorkerCheckOutExceptionPayload` to define optional `actualDepartureTime?: string;` alongside `actualCheckoutTime?: string;`, supporting both property conventions seamlessly.
+
+### Rule
+
+1. Multi-file automated test runs against a shared test database (`eventops_test`) must be executed sequentially (`--test-concurrency=1`) to prevent premature teardown interference.
+2. Payload interfaces must explicitly declare all supported alias fields to maintain clean TypeScript compilation.
+
+---
+
+## BUG-030 — Attendance Check-in Finalization Timing Guard & Pre-Event Day Evaluation
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Check-in Finalization, Event-Day Post-Finalization Corrections & Re-finalization Workflow / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When testing check-in finalization on a future event in `attendanceCheckIn.test.ts`, the test expected the error message `Cannot finalize check-in before the latest reporting time`, but received `Check-in cannot be finalized before the scheduled event day`.
+
+### Root Cause
+
+`finalizeCheckIn` evaluated `windowInfo.isBeforeEventDay` before checking `now.getTime() < latestReportingTimestamp.getTime()`. While both conditions correctly reject uncommenced shifts with HTTP 400 Bad Request, the earliest reporting timestamp guard is the authoritative domain validation for both same-day uncommenced shifts and future dates.
+
+### Solution
+
+Removed the redundant early string check in `finalizeCheckIn` and relied on the comprehensive timing guard (`latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()`). Since all future events have reporting timestamps in the future, the timing guard consistently rejects future events with `Cannot finalize check-in before the latest reporting time...`.
+
+### Rule
+
+1. Check-in finalization timing evaluation must rely on `latestReportingTimestamp` comparison to provide a consistent, clear rejection message across all uncommenced shifts.
+
+---
+
+## BUG-031 — Category Departure Chronology Anomaly with Late-Arriving Workers (Partial Category Eligibility Solution)
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Category-Wise Checkout & Worker Departure / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+In multi-worker shifts where a worker checked in late at or after the category departure time (e.g. checked in at 17:30 while category departure was set to 17:00), setting category departure would fail the entire batch or risk applying an invalid checkout earlier than check-in.
+
+### Root Cause
+
+Category actual departure updates previously applied the departure timestamp indiscriminately to all non-absent workers in the category, conflicting with the business rule that checkout must be strictly later than check-in.
+
+### Solution
+
+Implemented Partial Category Eligibility: workers who checked in at or after the category departure time are safely excluded from the category default and left in a pending individual overtime exception state (`ineligibleOvertimeRequiredCount: 1`), while all eligible workers who checked in earlier receive the category departure normally.
+
+### Rule
+
+1. When applying category default checkout, evaluate `checkIn < categoryDeparture` for each worker. Workers who checked in at or after the category departure must be excluded from the category default and flagged as requiring an individual overtime exception.
+
+---
+
+## BUG-032 — Checkout Departure False Future Rejection Due to Raw UTC Construction and Implicit Overnight Rollover
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Checkout Departure & Exception APIs / `backend/src/modules/attendance/service/attendance.service.ts`, `backend/src/modules/attendance/utils/attendance-window.util.ts`, `backend/src/modules/attendance/validation/attendance.validation.ts`, `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When a manager attempted to record a valid category departure or individual Early Departure exception (for example, entering 03:55 PM IST when current system time was 04:42 PM IST), the backend rejected the request with HTTP 400 Bad Request: `"Individual departure time cannot be in the future"` or `"Category departure time cannot be in the future"`.
+
+### Root Cause
+
+1. `constructDateTime` in `AttendanceService` previously combined event calendar dates with departure time strings using raw UTC methods (`date.setUTCHours(h, m, 0, 0)`). Since Asia/Kolkata is UTC+05:30, entering `15:55` was interpreted as `15:55:00.000Z` UTC (equivalent to 09:25 PM IST), placing the timestamp 5 hours and 30 minutes in the future relative to authoritative server time (`11:12:00.000Z` UTC = 04:42 PM IST).
+2. Implicit +24 hour overnight date rollover (`if (depMins <= repMins) departureDate.setTime(...)`) caused unintentional date advancement when shifts spanned across midnight or when early departures were recorded.
+3. Category departure and individual exception endpoints accepted only time strings (`HH:mm`), omitting explicit calendar date selection.
+
+### Solution
+
+1. Added `constructKolkataDateTime(dateVal, timeStr24h)` to `attendance-window.util.ts`, parsing `YYYY-MM-DD` and `HH:mm` into canonical UTC instants with the exact Asia/Kolkata offset (`+05:30`). For example, `constructKolkataDateTime('2026-11-14', '15:55')` correctly constructs `2026-11-14T10:25:00.000Z`.
+2. Updated `validateCategoryDeparture` and `validateWorkerCheckOutException` validation schemas to require `actualDepartureDate` in `YYYY-MM-DD` format.
+3. Removed implicit +24 hour rollover in `AttendanceService`; managers explicitly choose the departure date (e.g. selecting the next calendar day for cross-midnight shifts).
+4. Updated frontend `CheckoutCategoryCard.tsx` to include explicit date pickers for category departure and individual exceptions.
+5. Added injectable `testClockProvider` in `AttendanceService` to ensure future timing validation runs consistently in all environments without `NODE_ENV !== 'test'` bypasses.
+
+### Rule
+
+All local wall-clock date and time inputs must be converted to canonical UTC instants using exact Asia/Kolkata timezone offset (`+05:30`). Departure dates must be explicitly specified by the user and never implicitly calculated.
+
+---
+
+## BUG-033 — CI Backend Test Suite Failure (HTTP 400 vs Expected 200) Due to Unfinalized Check-in Prerequisite in Legacy Test Fixtures
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Attendance Test Suites / `backend/tests/attendanceConcernsAndDeadlines.test.ts`, `backend/tests/attendanceCategoryAndImmediateCheckIn.test.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During GitHub Actions CI execution of the backend test suite (`npm test`), the test runner failed with:
+```text
+code: 'ERR_ASSERTION',
+actual: 400,
+expected: 200,
+operator: 'strictEqual'
+```
+
+### Root Cause
+
+1. The approved check-in finalization architecture enforced a mandatory lifecycle prerequisite: checkout finalization (`POST /api/attendance/events/:eventId/finalize-checkout`) is strictly blocked and returns HTTP 400 Bad Request (`"Check-in must be finalized before checkout can be finalized"`) if check-in has not yet been finalized. Two older test fixtures written before this requirement existed (`attendanceConcernsAndDeadlines.test.ts` and `attendanceCategoryAndImmediateCheckIn.test.ts`) called `finalize-checkout` directly without finalizing check-in first.
+2. In `attendanceCategoryAndImmediateCheckIn.test.ts:330`, an older test asserting post-event day lockout expected HTTP 400 (`assert.strictEqual(res.status, 400)`), whereas the approved business rules enforce that all post-event day initial check-in attempts are permanently locked with HTTP 403 Forbidden (`'Check-in editing is closed because the scheduled event day has ended'`).
+
+### Solution
+
+1. Updated both test suites to finalize check-in first (via `attendanceService.finalizeCheckIn` with `{ skipTimingGuard: true }`), provisioning default on-time check-in records for unmarked workers and satisfying the check-in finalization prerequisite before invoking checkout finalization.
+2. Updated `attendanceCategoryAndImmediateCheckIn.test.ts:330` to assert `res.status === 403` and match the canonical forbidden error message, aligning with `attendanceCheckInFinalization.test.ts` and `attendanceCategoryCheckInIndependence.test.ts`.
+
+### Rule
+
+All checkout finalization tests and API callers must ensure check-in is finalized/confirmed prior to attempting checkout finalization. Initial check-ins attempted after the event day has ended must be rejected with HTTP 403 Forbidden.
+
+---
+
+## BUG-034 — Category Check-in Confirmation Counter Accumulation Across Transaction Retries (onTimeCount Leak)
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Independent Category-Wise Check-in Confirmation / `backend/src/modules/attendance/service/attendance.service.ts`
+
+### Severity
+
+Medium
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During CI integration test execution (`attendanceCategoryCheckInIndependence.test.ts:398:14`), confirming Category A check-in for 2 assigned workers failed with assertion error:
+```text
+code: 'ERR_ASSERTION',
+actual: 3,
+expected: 2,
+operator: 'strictEqual'
+```
+Where `totalProcessed` was 2, but `onTimeCount` was 3.
+
+### Root Cause
+
+In `AttendanceService.finalizeCategoryCheckIn` and `recordCategoryActualDeparture`, summary counter variables (`onTimeCount`, `lateCount`, `absentCount`, `affectedCount`, etc.) were declared outside the `runInTransaction(async (dbSession) => { ... })` callback.
+
+When MongoDB's `session.withTransaction` encountered a transient retry, or when `runInTransaction` fell back from a failed transaction attempt to standalone execution, the transaction callback was executed more than once. Because the counter variables were not re-initialized to 0 inside the transaction callback, counter increments from previous aborted attempts accumulated into subsequent attempts (e.g., 1 from an aborted attempt + 2 from the successful retry = 3).
+
+### Solution
+
+Re-initialized all summary counter variables (`onTimeCount = 0; lateCount = 0; absentCount = 0;` and `affectedCount = 0; normalCount = 0; exceptionCount = 0; absentCount = 0;`) inside the transaction callback at the beginning of each attempt, ensuring that transaction retries and fallbacks are strictly idempotent and cannot leak previous partial counts.
+
+### Rule
+
+Any accumulator or counter variables populated inside a database transaction callback (`runInTransaction` / `withTransaction`) must be initialized or reset inside the callback so that retry attempts always start with a clean state.
+
+---
+
+## BUG-035 — Legacy UTC Assertion Mismatch (getUTCHours: 3 !== 9) Following Asia/Kolkata Timezone Correction
+
+### Date
+
+2026-11-14
+
+### Feature / Module
+
+Milestone 4 — Attendance Correction & Verification / `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`
+
+### Severity
+
+Low
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+During CI backend test execution, `attendanceApiRoutingAndPresentCorrection.test.ts:531:14` failed with:
+```text
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+3 !== 9
+actual: 3,
+expected: 9,
+operator: 'strictEqual'
+```
+
+### Root Cause
+
+When the worker reporting time was `09:00` (Asia/Kolkata timezone, UTC+05:30), the corrected `checkIn` instant in UTC is `03:30:00.000Z` ($09:00 - 05:30 = 03:30$).
+Prior to the Asia/Kolkata timezone fix in BUG-032, `constructDateTime` incorrectly used raw UTC methods, setting the UTC hour directly to `9`. The older test had asserted `assert.strictEqual(checkInDate.getUTCHours(), 9)` based on that buggy raw UTC behavior.
+Once `constructDateTime` was fixed to generate canonical Asia/Kolkata UTC timestamps, `checkInDate.getUTCHours()` accurately became `3` (and `getUTCMinutes()` became `30`), causing the legacy assertion to fail.
+
+### Solution
+
+Updated lines 484-485 and 531-532 in `attendanceApiRoutingAndPresentCorrection.test.ts` to assert the correct UTC hours (`3`) and minutes (`30`) corresponding to `09:00` Asia/Kolkata.
+
+### Rule
+
+When asserting against UTC methods (`getUTCHours()`, `getUTCMinutes()`) on dates constructed from Asia/Kolkata wall-clock time, calculate the UTC offset accurately (UTC = IST - 5h 30m).
+

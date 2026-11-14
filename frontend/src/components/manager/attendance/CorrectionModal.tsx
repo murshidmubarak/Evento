@@ -6,6 +6,7 @@ import {
   calculateOvertimeMinutes,
   formatDurationMinutes,
 } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour, formatTimeTo24Hour } from '../../../utils/formatters';
 import {
   X,
   AlertTriangle,
@@ -248,13 +249,13 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
             <div>
               <span className="text-gray-400 block text-[11px] uppercase font-bold">Check-in</span>
               <span className="font-semibold text-gray-800">
-                {worker.checkIn ? new Date(worker.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '—'}
+                {formatTimeTo12Hour(worker.checkIn)}
               </span>
             </div>
             <div>
               <span className="text-gray-400 block text-[11px] uppercase font-bold">Checkout</span>
               <span className="font-semibold text-gray-800">
-                {worker.checkOut ? new Date(worker.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '—'}
+                {formatTimeTo12Hour(worker.checkOut)}
               </span>
             </div>
           </div>
@@ -344,7 +345,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                     <span className="text-xs">On Time (Default Present)</span>
                   </div>
                   <p className="text-[11px] text-gray-500 font-normal mt-1">
-                    Arrived at or before {worker.reportingTime}
+                    Arrived at or before {formatTimeTo12Hour(worker.reportingTime)}
                   </p>
                 </button>
 
@@ -364,7 +365,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                     <span className="text-xs">Late Arrival</span>
                   </div>
                   <p className="text-[11px] text-gray-500 font-normal mt-1">
-                    Arrived after {worker.reportingTime}
+                    Arrived after {formatTimeTo12Hour(worker.reportingTime)}
                   </p>
                 </button>
               </div>
@@ -376,18 +377,18 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-gray-700 flex items-center justify-between">
                 <span>Actual Arrival Time</span>
-                <span className="text-[11px] text-gray-400 font-normal">Reporting: {worker.reportingTime}</span>
+                <span className="text-[11px] text-gray-400 font-normal">Reporting: {formatTimeTo12Hour(worker.reportingTime)}</span>
               </label>
               <div className="relative">
                 <input
-                  type="text"
-                  value={actualArrivalTime}
+                  type="time"
+                  value={formatTimeTo24Hour(actualArrivalTime)}
                   onChange={(e) => setActualArrivalTime(e.target.value)}
                   placeholder="e.g. 08:30 or 08:30 AM"
-                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-mono transition-colors focus:outline-none focus:ring-2 ${
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-mono transition-colors focus:outline-none focus:ring-2 cursor-pointer ${
                     arrivalValidation.isValid
-                      ? 'border-gray-300 focus:border-emerald-500 focus:ring-emerald-200'
-                      : 'border-rose-300 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/30'
+                      ? 'border-gray-300 focus:border-emerald-500 focus:ring-emerald-200 bg-white text-gray-900'
+                      : 'border-rose-300 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/30 text-rose-900'
                   }`}
                 />
               </div>
@@ -428,7 +429,7 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                     >
                       <span className="text-xs block">Applicable Default Finish</span>
                       <span className="text-[11px] text-blue-700 font-mono font-normal mt-0.5 block">
-                        {applicableFinish} (system default)
+                        {formatTimeTo12Hour(applicableFinish)} (system default)
                       </span>
                     </button>
 
@@ -454,11 +455,11 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                         Actual Checkout Time
                       </label>
                       <input
-                        type="text"
-                        value={actualCheckoutTime}
+                        type="time"
+                        value={formatTimeTo24Hour(actualCheckoutTime)}
                         onChange={(e) => setActualCheckoutTime(e.target.value)}
                         placeholder="e.g. 19:30 or 07:30 PM"
-                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 bg-white text-gray-900 cursor-pointer"
                       />
                       {checkoutValidation.previewText && (
                         <p className="text-[11px] text-blue-700 font-semibold">
@@ -472,14 +473,14 @@ export const CorrectionModal: React.FC<CorrectionModalProps> = ({
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-700 flex items-center justify-between">
                     <span>Actual Checkout Time</span>
-                    <span className="text-[11px] text-gray-400 font-normal">Applicable Finish: {applicableFinish}</span>
+                    <span className="text-[11px] text-gray-400 font-normal">Applicable Finish: {formatTimeTo12Hour(applicableFinish)}</span>
                   </label>
                   <input
-                    type="text"
-                    value={actualCheckoutTime}
+                    type="time"
+                    value={formatTimeTo24Hour(actualCheckoutTime)}
                     onChange={(e) => setActualCheckoutTime(e.target.value)}
                     placeholder="e.g. 17:30 or 05:30 PM"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-gray-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 bg-white text-gray-900 cursor-pointer"
                   />
                   {checkoutValidation.previewText && (
                     <p className="text-[11px] text-blue-700 font-semibold">

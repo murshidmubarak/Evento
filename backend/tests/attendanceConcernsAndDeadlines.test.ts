@@ -17,6 +17,7 @@ import {
   calculateEventCorrectionWindow,
   getOperationalDateString,
 } from '../src/modules/attendance/utils/attendance-window.util.js';
+import { attendanceService } from '../src/modules/attendance/service/attendance.service.js';
 
 describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Window, Exceptional Corrections & Permanent Status Locking', () => {
   let server: any;
@@ -258,7 +259,17 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
       assert.strictEqual(resAbsent.status, 200);
       worker3AttId = dataAbsent.data.attendanceId;
 
-      // Finalize checkout to provision default Present record for worker 1
+      // Finalize check-in to satisfy prerequisite and provision default Present record for worker 1
+      await attendanceService.finalizeCheckIn(
+        managerId,
+        'event_manager',
+        eventId,
+        'checkin_idemp_p2_1',
+        {},
+        { skipTimingGuard: true }
+      );
+
+      // Finalize checkout
       const resCheckout = await fetch(`http://127.0.0.1:${port}/api/attendance/events/${eventId}/finalize-checkout`, {
         method: 'POST',
         headers: {

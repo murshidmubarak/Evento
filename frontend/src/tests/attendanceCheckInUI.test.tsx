@@ -205,7 +205,7 @@ describe('Milestone 4 — Phase 4.3: Event Manager Check-in Frontend Integration
 
       await waitFor(() => {
         // Roster header and filter tabs
-        expect(screen.getByText(/Assigned Worker/i)).toBeDefined();
+        expect(screen.getAllByText(/Assigned Worker/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/On Time/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Late/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Absent/i).length).toBeGreaterThan(0);

@@ -6,6 +6,7 @@ import type {
   CorrectAttendancePayload,
 } from '../../../features/attendance/attendance.types';
 import { calculateDelayMinutes } from '../../../features/attendance/attendanceApi';
+import { formatTimeTo12Hour } from '../../../utils/formatters';
 import {
   Search,
   Filter,
@@ -67,7 +68,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   isEventDay: _isEventDay = true,
   eventDateFormatted: _eventDateFormatted,
   isBeforeEventDay: _isBeforeEventDay,
-  isAfterEventDay: _isAfterEventDay,
+  isAfterEventDay = false,
   canNormalCorrect: _canNormalCorrect,
   isAfterCorrectionDeadline = false,
   eventStatus: _eventStatus,
@@ -198,7 +199,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       setModalError(null);
     } else {
       setModalDelayMinutes(null);
-      setModalError(res.error || `Arrival time must be after scheduled reporting time (${selectedWorkerForModal.reportingTime})`);
+      setModalError(res.error || `Arrival time must be after scheduled reporting time (${formatTimeTo12Hour(selectedWorkerForModal.reportingTime)})`);
     }
   };
 
@@ -214,7 +215,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       }
       const res = calculateDelayMinutes(worker.reportingTime, modalArrivalTime);
       if (!res.isValid || !res.delayMinutes || res.delayMinutes <= 0) {
-        setModalError(res.error || `Arrival time must be after scheduled reporting time (${worker.reportingTime})`);
+        setModalError(res.error || `Arrival time must be after scheduled reporting time (${formatTimeTo12Hour(worker.reportingTime)})`);
         return;
       }
     }
@@ -387,7 +388,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
               {filteredRoster.map((worker) => {
                 const currentExc = exceptions[worker.workerId] || { type: 'present' };
                 const currentType = currentExc.type;
-                const isLocked = Boolean(worker.isStatusLocked || disabled || isAfterCorrectionDeadline);
+                const isLocked = Boolean(worker.isStatusLocked || disabled || isAfterEventDay || isAfterCorrectionDeadline);
 
                 return (
                   <tr
@@ -423,7 +424,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                     {/* Scheduled Shift (Clean text matching mockup) */}
                     <td className="py-3.5 px-3 sm:px-4">
                       <span className="text-xs font-semibold text-gray-900">
-                        {worker.reportingTime}
+                        {formatTimeTo12Hour(worker.reportingTime)}
                       </span>
                     </td>
 
@@ -564,7 +565,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                   <span className="text-[10px] text-gray-400 font-medium block uppercase tracking-wider">Scheduled</span>
                   <span className="text-xs font-bold text-gray-900 inline-flex items-center gap-1">
                     <Clock size={12} className="text-emerald-600" />
-                    {selectedWorkerForModal.reportingTime}
+                    {formatTimeTo12Hour(selectedWorkerForModal.reportingTime)}
                   </span>
                 </div>
               </div>
@@ -606,7 +607,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                             : 'Present / On Time'}
                         </span>
                         <span className="text-[11px] text-gray-500">
-                          Worker reported on time for scheduled shift ({selectedWorkerForModal.reportingTime}).
+                          Worker reported on time for scheduled shift ({formatTimeTo12Hour(selectedWorkerForModal.reportingTime)}).
                         </span>
                       </div>
                     </div>
@@ -650,7 +651,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                     <div className="mt-3 pt-3 border-t border-amber-200/60 space-y-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-between">
                         <label className="text-[11px] font-bold text-amber-950">
-                          Actual Arrival Time (HH:mm) <span className="text-rose-500">*</span>
+                          Actual Arrival Time {modalArrivalTime ? `(${formatTimeTo12Hour(modalArrivalTime)})` : ''} <span className="text-rose-500">*</span>
                         </label>
                         {modalDelayMinutes !== null && modalDelayMinutes > 0 && (
                           <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md">

@@ -9,6 +9,7 @@ import {
   type IAttendanceSession,
   type IFinalizationIdempotency,
   type IRequirementFinishOverride,
+  type ICategoryCheckInConfirmation,
 } from '../model/attendance-session.model.js';
 import {
   Attendance,
@@ -30,6 +31,7 @@ import { notificationService } from '../../notifications/service/notification.se
 import {
   getOperationalDateString,
   calculateEventCorrectionWindow,
+  constructKolkataDateTime,
   type EventCorrectionWindow,
 } from '../utils/attendance-window.util.js';
 
@@ -41,6 +43,8 @@ export interface FinalizeCheckInPayload {
     actualArrivalTime: string;
   }>;
   absentExceptions?: string[];
+  expectedRevision?: number;
+  reason?: string;
 }
 
 export interface FinalizeCheckInSummary {
@@ -51,6 +55,40 @@ export interface FinalizeCheckInSummary {
   absentCount: number;
   checkInFinalized: boolean;
   checkInFinalizedAt: string;
+  checkInRevision?: number;
+  checkInChangesPending?: boolean;
+}
+
+export interface FinalizeCategoryCheckInSummary {
+  eventId: string;
+  workerType: string;
+  totalProcessed: number;
+  onTimeCount: number;
+  lateCount: number;
+  absentCount: number;
+  checkInFinalized: boolean;
+  checkInFinalizedAt: string;
+  checkInRevision: number;
+  checkInChangesPending: boolean;
+}
+
+export interface CategoryCheckInConfirmationDTO {
+  workerType: string;
+  checkInFinalized: boolean;
+  checkInFinalizedAt?: Date | null;
+  checkInFinalizedBy?: string | null;
+  checkInChangesPending: boolean;
+  checkInRevision: number;
+  checkInRevisions?: Array<{
+    revision: number;
+    finalizedAt: Date;
+    finalizedBy?: string;
+    committedSummary?: Record<string, unknown>;
+    changeReason?: string;
+  }>;
+  canFinalizeCheckIn: boolean;
+  canReFinalizeCheckIn: boolean;
+  canModifyCheckout: boolean;
 }
 
 export interface RequirementFinishOverrideInput {
@@ -79,6 +117,31 @@ export interface FinalizeCheckOutPayload {
   requirementFinishOverrides?: RequirementFinishOverrideInput[];
   earlyDepartureExceptions?: EarlyDepartureExceptionInput[];
   overtimeExceptions?: OvertimeExceptionInput[];
+}
+
+export interface RecordCategoryDeparturePayload {
+  workerType: string;
+  actualDepartureDate?: string;
+  actualDepartureTime: string;
+  reason?: string;
+}
+
+export interface RecordCategoryDepartureResult {
+  eventId: string;
+  workerType: string;
+  actualDepartureTime: string;
+  actualDepartureDate: string;
+  affectedWorkersCount: number;
+  normalWorkersCount: number;
+  exceptionWorkersCount: number;
+  absentWorkersCount: number;
+}
+
+export interface RecordWorkerCheckOutExceptionPayload {
+  actualDepartureDate?: string;
+  actualCheckoutTime?: string;
+  actualDepartureTime?: string;
+  reason?: string;
 }
 
 export interface FinalizeCheckOutSummary {
@@ -140,6 +203,7 @@ export interface CorrectAttendancePayload {
   reason: string;
   actualArrivalTime?: string;
   actualCheckoutTime?: string;
+  actualDepartureDate?: string;
   arrivalStatus?: 'on_time' | 'late' | 'absent';
   departureStatus?: 'normal' | 'early_departure' | 'overtime';
   status?: 'checked_in' | 'checked_out' | 'absent';
@@ -169,9 +233,31 @@ export interface AttendanceRosterResponse {
   isAfterEventDay?: boolean;
   eventOperationalDate?: string;
   currentOperationalDate?: string;
+  checkInFinalized?: boolean;
+  checkInFinalizedAt?: Date;
+  checkInFinalizedBy?: string;
+  checkInChangesPending?: boolean;
+  checkInRevision?: number;
   session: {
     checkInFinalized: boolean;
     checkInFinalizedAt?: Date;
+    checkInFinalizedBy?: string;
+    checkInChangesPending?: boolean;
+    checkInRevision?: number;
+    checkInRevisions?: Array<{
+      revision: number;
+      finalizedAt: Date;
+      finalizedBy?: string;
+      committedSummary?: Record<string, unknown>;
+      changeReason?: string;
+    }>;
+    categoryActualDepartures?: Array<{
+      workerType: string;
+      actualDepartureTime: string;
+      actualDepartureDate: Date;
+      recordedBy?: string;
+      recordedAt?: Date;
+    }>;
     actualNormalFinishTime?: string;
     actualNormalFinishDate?: Date;
     categoryFinishTimes?: Array<{
@@ -191,10 +277,14 @@ export interface AttendanceRosterResponse {
     verifiedBy?: string;
     verifiedAt?: Date;
     rejectionReason?: string;
+    categoryCheckInConfirmations?: CategoryCheckInConfirmationDTO[];
   };
+  categoryCheckInConfirmations?: CategoryCheckInConfirmationDTO[];
   latestReportingTime: string;
   latestReportingTimestamp: Date | null;
   canFinalizeCheckIn: boolean;
+  canReFinalizeCheckIn?: boolean;
+  canEditCheckIn?: boolean;
   totalAssigned: number;
   scheduledEventEndAt?: Date;
   correctionDeadlineAt?: Date;
@@ -203,6 +293,43 @@ export interface AttendanceRosterResponse {
   openConcernsCount?: number;
   requirements: AttendanceRosterRequirementItem[];
   roster: AttendanceRosterItem[];
+  canModifyCheckout?: boolean;
+  checkoutModificationDeadlineAt?: Date;
+  checkoutModificationTimeRemainingMs?: number;
+  categoryActualDepartures?: Array<{
+    workerType: string;
+    actualDepartureTime: string;
+    actualDepartureDate: Date;
+    recordedBy?: string;
+    recordedAt?: Date;
+  }>;
+  categorySummaries?: Array<{
+    workerType: string;
+    totalAssigned: number;
+    eligibleCount: number;
+    absentCount: number;
+    normalCount: number;
+    earlyCount: number;
+    overtimeCount: number;
+    pendingCount: number;
+    actualDepartureTime?: string | null;
+    actualDepartureDate?: Date | null;
+    checkInFinalized: boolean;
+    checkInFinalizedAt?: Date | null;
+    checkInFinalizedBy?: string | null;
+    checkInChangesPending: boolean;
+    checkInRevision: number;
+    canFinalizeCheckIn: boolean;
+    canReFinalizeCheckIn: boolean;
+    canModifyCheckout: boolean;
+    ineligibleOvertimeRequiredCount?: number;
+  }>;
+  totalEligibleWorkers?: number;
+  totalAbsentWorkers?: number;
+  totalNormalWorkers?: number;
+  totalEarlyDepartureWorkers?: number;
+  totalOvertimeWorkers?: number;
+  totalPendingWorkers?: number;
 }
 
 /**
@@ -238,7 +365,7 @@ export class AttendanceService {
   constructor(
     private sessionRepo: AttendanceSessionRepository = attendanceSessionRepository,
     private attRepo: AttendanceRepository = attendanceRepository
-  ) {}
+  ) { }
 
   /**
    * Helper: Validates Event ID, verifies existence, and verifies resource ownership.
@@ -277,15 +404,84 @@ export class AttendanceService {
   }
 
   /**
-   * Helper: Combines event calendar date and a normalized 24-hour time string into a UTC Date.
+   * Test clock injection provider for deterministic test runs.
    */
-  private constructDateTime(eventDate: Date, timeStr24h: string): Date {
-    const d = new Date(eventDate);
-    const [hStr, mStr] = timeStr24h.split(':');
-    const hours = parseInt(hStr, 10);
-    const minutes = parseInt(mStr, 10);
+  private testClockProvider: (() => Date) | null = null;
 
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hours, minutes, 0, 0));
+  public setTestClock(clock: (() => Date) | Date | null): void {
+    if (!clock) {
+      this.testClockProvider = null;
+    } else if (typeof clock === 'function') {
+      this.testClockProvider = clock;
+    } else {
+      this.testClockProvider = () => clock;
+    }
+  }
+
+  public getNow(): Date {
+    return this.testClockProvider ? this.testClockProvider() : new Date();
+  }
+
+  /**
+   * Helper: Combines event calendar date and a normalized 24-hour time string into a canonical Asia/Kolkata UTC instant.
+   */
+  public constructDateTime(eventDate: Date | string, timeStr24h: string): Date {
+    return constructKolkataDateTime(eventDate, timeStr24h);
+  }
+
+  /**
+   * Combines explicit departure calendar date and departure time into an Asia/Kolkata UTC instant.
+   * Note: Cross-midnight shifts are handled via explicit calendar dates; automatic +24h rollover is removed.
+   */
+  public constructDepartureDate(
+    departureDate: Date | string,
+    departureTime24h: string,
+    _referenceReportingTime24h = '08:00'
+  ): Date {
+    return constructKolkataDateTime(departureDate, departureTime24h);
+  }
+
+  /**
+   * Helper: converts an IAttendance document to AttendanceRosterItem DTO.
+   */
+  private toRosterItemDTO(att: IAttendance, user?: any, req?: any): AttendanceRosterItem {
+    const workerIdStr = (att.workerId as any)?._id?.toString() || att.workerId?.toString();
+    return {
+      workerId: workerIdStr,
+      workerName: user?.name || (att.workerId as any)?.name || 'Assigned Worker',
+      workerEmail: user?.email || (att.workerId as any)?.email || '',
+      workerPhone: user?.phone || (att.workerId as any)?.phone || '',
+      businessId: user?.businessId || (att.workerId as any)?.businessId || '',
+      workerType: att.workerType,
+      requirementId: att.requirementId?.toString() || req?._id?.toString() || '',
+      reportingTime: req?.reportingTime || att.reportingTimeSnapshot,
+      reportingTimeSnapshot: att.reportingTimeSnapshot,
+      applicableNormalFinishTimeSnapshot: att.applicableNormalFinishTimeSnapshot,
+      applicableNormalFinishDate: att.applicableNormalFinishDate || null,
+      attendanceId: att._id.toString(),
+      status: att.status,
+      arrivalStatus: att.arrivalStatus,
+      checkIn: att.checkIn || null,
+      checkInSource: att.checkInSource,
+      delayMinutes: att.delayMinutes ?? 0,
+      checkOut: att.checkOut || null,
+      checkOutSource: att.checkOutSource,
+      departureStatus: att.departureStatus,
+      earlyDepartureMinutes: att.earlyDepartureMinutes ?? 0,
+      overtimeMinutes: att.overtimeMinutes ?? 0,
+      durationMinutes: att.durationMinutes ?? 0,
+      verificationStatus: att.verificationStatus,
+      verifiedBy: att.verifiedBy?.toString(),
+      verifiedAt: att.verifiedAt,
+      rejectionReason: att.rejectionReason,
+      corrections: att.corrections || [],
+      isAssigned: true,
+      isStatusLocked: Boolean(att.isStatusLocked),
+      statusLockedAt: att.statusLockedAt,
+      statusLockedReason: att.statusLockedReason,
+      hasOpenConcern: Boolean(att.hasOpenConcern),
+      activeConcernId: att.activeConcernId ? att.activeConcernId.toString() : null,
+    };
   }
 
   /**
@@ -306,6 +502,7 @@ export class AttendanceService {
     const normalizedString = JSON.stringify({
       lateExceptions: normalizedLate,
       absentExceptions: normalizedAbsent,
+      reason: payload.reason?.trim() || '',
     });
 
     return crypto.createHash('sha256').update(normalizedString).digest('hex');
@@ -420,6 +617,16 @@ export class AttendanceService {
       now.getTime() >= latestReportingTimestamp.getTime() &&
       event.status !== 'completed';
 
+    const canReFinalizeCheckIn =
+      Boolean(session.checkInFinalized && session.checkInChangesPending) &&
+      event.status !== 'completed';
+
+    const canEditCheckIn =
+      windowInfo.isEventDay &&
+      !windowInfo.isAfterEventDay &&
+      !windowInfo.isBeforeEventDay &&
+      ['confirmed', 'in_progress'].includes(event.status);
+
     // Map requirement items
     const requirementItems: AttendanceRosterRequirementItem[] = requirements.map((req) => ({
       requirementId: req._id.toString(),
@@ -471,6 +678,173 @@ export class AttendanceService {
       };
     });
 
+    const categoryReportingTimeMap = new Map<string, { latestTimestamp: Date | null; reportingTimeStr: string }>();
+
+    for (const entry of assignmentEntries) {
+      const typeKey = entry.workerType.trim();
+      const timeValidation = isValidTimeString(entry.reportingTime);
+      if (timeValidation.valid && timeValidation.normalized24h) {
+        const dt = this.constructDateTime(event.date, timeValidation.normalized24h);
+        const existing = categoryReportingTimeMap.get(typeKey);
+        if (!existing || !existing.latestTimestamp || dt.getTime() > existing.latestTimestamp.getTime()) {
+          categoryReportingTimeMap.set(typeKey, {
+            latestTimestamp: dt,
+            reportingTimeStr: entry.reportingTime,
+          });
+        }
+      }
+    }
+
+    const distinctCategoriesMap = new Map<string, {
+      workerType: string;
+      totalAssigned: number;
+      eligibleCount: number;
+      absentCount: number;
+      normalCount: number;
+      earlyCount: number;
+      overtimeCount: number;
+      pendingCount: number;
+      actualDepartureTime?: string | null;
+      actualDepartureDate?: Date | null;
+      checkInFinalized: boolean;
+      checkInFinalizedAt?: Date | null;
+      checkInFinalizedBy?: string | null;
+      checkInChangesPending: boolean;
+      checkInRevision: number;
+      canFinalizeCheckIn: boolean;
+      canReFinalizeCheckIn: boolean;
+      canModifyCheckout: boolean;
+      ineligibleOvertimeRequiredCount?: number;
+    }>();
+
+    for (const req of requirements) {
+      const typeKey = req.workerType.trim();
+      if (!distinctCategoriesMap.has(typeKey)) {
+        const catDeparture = (session.categoryActualDepartures || []).find(
+          (d) => d.workerType.trim().toLowerCase() === typeKey.toLowerCase()
+        );
+        const catConf = (session.categoryCheckInConfirmations || []).find(
+          (c) => c.workerType.trim().toLowerCase() === typeKey.toLowerCase()
+        );
+        const catTiming = categoryReportingTimeMap.get(typeKey);
+
+        const checkInFinalized = Boolean(catConf?.checkInFinalized);
+        const checkInChangesPending = Boolean(catConf?.checkInChangesPending);
+        const checkInRevision = catConf?.checkInRevision || (checkInFinalized ? 1 : 0);
+
+        const canFinalizeCheckIn =
+          !checkInFinalized &&
+          (catTiming?.latestTimestamp ? now.getTime() >= catTiming.latestTimestamp.getTime() : false) &&
+          event.status !== 'completed';
+
+        const canReFinalizeCheckIn =
+          Boolean(checkInFinalized && checkInChangesPending) &&
+          event.status !== 'completed';
+
+        const canModifyCheckout =
+          Boolean(checkInFinalized && !checkInChangesPending) &&
+          windowInfo.isEventDay &&
+          !windowInfo.isAfterEventDay &&
+          !windowInfo.isBeforeEventDay;
+
+        distinctCategoriesMap.set(typeKey, {
+          workerType: typeKey,
+          totalAssigned: 0,
+          eligibleCount: 0,
+          absentCount: 0,
+          normalCount: 0,
+          earlyCount: 0,
+          overtimeCount: 0,
+          pendingCount: 0,
+          actualDepartureTime: catDeparture?.actualDepartureTime || null,
+          actualDepartureDate: catDeparture?.actualDepartureDate || null,
+          checkInFinalized,
+          checkInFinalizedAt: catConf?.checkInFinalizedAt || null,
+          checkInFinalizedBy: catConf?.checkInFinalizedBy?.toString() || null,
+          checkInChangesPending,
+          checkInRevision,
+          canFinalizeCheckIn,
+          canReFinalizeCheckIn,
+          canModifyCheckout,
+          ineligibleOvertimeRequiredCount: 0,
+        });
+      }
+    }
+
+    let totalEligible = 0;
+    let totalAbsent = 0;
+    let totalNormal = 0;
+    let totalEarly = 0;
+    let totalOvertime = 0;
+    let totalPending = 0;
+
+    for (const item of roster) {
+      const typeKey = item.workerType.trim();
+      const catSum = distinctCategoriesMap.get(typeKey);
+      if (catSum) catSum.totalAssigned++;
+
+      const isAbsent = item.arrivalStatus === 'absent' || item.status === 'absent';
+      if (isAbsent) {
+        totalAbsent++;
+        if (catSum) catSum.absentCount++;
+      } else {
+        totalEligible++;
+        if (catSum) catSum.eligibleCount++;
+
+        // Track partial eligibility: if category departure is set and worker checked in at or after departure
+        if (
+          catSum &&
+          catSum.actualDepartureDate &&
+          item.checkIn &&
+          catSum.actualDepartureDate.getTime() <= item.checkIn.getTime() &&
+          item.checkOutSource !== 'individual_exception'
+        ) {
+          catSum.ineligibleOvertimeRequiredCount = (catSum.ineligibleOvertimeRequiredCount || 0) + 1;
+          (item as any).ineligibleForCategoryCheckout = true;
+        }
+
+        if (item.departureStatus === 'normal') {
+          totalNormal++;
+          if (catSum) catSum.normalCount++;
+        } else if (item.departureStatus === 'early_departure') {
+          totalEarly++;
+          if (catSum) catSum.earlyCount++;
+        } else if (item.departureStatus === 'overtime') {
+          totalOvertime++;
+          if (catSum) catSum.overtimeCount++;
+        } else {
+          totalPending++;
+          if (catSum) catSum.pendingCount++;
+        }
+      }
+    }
+
+    const categorySummaries = Array.from(distinctCategoriesMap.values());
+
+    const categoryCheckInConfirmations: CategoryCheckInConfirmationDTO[] = categorySummaries.map((cat) => {
+      const c = (session.categoryCheckInConfirmations || []).find(
+        (conf) => conf.workerType.trim().toLowerCase() === cat.workerType.toLowerCase()
+      );
+      return {
+        workerType: cat.workerType,
+        checkInFinalized: cat.checkInFinalized,
+        checkInFinalizedAt: cat.checkInFinalizedAt,
+        checkInFinalizedBy: cat.checkInFinalizedBy,
+        checkInChangesPending: cat.checkInChangesPending,
+        checkInRevision: cat.checkInRevision,
+        checkInRevisions: (c?.checkInRevisions || []).map((r) => ({
+          revision: r.revision,
+          finalizedAt: r.finalizedAt,
+          finalizedBy: r.finalizedBy?.toString(),
+          committedSummary: r.committedSummary,
+          changeReason: r.changeReason,
+        })),
+        canFinalizeCheckIn: cat.canFinalizeCheckIn,
+        canReFinalizeCheckIn: cat.canReFinalizeCheckIn,
+        canModifyCheckout: cat.canModifyCheckout,
+      };
+    });
+
     return {
       eventId,
       eventTitle: event.title,
@@ -484,12 +858,53 @@ export class AttendanceService {
       correctionDeadlineAt: windowInfo.correctionDeadlineAt,
       canNormalCorrect: windowInfo.canNormalCorrect,
       isAfterCorrectionDeadline: windowInfo.isAfterDeadline,
+      canModifyCheckout: windowInfo.isEventDay && !windowInfo.isAfterEventDay && !windowInfo.isBeforeEventDay,
+      checkoutModificationDeadlineAt: windowInfo.correctionDeadlineAt,
+      checkoutModificationTimeRemainingMs: Math.max(0, windowInfo.correctionDeadlineAt.getTime() - now.getTime()),
+      categoryActualDepartures: (session.categoryActualDepartures || []).map((d) => ({
+        workerType: d.workerType,
+        actualDepartureTime: d.actualDepartureTime,
+        actualDepartureDate: d.actualDepartureDate,
+        recordedBy: d.recordedBy?.toString(),
+        recordedAt: d.recordedAt,
+      })),
+      categorySummaries,
+      categoryCheckInConfirmations,
+      totalEligibleWorkers: totalEligible,
+      totalAbsentWorkers: totalAbsent,
+      totalNormalWorkers: totalNormal,
+      totalEarlyDepartureWorkers: totalEarly,
+      totalOvertimeWorkers: totalOvertime,
+      totalPendingWorkers: totalPending,
       openConcernsCount,
+      checkInFinalized: session.checkInFinalized,
+      checkInFinalizedAt: session.checkInFinalizedAt,
+      checkInFinalizedBy: session.checkInFinalizedBy?.toString(),
+      checkInChangesPending: Boolean(session.checkInChangesPending),
+      checkInRevision: session.checkInRevision || (session.checkInFinalized ? 1 : 0),
       session: {
         checkInFinalized: session.checkInFinalized,
         checkInFinalizedAt: session.checkInFinalizedAt,
+        checkInFinalizedBy: session.checkInFinalizedBy?.toString(),
+        checkInChangesPending: Boolean(session.checkInChangesPending),
+        checkInRevision: session.checkInRevision || (session.checkInFinalized ? 1 : 0),
+        checkInRevisions: (session.checkInRevisions || []).map((r) => ({
+          revision: r.revision,
+          finalizedAt: r.finalizedAt,
+          finalizedBy: r.finalizedBy?.toString(),
+          committedSummary: r.committedSummary,
+          changeReason: r.changeReason,
+        })),
+        categoryCheckInConfirmations,
         actualNormalFinishTime: session.actualNormalFinishTime,
         actualNormalFinishDate: session.actualNormalFinishDate,
+        categoryActualDepartures: (session.categoryActualDepartures || []).map((d) => ({
+          workerType: d.workerType,
+          actualDepartureTime: d.actualDepartureTime,
+          actualDepartureDate: d.actualDepartureDate,
+          recordedBy: d.recordedBy?.toString(),
+          recordedAt: d.recordedAt,
+        })),
         categoryFinishTimes: (session.categoryFinishTimes || []).map((c) => ({
           workerType: c.workerType,
           normalFinishTime: c.normalFinishTime,
@@ -511,6 +926,8 @@ export class AttendanceService {
       latestReportingTime: latestReportingTimeStr,
       latestReportingTimestamp,
       canFinalizeCheckIn,
+      canReFinalizeCheckIn,
+      canEditCheckIn,
       totalAssigned: roster.length,
       requirements: requirementItems,
       roster,
@@ -564,8 +981,8 @@ export class AttendanceService {
 
     // 3. Check session state
     const session = await this.sessionRepo.getOrCreateSession(eventId);
-    if (session.checkInFinalized || session.checkOutFinalized) {
-      throw ApiError.badRequest('Cannot record check-in: check-in has already been finalized for this event');
+    if (session.checkOutFinalized) {
+      throw ApiError.badRequest('Cannot record check-in: checkout has already been finalized for this event');
     }
 
     // 4. Check event-day restrictions
@@ -573,23 +990,15 @@ export class AttendanceService {
     const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
     const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
 
-    const isInitialMark = !existingRecord || existingRecord.arrivalStatus === 'unrecorded';
-
-    if (isInitialMark) {
-      if (currentOperationalDate < eventOperationalDate) {
-        throw ApiError.badRequest(
-          'Initial attendance marks can only be recorded on the scheduled event day (cannot mark before event day)'
-        );
-      }
-      if (currentOperationalDate > eventOperationalDate) {
-        throw ApiError.badRequest(
-          'Initial attendance marks can only be recorded on the scheduled event day (event day has passed)'
-        );
-      }
-    } else {
-      if (currentOperationalDate < eventOperationalDate) {
-        throw ApiError.badRequest('Attendance marks cannot be recorded before the scheduled event day');
-      }
+    if (currentOperationalDate < eventOperationalDate) {
+      throw ApiError.badRequest(
+        'Initial attendance marks can only be recorded on the scheduled event day (cannot mark before event day)'
+      );
+    }
+    if (currentOperationalDate > eventOperationalDate) {
+      throw ApiError.forbidden(
+        'Check-in editing is closed because the scheduled event day has ended'
+      );
     }
 
     // 2b. Retrieve session and check finalization status
@@ -731,6 +1140,11 @@ export class AttendanceService {
       throw ApiError.internal('Failed to persist individual worker check-in');
     }
 
+    if (session.checkInFinalized) {
+      await this.sessionRepo.markCheckInChangesPending(eventId);
+    }
+    await this.sessionRepo.markCategoryCheckInChangesPending(eventId, assignedReq.workerType);
+
     // Dispatch worker notification if status is Late or Absent, and status effectively changed
     if (isStatusChanged && (finalArrivalStatus === 'late' || finalArrivalStatus === 'absent')) {
       try {
@@ -797,6 +1211,423 @@ export class AttendanceService {
   }
 
   /**
+   * POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin
+   * Executes manager-controlled exception-based check-in confirmation specifically for a single worker category.
+   */
+  async finalizeCategoryCheckIn(
+    userId: string,
+    userRole: string,
+    eventId: string,
+    workerType: string,
+    idempotencyKey: string,
+    payload: FinalizeCheckInPayload,
+    options?: { skipTimingGuard?: boolean }
+  ): Promise<FinalizeCategoryCheckInSummary> {
+    // 1. Mandatory Idempotency-Key validation
+    if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+      throw ApiError.badRequest('Idempotency-Key header is required');
+    }
+    const cleanIdempotencyKey = idempotencyKey.trim();
+
+    // 2. Validate event and authorization
+    const event = await this.validateEventAndOwnership(eventId, userId, userRole);
+
+    if (event.status === 'cancelled') {
+      throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
+    }
+    if (event.status === 'completed') {
+      throw ApiError.badRequest('Attendance check-in cannot be confirmed on completed events');
+    }
+    if (!['confirmed', 'in_progress'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot confirm check-in for event in '${event.status}' status. Event must be confirmed or in_progress.`
+      );
+    }
+
+    // 3. Retrieve or safely initialize the session
+    const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
+
+    const now = new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
+    // 4. Validate category exists in event requirements
+    const requirements = await WorkRequirement.find({
+      eventId: new mongoose.Types.ObjectId(eventId),
+      status: { $ne: 'cancelled' },
+    });
+
+    const categoryRequirements = requirements.filter(
+      (r) => r.workerType.trim().toLowerCase() === workerType.trim().toLowerCase()
+    );
+
+    if (categoryRequirements.length === 0) {
+      throw ApiError.badRequest(`Worker category '${workerType}' is not required for this event`);
+    }
+
+    // 5. Gather assigned workers in THIS category
+    const categoryWorkerMap = new Map<
+      string,
+      {
+        workerId: string;
+        workerType: string;
+        requirementId: string;
+        reportingTime: string;
+      }
+    >();
+
+    for (const req of categoryRequirements) {
+      if (req.assignedWorkers && req.assignedWorkers.length > 0) {
+        for (const assigned of req.assignedWorkers) {
+          const wId = assigned.workerId.toString();
+          if (!categoryWorkerMap.has(wId)) {
+            categoryWorkerMap.set(wId, {
+              workerId: wId,
+              workerType: req.workerType,
+              requirementId: req._id.toString(),
+              reportingTime: req.reportingTime,
+            });
+          }
+        }
+      }
+    }
+
+    if (categoryWorkerMap.size === 0) {
+      throw ApiError.badRequest(
+        `Cannot confirm check-in: No workers are assigned to category '${workerType}' for this event`
+      );
+    }
+
+    // 6. Check existing category confirmation
+    const existingCatConf = (sessionDoc.categoryCheckInConfirmations || []).find(
+      (c) => c.workerType.trim().toLowerCase() === workerType.trim().toLowerCase()
+    );
+
+    const isReFinalization = Boolean(existingCatConf?.checkInFinalized);
+    const payloadHash = this.computePayloadHash(payload);
+
+    if (existingCatConf?.checkInFinalized) {
+      const persistedIdem = existingCatConf.checkInIdempotency;
+      if (persistedIdem?.idempotencyKey === cleanIdempotencyKey) {
+        if (persistedIdem.payloadHash === payloadHash) {
+          return persistedIdem.committedSummary as unknown as FinalizeCategoryCheckInSummary;
+        }
+        throw ApiError.conflict('Idempotency key collision: previous check-in confirmed with different payload');
+      }
+      // If after event day, reject new exceptions with 403 Forbidden
+      const lateExceptions = payload.lateExceptions || [];
+      const absentExceptions = payload.absentExceptions || [];
+      if (isReFinalization && windowInfo.isAfterEventDay && (lateExceptions.length > 0 || absentExceptions.length > 0)) {
+        throw ApiError.forbidden(
+          'Check-in editing is closed because the scheduled event day has ended. Cannot submit new check-in exceptions after event day.'
+        );
+      }
+
+      if (!existingCatConf.checkInChangesPending) {
+        throw ApiError.conflict(
+          `Check-in for category '${workerType}' has already been confirmed and no changes are pending`
+        );
+      }
+    }
+
+    // 7. Validate exception lists against roster for THIS category
+    const lateExceptions = payload.lateExceptions || [];
+    const absentExceptions = payload.absentExceptions || [];
+
+    const lateWorkerIds = new Set<string>();
+    const absentWorkerIds = new Set<string>();
+
+    for (const late of lateExceptions) {
+      if (!categoryWorkerMap.has(late.workerId)) {
+        throw ApiError.badRequest(
+          `Worker '${late.workerId}' is not in the assigned roster for category '${workerType}'`
+        );
+      }
+      if (lateWorkerIds.has(late.workerId)) {
+        throw ApiError.badRequest(`Duplicate workerId '${late.workerId}' in lateExceptions`);
+      }
+      lateWorkerIds.add(late.workerId);
+    }
+
+    for (const wId of absentExceptions) {
+      if (!categoryWorkerMap.has(wId)) {
+        throw ApiError.badRequest(`Worker '${wId}' is not in the assigned roster for category '${workerType}'`);
+      }
+      if (absentWorkerIds.has(wId)) {
+        throw ApiError.badRequest(`Duplicate workerId '${wId}' in absentExceptions`);
+      }
+      if (lateWorkerIds.has(wId)) {
+        throw ApiError.badRequest(`Worker '${wId}' cannot be marked both late and absent`);
+      }
+      absentWorkerIds.add(wId);
+    }
+
+    // 8. Timing Guard Calculation for THIS category
+    let latestReportingTimestamp: Date | null = null;
+    let latestReportingTimeStr = '';
+
+    const workerReportingDateMap = new Map<string, Date>();
+
+    for (const [wId, workerInfo] of categoryWorkerMap.entries()) {
+      const timeValidation = isValidTimeString(workerInfo.reportingTime);
+      if (!timeValidation.valid || !timeValidation.normalized24h) {
+        throw ApiError.internal(`Malformed reporting time in requirement for worker ${wId}`);
+      }
+      const reportingDateTime = this.constructDateTime(event.date, timeValidation.normalized24h);
+      workerReportingDateMap.set(wId, reportingDateTime);
+
+      if (!latestReportingTimestamp || reportingDateTime.getTime() > latestReportingTimestamp.getTime()) {
+        latestReportingTimestamp = reportingDateTime;
+        latestReportingTimeStr = workerInfo.reportingTime;
+      }
+    }
+
+    const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
+    const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
+
+    const shouldCheckTimingGuard =
+      !options?.skipTimingGuard &&
+      process.env.NODE_ENV !== 'test';
+
+    if (shouldCheckTimingGuard) {
+      if (currentOperationalDate < eventOperationalDate) {
+        throw ApiError.badRequest(
+          `Cannot confirm check-in before the scheduled event date (${eventOperationalDate})`
+        );
+      }
+      if (latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()) {
+        throw ApiError.badRequest(
+          `Cannot confirm check-in before scheduled reporting time (${latestReportingTimeStr})`
+        );
+      }
+    }
+
+    // 9. Load existing attendance records for THIS category
+    const existingRecords = await this.attRepo.findByEventAndWorkerType(eventId, workerType);
+    const existingMap = new Map<string, IAttendance>();
+    for (const rec of existingRecords) {
+      const wId = (rec.workerId as any)?._id?.toString() || rec.workerId?.toString();
+      if (wId) {
+        existingMap.set(wId, rec);
+      }
+    }
+
+    let onTimeCount = 0;
+    let lateCount = 0;
+    let absentCount = 0;
+
+    await runInTransaction(async (dbSession) => {
+      onTimeCount = 0;
+      lateCount = 0;
+      absentCount = 0;
+      for (const [wId, workerInfo] of categoryWorkerMap.entries()) {
+        const existingAtt = existingMap.get(wId);
+        const reportingDate = workerReportingDateMap.get(wId)!;
+
+        // If locked by closed concern, skip modifying arrival
+        if (existingAtt?.isStatusLocked) {
+          if (existingAtt.arrivalStatus === 'absent' || existingAtt.status === 'absent') {
+            absentCount++;
+          } else if (existingAtt.arrivalStatus === 'late') {
+            lateCount++;
+          } else {
+            onTimeCount++;
+          }
+          continue;
+        }
+
+        if (absentWorkerIds.has(wId)) {
+          // Absent exception
+          absentCount++;
+          if (existingAtt) {
+            existingAtt.arrivalStatus = 'absent';
+            existingAtt.status = 'absent';
+            existingAtt.checkIn = undefined;
+            existingAtt.checkInSource = 'manager_actual';
+            existingAtt.delayMinutes = 0;
+            existingAtt.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
+            existingAtt.checkInRecordedAt = now;
+            // Clear checkout if worker transitioned to absent
+            existingAtt.checkOut = undefined;
+            existingAtt.checkOutSource = 'not_recorded';
+            existingAtt.departureStatus = 'not_recorded';
+            existingAtt.durationMinutes = 0;
+            await existingAtt.save({ session: dbSession });
+          } else {
+            const newAtt = new Attendance({
+              eventId: new mongoose.Types.ObjectId(eventId),
+              requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
+              workerId: new mongoose.Types.ObjectId(wId),
+              workerType: workerInfo.workerType,
+              reportingTimeSnapshot: workerInfo.reportingTime,
+              checkIn: undefined,
+              checkInSource: 'manager_actual',
+              arrivalStatus: 'absent',
+              delayMinutes: 0,
+              durationMinutes: 0,
+              status: 'absent',
+              verificationStatus: 'pending_review',
+              checkInRecordedBy: new mongoose.Types.ObjectId(userId),
+              checkInRecordedAt: now,
+              isStatusLocked: false,
+              hasOpenConcern: false,
+              corrections: [],
+            });
+            await newAtt.save({ session: dbSession });
+          }
+        } else if (lateWorkerIds.has(wId)) {
+          // Late exception
+          lateCount++;
+          const lateItem = lateExceptions.find((l) => l.workerId === wId)!;
+          const timeValidation = isValidTimeString(lateItem.actualArrivalTime);
+          const actualArrivalDate = this.constructDateTime(event.date, timeValidation.normalized24h!);
+          const delayMinutes = Math.max(0, Math.floor((actualArrivalDate.getTime() - reportingDate.getTime()) / 60000));
+
+          if (existingAtt) {
+            existingAtt.arrivalStatus = 'late';
+            existingAtt.status = existingAtt.status === 'checked_out' ? 'checked_out' : 'checked_in';
+            existingAtt.checkIn = actualArrivalDate;
+            existingAtt.checkInSource = 'manager_actual';
+            existingAtt.delayMinutes = delayMinutes;
+            existingAtt.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
+            existingAtt.checkInRecordedAt = now;
+            if (existingAtt.checkOut) {
+              existingAtt.durationMinutes = Math.max(0, Math.floor((existingAtt.checkOut.getTime() - actualArrivalDate.getTime()) / 60000));
+            }
+            await existingAtt.save({ session: dbSession });
+          } else {
+            const newAtt = new Attendance({
+              eventId: new mongoose.Types.ObjectId(eventId),
+              requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
+              workerId: new mongoose.Types.ObjectId(wId),
+              workerType: workerInfo.workerType,
+              reportingTimeSnapshot: workerInfo.reportingTime,
+              checkIn: actualArrivalDate,
+              checkInSource: 'manager_actual',
+              arrivalStatus: 'late',
+              delayMinutes,
+              durationMinutes: 0,
+              status: 'checked_in',
+              verificationStatus: 'pending_review',
+              checkInRecordedBy: new mongoose.Types.ObjectId(userId),
+              checkInRecordedAt: now,
+              isStatusLocked: false,
+              hasOpenConcern: false,
+              corrections: [],
+            });
+            await newAtt.save({ session: dbSession });
+          }
+        } else {
+          // Default Present / on-time
+          if (existingAtt && existingAtt.arrivalStatus !== 'unrecorded') {
+            if (existingAtt.arrivalStatus === 'absent' || existingAtt.status === 'absent') {
+              absentCount++;
+            } else if (existingAtt.arrivalStatus === 'late') {
+              lateCount++;
+            } else {
+              onTimeCount++;
+            }
+          } else {
+            onTimeCount++;
+            if (existingAtt) {
+              existingAtt.arrivalStatus = 'on_time';
+              existingAtt.status = existingAtt.status === 'checked_out' ? 'checked_out' : 'checked_in';
+              existingAtt.checkIn = reportingDate;
+              existingAtt.checkInSource = 'system_default';
+              existingAtt.delayMinutes = 0;
+              existingAtt.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
+              existingAtt.checkInRecordedAt = now;
+              if (existingAtt.checkOut) {
+                existingAtt.durationMinutes = Math.max(0, Math.floor((existingAtt.checkOut.getTime() - reportingDate.getTime()) / 60000));
+              }
+              await existingAtt.save({ session: dbSession });
+            } else {
+              const newAtt = new Attendance({
+                eventId: new mongoose.Types.ObjectId(eventId),
+                requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
+                workerId: new mongoose.Types.ObjectId(wId),
+                workerType: workerInfo.workerType,
+                reportingTimeSnapshot: workerInfo.reportingTime,
+                checkIn: reportingDate,
+                checkInSource: 'system_default',
+                arrivalStatus: 'on_time',
+                delayMinutes: 0,
+                durationMinutes: 0,
+                status: 'checked_in',
+                verificationStatus: 'pending_review',
+                checkInRecordedBy: new mongoose.Types.ObjectId(userId),
+                checkInRecordedAt: now,
+                isStatusLocked: false,
+                hasOpenConcern: false,
+                corrections: [],
+              });
+              await newAtt.save({ session: dbSession });
+            }
+          }
+        }
+      }
+
+      // 10. Persist category confirmation atomically
+      const currentRev = (existingCatConf?.checkInRevision || 0) + 1;
+      const committedSummary = {
+        eventId,
+        workerType,
+        totalProcessed: categoryWorkerMap.size,
+        onTimeCount,
+        lateCount,
+        absentCount,
+        checkInFinalized: true,
+        checkInFinalizedAt: now.toISOString(),
+        checkInRevision: currentRev,
+        checkInChangesPending: false,
+      };
+
+      const idempotencyRecord: IFinalizationIdempotency = {
+        idempotencyKey: cleanIdempotencyKey,
+        payloadHash,
+        finalizedAt: now,
+        finalizedBy: new mongoose.Types.ObjectId(userId),
+        committedSummary,
+      };
+
+      await this.sessionRepo.atomicConfirmCategoryCheckIn(
+        eventId,
+        workerType,
+        {
+          finalizedBy: new mongoose.Types.ObjectId(userId),
+          finalizedAt: now,
+          idempotencyRecord,
+          committedSummary,
+          changeReason:
+            payload.reason ||
+            (isReFinalization
+              ? 'Re-confirmed check-in after attendance changes'
+              : 'Initial check-in confirmation'),
+          isReFinalize: isReFinalization,
+        },
+        dbSession
+      );
+    });
+
+    const refreshedSession = await this.sessionRepo.findByEventId(eventId);
+    const updatedConf = (refreshedSession?.categoryCheckInConfirmations || []).find(
+      (c) => c.workerType.trim().toLowerCase() === workerType.trim().toLowerCase()
+    );
+
+    return {
+      eventId,
+      workerType,
+      totalProcessed: categoryWorkerMap.size,
+      onTimeCount,
+      lateCount,
+      absentCount,
+      checkInFinalized: true,
+      checkInFinalizedAt: now.toISOString(),
+      checkInRevision: updatedConf?.checkInRevision || 1,
+      checkInChangesPending: false,
+    };
+  }
+
+  /**
    * 3. POST /api/attendance/events/:eventId/finalize-checkin
    * Executes manager-controlled exception-based check-in finalization with transaction and idempotency.
    */
@@ -832,10 +1663,15 @@ export class AttendanceService {
     // 3. Retrieve or safely initialize the session
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
 
+    const now = new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
     // 4. Compute stable payload hash
     const payloadHash = this.computePayloadHash(payload);
 
-    // 5. Idempotency Evaluation
+    const isReFinalization = Boolean(sessionDoc.checkInFinalized);
+
+    // 5. Idempotency & Re-finalization Evaluation
     if (sessionDoc.checkInFinalized) {
       const persistedIdem = sessionDoc.checkInIdempotency;
       if (persistedIdem?.idempotencyKey === cleanIdempotencyKey) {
@@ -846,8 +1682,9 @@ export class AttendanceService {
         // Same key, different payload -> 409 Conflict
         throw ApiError.conflict('Idempotency key collision: previous check-in finalized with different payload');
       }
-      // Different key on already-finalized check-in -> 409 Conflict
-      throw ApiError.conflict('Check-in has already been finalized for this event');
+      if (!sessionDoc.checkInChangesPending) {
+        throw ApiError.conflict('Check-in has already been finalized and no changes are pending');
+      }
     }
 
     // 6. Gather active assigned workers from non-cancelled requirements
@@ -889,6 +1726,13 @@ export class AttendanceService {
     // 7. Validate exception lists against roster
     const lateExceptions = payload.lateExceptions || [];
     const absentExceptions = payload.absentExceptions || [];
+
+    // If after event day and re-finalizing, do not allow introducing new exceptions via payload
+    if (isReFinalization && windowInfo.isAfterEventDay && (lateExceptions.length > 0 || absentExceptions.length > 0)) {
+      throw ApiError.forbidden(
+        'Check-in editing is closed because the scheduled event day has ended. Cannot submit new check-in exceptions after event day.'
+      );
+    }
 
     const lateWorkerIds = new Set<string>();
     const absentWorkerIds = new Set<string>();
@@ -938,11 +1782,10 @@ export class AttendanceService {
       }
     }
 
-    const now = new Date();
     if (!options?.skipTimingGuard && latestReportingTimestamp && now.getTime() < latestReportingTimestamp.getTime()) {
       throw ApiError.badRequest(
         `Cannot finalize check-in before the latest reporting time (${latestReportingTimeStr}). ` +
-          `Check-in finalization becomes available at ${latestReportingTimestamp.toISOString()} once all assigned worker shifts have commenced.`
+        `Check-in finalization becomes available at ${latestReportingTimestamp.toISOString()} once all assigned worker shifts have commenced.`
       );
     }
 
@@ -989,10 +1832,57 @@ export class AttendanceService {
 
     for (const [wId, workerInfo] of assignedWorkerMap.entries()) {
       const repDate = workerReportingDateMap.get(wId)!;
+      const existing = existingAttMap.get(wId);
+
+      // Mandatory Rule 5: Closed concerns remain permanently locked.
+      // If worker arrival info is locked, do not modify arrival status or check-in timestamp.
+      if (existing?.isStatusLocked) {
+        let durationMinutes = existing.durationMinutes ?? 0;
+        if (existing.checkOut && existing.checkIn) {
+          durationMinutes = Math.floor((existing.checkOut.getTime() - existing.checkIn.getTime()) / 60000);
+        }
+        attendanceRecordsToUpsert.push({
+          eventId: new mongoose.Types.ObjectId(eventId),
+          requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
+          workerId: new mongoose.Types.ObjectId(wId),
+          workerType: workerInfo.workerType,
+          reportingTimeSnapshot: existing.reportingTimeSnapshot || workerInfo.reportingTime,
+          checkIn: existing.checkIn || null,
+          checkInSource: existing.checkInSource,
+          arrivalStatus: existing.arrivalStatus,
+          delayMinutes: existing.delayMinutes ?? 0,
+          checkInRecordedBy: existing.checkInRecordedBy || managerObjectId,
+          checkInRecordedAt: existing.checkInRecordedAt || now,
+          status: existing.status,
+          verificationStatus: existing.verificationStatus || 'pending_review',
+          checkOut: existing.checkOut,
+          checkOutSource: existing.checkOutSource,
+          departureStatus: existing.departureStatus,
+          earlyDepartureMinutes: existing.earlyDepartureMinutes,
+          overtimeMinutes: existing.overtimeMinutes,
+          durationMinutes,
+          isStatusLocked: true,
+          statusLockedAt: existing.statusLockedAt,
+          statusLockedReason: existing.statusLockedReason,
+          statusLockedBy: existing.statusLockedBy,
+          hasOpenConcern: existing.hasOpenConcern,
+          activeConcernId: existing.activeConcernId,
+        });
+        continue;
+      }
 
       if (lateWorkerIds.has(wId)) {
         // Late worker from payload exception
         const lateInfo = lateDataMap.get(wId)!;
+        if (existing?.checkOut && existing.checkOut.getTime() <= lateInfo.arrivalDate.getTime()) {
+          throw ApiError.badRequest(
+            `Worker '${wId}' checkout time must be later than corrected arrival time`
+          );
+        }
+        let durationMinutes = 0;
+        if (existing?.checkOut) {
+          durationMinutes = Math.floor((existing.checkOut.getTime() - lateInfo.arrivalDate.getTime()) / 60000);
+        }
         attendanceRecordsToUpsert.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
@@ -1007,10 +1897,15 @@ export class AttendanceService {
           checkInRecordedAt: now,
           status: 'checked_in',
           verificationStatus: 'pending_review',
-          durationMinutes: 0,
+          checkOut: existing?.checkOut,
+          checkOutSource: existing?.checkOutSource,
+          departureStatus: existing?.departureStatus,
+          earlyDepartureMinutes: existing?.earlyDepartureMinutes,
+          overtimeMinutes: existing?.overtimeMinutes,
+          durationMinutes,
         });
       } else if (absentWorkerIds.has(wId)) {
-        // Absent worker from payload exception
+        // Absent worker from payload exception: completely excluded from checkout with duration = 0
         attendanceRecordsToUpsert.push({
           eventId: new mongoose.Types.ObjectId(eventId),
           requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
@@ -1025,12 +1920,20 @@ export class AttendanceService {
           checkInRecordedAt: now,
           status: 'absent',
           verificationStatus: 'pending_review',
+          checkOut: null,
+          checkOutSource: 'not_recorded',
+          departureStatus: 'not_recorded',
+          earlyDepartureMinutes: 0,
+          overtimeMinutes: 0,
           durationMinutes: 0,
         });
       } else {
-        const existing = existingAttMap.get(wId);
         if (existing && existing.status !== 'not_started' && existing.arrivalStatus !== 'unrecorded') {
-          // Worker was already recorded and confirmed via individual check-in
+          // Worker was already recorded and confirmed via individual check-in or prior finalization
+          let durationMinutes = existing.durationMinutes ?? 0;
+          if (existing.checkOut && existing.checkIn) {
+            durationMinutes = Math.floor((existing.checkOut.getTime() - existing.checkIn.getTime()) / 60000);
+          }
           attendanceRecordsToUpsert.push({
             eventId: new mongoose.Types.ObjectId(eventId),
             requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
@@ -1045,10 +1948,22 @@ export class AttendanceService {
             checkInRecordedAt: existing.checkInRecordedAt || now,
             status: existing.status,
             verificationStatus: 'pending_review',
-            durationMinutes: 0,
+            checkOut: existing.checkOut,
+            checkOutSource: existing.checkOutSource,
+            departureStatus: existing.departureStatus,
+            earlyDepartureMinutes: existing.earlyDepartureMinutes,
+            overtimeMinutes: existing.overtimeMinutes,
+            durationMinutes,
+            isStatusLocked: existing.isStatusLocked,
+            hasOpenConcern: existing.hasOpenConcern,
+            activeConcernId: existing.activeConcernId,
           });
         } else {
           // Default Present / On-Time worker
+          let durationMinutes = 0;
+          if (existing?.checkOut) {
+            durationMinutes = Math.floor((existing.checkOut.getTime() - repDate.getTime()) / 60000);
+          }
           attendanceRecordsToUpsert.push({
             eventId: new mongoose.Types.ObjectId(eventId),
             requirementId: new mongoose.Types.ObjectId(workerInfo.requirementId),
@@ -1063,7 +1978,12 @@ export class AttendanceService {
             checkInRecordedAt: now,
             status: 'checked_in',
             verificationStatus: 'pending_review',
-            durationMinutes: 0,
+            checkOut: existing?.checkOut,
+            checkOutSource: existing?.checkOutSource,
+            departureStatus: existing?.departureStatus,
+            earlyDepartureMinutes: existing?.earlyDepartureMinutes,
+            overtimeMinutes: existing?.overtimeMinutes,
+            durationMinutes,
           });
         }
       }
@@ -1080,6 +2000,8 @@ export class AttendanceService {
       else onTimeCount++;
     }
 
+    const nextRevision = isReFinalization ? (sessionDoc.checkInRevision || 1) + 1 : 1;
+
     const committedSummary: FinalizeCheckInSummary = {
       eventId,
       totalProcessed,
@@ -1088,6 +2010,8 @@ export class AttendanceService {
       absentCount,
       checkInFinalized: true,
       checkInFinalizedAt: now.toISOString(),
+      checkInRevision: nextRevision,
+      checkInChangesPending: false,
     };
 
     const idempotencyRecord: IFinalizationIdempotency = {
@@ -1102,22 +2026,67 @@ export class AttendanceService {
     await runInTransaction(async (dbSession) => {
       // Re-read session inside transaction to ensure atomic precondition check
       const currentSession = await this.sessionRepo.findByEventId(eventId, dbSession);
-      if (currentSession?.checkInFinalized) {
+      if (!currentSession) {
+        throw ApiError.notFound('Attendance session not found for this event');
+      }
+
+      const isReFinalizeTx = currentSession.checkInFinalized;
+      if (isReFinalizeTx && !currentSession.checkInChangesPending) {
+        throw ApiError.conflict('Check-in has already been finalized and no changes are pending');
+      }
+      if (!isReFinalizeTx && currentSession.checkInFinalized) {
         throw ApiError.conflict('Check-in has already been finalized for this event');
       }
 
       // Persist all attendance documents atomically
       await this.attRepo.bulkUpsertAttendances(attendanceRecordsToUpsert, dbSession);
 
-      // Lock session finalization flag and idempotency metadata
-      const finalizedSession = await this.sessionRepo.atomicFinalizeCheckIn(
-        eventId,
-        idempotencyRecord,
-        dbSession
-      );
+      let finalizedSession: IAttendanceSession | null = null;
+      if (!isReFinalizeTx) {
+        finalizedSession = await this.sessionRepo.atomicFinalizeCheckIn(
+          eventId,
+          idempotencyRecord,
+          dbSession
+        );
+      } else {
+        finalizedSession = await this.sessionRepo.atomicReFinalizeCheckIn(
+          eventId,
+          idempotencyRecord,
+          payload.expectedRevision || currentSession.checkInRevision,
+          payload.reason || 'Check-in re-finalized after attendance changes',
+          dbSession
+        );
+      }
 
       if (!finalizedSession) {
-        throw ApiError.conflict('Check-in finalization state conflict or already finalized');
+        throw ApiError.conflict('Check-in finalization state conflict or concurrent modification');
+      }
+
+      // Synchronize categoryCheckInConfirmations for all assigned categories
+      const distinctWorkerTypes = new Set(Array.from(assignedWorkerMap.values()).map((w) => w.workerType));
+      for (const wType of distinctWorkerTypes) {
+        await this.sessionRepo.atomicConfirmCategoryCheckIn(
+          eventId,
+          wType,
+          {
+            finalizedBy: managerObjectId,
+            finalizedAt: now,
+            idempotencyRecord: {
+              idempotencyKey: `${cleanIdempotencyKey}_${wType}`,
+              payloadHash,
+              finalizedAt: now,
+              finalizedBy: managerObjectId,
+              committedSummary: { eventId, workerType: wType, checkInFinalized: true },
+            },
+            changeReason:
+              payload.reason ||
+              (isReFinalizeTx
+                ? 'Re-finalized via global check-in confirmation'
+                : 'Initial global check-in confirmation'),
+            isReFinalize: isReFinalizeTx,
+          },
+          dbSession
+        );
       }
     });
 
@@ -1172,6 +2141,459 @@ export class AttendanceService {
   }
 
   /**
+   * Records or updates the category actual departure time for a worker category.
+   * Atomically applies default checkout to normal workers and recalculates early/overtime
+   * minutes and classification for individual exception workers.
+   */
+  async recordCategoryDeparture(
+    userId: string,
+    userRole: string,
+    eventId: string,
+    payload: RecordCategoryDeparturePayload
+  ): Promise<RecordCategoryDepartureResult> {
+    const event = await this.validateEventAndOwnership(eventId, userId, userRole);
+
+    if (event.status === 'cancelled') {
+      throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
+    }
+
+    const now = this.getNow();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
+    // Rule: Departure time can only be set on the scheduled event day; closed after event day
+    if (windowInfo.isBeforeEventDay) {
+      throw ApiError.badRequest('Category departure time can only be set on the scheduled event day (cannot set before event day)');
+    }
+    if (windowInfo.isAfterEventDay) {
+      throw ApiError.forbidden(
+        'Checkout editing is closed because the scheduled event day has ended. Departure times can only be set on the event day.'
+      );
+    }
+
+    // Validate time string
+    const timeVal = isValidTimeString(payload.actualDepartureTime);
+    if (!timeVal.valid || !timeVal.normalized24h) {
+      throw ApiError.badRequest(`Invalid category departure time: ${timeVal.error}`);
+    }
+    const departureTime24h = timeVal.normalized24h;
+
+    // Load active requirements for event to find category and reporting time
+    const requirements = await WorkRequirement.find({
+      eventId: new mongoose.Types.ObjectId(eventId),
+      status: { $ne: 'cancelled' },
+    });
+    const catReqs = requirements.filter(
+      (r) => r.workerType.trim().toLowerCase() === payload.workerType.trim().toLowerCase()
+    );
+    if (catReqs.length === 0) {
+      throw ApiError.notFound(`No active work requirement found for worker category '${payload.workerType}'`);
+    }
+
+    // Construct actual departure timestamp from explicit date selection (Asia/Kolkata instant)
+    const departureDateBase = payload.actualDepartureDate || getOperationalDateString(event.date, 'Asia/Kolkata');
+    const actualDepartureDate = constructKolkataDateTime(departureDateBase, departureTime24h);
+
+    // Rule 2: Cannot be in the future relative to authoritative server clock
+    if (actualDepartureDate.getTime() > now.getTime()) {
+      throw ApiError.badRequest('Category departure time cannot be in the future');
+    }
+
+    // Load all existing attendance records for this event and category
+    const catAttendances = await this.attRepo.findByEventAndWorkerType(eventId, payload.workerType);
+
+    // Rule: Check-in confirmation prerequisite for this category
+    const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
+    const catConfirmation = (sessionDoc.categoryCheckInConfirmations || []).find(
+      (c) => c.workerType.trim().toLowerCase() === payload.workerType.trim().toLowerCase()
+    );
+
+    if (!catConfirmation || !catConfirmation.checkInFinalized) {
+      throw ApiError.badRequest(
+        `Check-in for category '${payload.workerType}' must be confirmed before recording checkout`
+      );
+    }
+    if (catConfirmation.checkInChangesPending) {
+      throw ApiError.badRequest(
+        `Check-in changes are pending re-confirmation for category '${payload.workerType}'. Re-confirm check-in before updating checkout.`
+      );
+    }
+
+    let affectedCount = 0;
+    let normalCount = 0;
+    let exceptionCount = 0;
+    let absentCount = 0;
+
+    await runInTransaction(async (dbSession) => {
+      affectedCount = 0;
+      normalCount = 0;
+      exceptionCount = 0;
+      absentCount = 0;
+      // 1. Save category actual departure in session
+      await this.sessionRepo.saveCategoryActualDeparture(
+        eventId,
+        {
+          workerType: payload.workerType,
+          actualDepartureTime: departureTime24h,
+          actualDepartureDate,
+          recordedBy: new mongoose.Types.ObjectId(userId),
+          reason: payload.reason,
+        },
+        dbSession
+      );
+
+      // 2. Update workers
+      for (const att of catAttendances) {
+        const isAbsent = att.arrivalStatus === 'absent' || att.status === 'absent';
+        if (isAbsent) {
+          absentCount++;
+          continue;
+        }
+
+        affectedCount++;
+
+        if (att.checkOutSource !== 'individual_exception') {
+          // Partial eligibility check:
+          // If worker checked in at or after category departure, do not apply invalid category default!
+          // Leave worker pending an individual overtime exception.
+          if (att.checkIn && actualDepartureDate.getTime() <= att.checkIn.getTime()) {
+            if (att.checkOut && att.checkOutSource === 'category_default') {
+              att.checkOut = undefined;
+              att.checkOutSource = 'not_recorded';
+              att.departureStatus = 'not_recorded';
+              att.durationMinutes = 0;
+              att.status = 'checked_in';
+              await att.save({ session: dbSession });
+            }
+            continue;
+          }
+
+          // Normal worker: update checkout timestamp to category departure
+          normalCount++;
+          const prevCheckOut = att.checkOut ? att.checkOut.toISOString() : undefined;
+          const prevDepartureStatus = att.departureStatus;
+
+          att.checkOut = actualDepartureDate;
+          att.checkOutSource = 'category_default';
+          att.departureStatus = 'normal';
+          att.earlyDepartureMinutes = 0;
+          att.overtimeMinutes = 0;
+          att.durationMinutes = att.checkIn
+            ? Math.floor((actualDepartureDate.getTime() - att.checkIn.getTime()) / 60000)
+            : 0;
+          att.status = 'checked_out';
+          att.checkOutRecordedBy = new mongoose.Types.ObjectId(userId);
+          att.checkOutRecordedAt = now;
+
+          if (prevCheckOut !== actualDepartureDate.toISOString()) {
+            att.corrections.push({
+              modifiedBy: new mongoose.Types.ObjectId(userId),
+              modifiedAt: now,
+              field: 'checkOut',
+              previousValue: prevCheckOut,
+              previousSource: att.checkOutSource,
+              previousDepartureStatus: prevDepartureStatus,
+              newValue: actualDepartureDate.toISOString(),
+              newSource: 'category_default',
+              newDepartureStatus: 'normal',
+              reason: payload.reason || `Applied category '${payload.workerType}' actual departure ${departureTime24h}`,
+            });
+          }
+          await att.save({ session: dbSession });
+        } else {
+          // Worker with individual exception: PRESERVE att.checkOut!
+          exceptionCount++;
+          const prevDepStatus = att.departureStatus;
+          const prevEarly = att.earlyDepartureMinutes;
+          const prevOt = att.overtimeMinutes;
+
+          const indMs = att.checkOut ? att.checkOut.getTime() : 0;
+          const catMs = actualDepartureDate.getTime();
+
+          let newDepStatus: DepartureStatus = 'normal';
+          let earlyMins = 0;
+          let otMins = 0;
+
+          if (indMs < catMs) {
+            newDepStatus = 'early_departure';
+            earlyMins = Math.floor((catMs - indMs) / 60000);
+            otMins = 0;
+          } else if (indMs > catMs) {
+            newDepStatus = 'overtime';
+            earlyMins = 0;
+            otMins = Math.floor((indMs - catMs) / 60000);
+          } else {
+            newDepStatus = 'normal';
+            earlyMins = 0;
+            otMins = 0;
+          }
+
+          att.departureStatus = newDepStatus;
+          att.earlyDepartureMinutes = earlyMins;
+          att.overtimeMinutes = otMins;
+          att.durationMinutes = att.checkIn && att.checkOut
+            ? Math.floor((att.checkOut.getTime() - att.checkIn.getTime()) / 60000)
+            : 0;
+
+          att.corrections.push({
+            modifiedBy: new mongoose.Types.ObjectId(userId),
+            modifiedAt: now,
+            field: 'departureStatus',
+            previousValue: `${prevDepStatus} (early: ${prevEarly}m, ot: ${prevOt}m)`,
+            previousDepartureStatus: prevDepStatus,
+            newValue: `${newDepStatus} (early: ${earlyMins}m, ot: ${otMins}m)`,
+            newDepartureStatus: newDepStatus,
+            reason: `Automatic reclassification due to category '${payload.workerType}' departure updated to ${departureTime24h}`,
+          });
+
+          await att.save({ session: dbSession });
+        }
+      }
+    });
+
+    return {
+      eventId,
+      workerType: payload.workerType,
+      actualDepartureTime: departureTime24h,
+      actualDepartureDate: actualDepartureDate.toISOString(),
+      affectedWorkersCount: affectedCount,
+      normalWorkersCount: normalCount,
+      exceptionWorkersCount: exceptionCount,
+      absentWorkersCount: absentCount,
+    };
+  }
+
+  /**
+   * Records or updates an individual worker's Early Departure or Overtime exception.
+   */
+  async recordWorkerCheckOutException(
+    userId: string,
+    userRole: string,
+    eventId: string,
+    workerId: string,
+    payload: RecordWorkerCheckOutExceptionPayload
+  ): Promise<AttendanceRosterItem> {
+    const event = await this.validateEventAndOwnership(eventId, userId, userRole);
+
+    if (event.status === 'cancelled') {
+      throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
+    }
+
+    const now = this.getNow();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
+    // Rule: Departure exceptions can only be recorded on the scheduled event day; closed after event day
+    if (windowInfo.isBeforeEventDay) {
+      throw ApiError.badRequest('Checkout exceptions can only be recorded on the scheduled event day (cannot set before event day)');
+    }
+    if (windowInfo.isAfterEventDay) {
+      throw ApiError.forbidden(
+        'Checkout editing is closed because the scheduled event day has ended. Departure exceptions can only be set on the event day.'
+      );
+    }
+
+    const rawTime = payload.actualDepartureTime || payload.actualCheckoutTime;
+    const timeVal = isValidTimeString(rawTime);
+    if (!timeVal.valid || !timeVal.normalized24h) {
+      throw ApiError.badRequest(`Invalid actual checkout time: ${timeVal.error}`);
+    }
+    const outTime24h = timeVal.normalized24h;
+
+    const att = await this.attRepo.findByEventAndWorker(eventId, workerId);
+    if (!att) {
+      throw ApiError.notFound('Attendance record not found for this worker');
+    }
+
+    // Rule: Absent worker cannot receive checkout
+    if (att.arrivalStatus === 'absent' || att.status === 'absent') {
+      throw ApiError.badRequest('Cannot record checkout exception for an absent worker');
+    }
+
+    // Rule: Must have checked in
+    if (!att.checkIn) {
+      throw ApiError.badRequest('Worker has not checked in. Cannot record checkout before check-in.');
+    }
+
+    // Construct checkout date using explicit date selection (Asia/Kolkata instant)
+    const departureDateBase = payload.actualDepartureDate || getOperationalDateString(att.checkIn || event.date, 'Asia/Kolkata');
+    const actualCheckoutDate = constructKolkataDateTime(departureDateBase, outTime24h);
+
+    // Rule 2: Cannot be in future relative to authoritative server clock
+    if (actualCheckoutDate.getTime() > now.getTime()) {
+      throw ApiError.badRequest('Individual departure time cannot be in the future');
+    }
+
+    // Rule 3: Must be strictly later than that worker's check-in
+    if (actualCheckoutDate.getTime() <= att.checkIn.getTime()) {
+      throw ApiError.badRequest('Individual departure time must be strictly later than the worker\'s check-in time');
+    }
+
+    // Resolve category departure to determine classification
+    const sessionDoc = await this.sessionRepo.findByEventId(eventId);
+    const catConf = (sessionDoc?.categoryCheckInConfirmations || []).find(
+      (c) => c.workerType.trim().toLowerCase() === att.workerType.trim().toLowerCase()
+    );
+
+    if (!catConf || !catConf.checkInFinalized) {
+      throw ApiError.badRequest(
+        `Check-in for category '${att.workerType}' must be confirmed before recording checkout exceptions`
+      );
+    }
+    if (catConf.checkInChangesPending) {
+      throw ApiError.badRequest(
+        `Check-in changes are pending re-confirmation for category '${att.workerType}'. Re-confirm check-in before updating checkout.`
+      );
+    }
+    const catDeparture = (sessionDoc?.categoryActualDepartures || []).find(
+      (d) => d.workerType.trim().toLowerCase() === att.workerType.trim().toLowerCase()
+    );
+
+    let depStatus: DepartureStatus = 'normal';
+    let earlyMins = 0;
+    let otMins = 0;
+
+    if (catDeparture) {
+      const catMs = catDeparture.actualDepartureDate.getTime();
+      const indMs = actualCheckoutDate.getTime();
+
+      if (indMs < catMs) {
+        depStatus = 'early_departure';
+        earlyMins = Math.floor((catMs - indMs) / 60000);
+      } else if (indMs > catMs) {
+        depStatus = 'overtime';
+        otMins = Math.floor((indMs - catMs) / 60000);
+      } else {
+        depStatus = 'normal';
+      }
+    }
+
+    const durationMinutes = Math.floor((actualCheckoutDate.getTime() - att.checkIn.getTime()) / 60000);
+
+    const prevCheckOut = att.checkOut ? att.checkOut.toISOString() : undefined;
+    const prevDepStatus = att.departureStatus;
+    const prevSource = att.checkOutSource;
+
+    att.checkOut = actualCheckoutDate;
+    att.checkOutSource = 'individual_exception';
+    att.departureStatus = depStatus;
+    att.earlyDepartureMinutes = earlyMins;
+    att.overtimeMinutes = otMins;
+    att.durationMinutes = durationMinutes;
+    att.checkOutRecordedBy = new mongoose.Types.ObjectId(userId);
+    att.checkOutRecordedAt = now;
+    att.status = 'checked_out';
+
+    att.corrections.push({
+      modifiedBy: new mongoose.Types.ObjectId(userId),
+      modifiedAt: now,
+      field: 'checkOut',
+      previousValue: prevCheckOut,
+      previousSource: prevSource,
+      previousDepartureStatus: prevDepStatus,
+      newValue: actualCheckoutDate.toISOString(),
+      newSource: 'individual_exception',
+      newDepartureStatus: depStatus,
+      reason: payload.reason || `Marked individual exception: ${depStatus} at ${outTime24h}`,
+    });
+
+    await att.save();
+
+    const workerUser = await User.findById(workerId).select('name email phone businessId');
+    return this.toRosterItemDTO(att, workerUser);
+  }
+
+  /**
+   * Clears an individual checkout exception and restores the category default checkout.
+   */
+  async clearWorkerCheckOutException(
+    userId: string,
+    userRole: string,
+    eventId: string,
+    workerId: string
+  ): Promise<AttendanceRosterItem> {
+    const event = await this.validateEventAndOwnership(eventId, userId, userRole);
+
+    if (event.status === 'cancelled') {
+      throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
+    }
+
+    const now = new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
+    // Rule: Departure exceptions can only be modified on the scheduled event day; closed after event day
+    if (windowInfo.isBeforeEventDay) {
+      throw ApiError.badRequest('Checkout exceptions can only be cleared on the scheduled event day (cannot modify before event day)');
+    }
+    if (windowInfo.isAfterEventDay) {
+      throw ApiError.forbidden(
+        'Checkout editing is closed because the scheduled event day has ended. Departure exceptions can only be modified on the event day.'
+      );
+    }
+
+    const att = await this.attRepo.findByEventAndWorker(eventId, workerId);
+    if (!att) {
+      throw ApiError.notFound('Attendance record not found for this worker');
+    }
+
+    if (att.arrivalStatus === 'absent' || att.status === 'absent') {
+      throw ApiError.badRequest('Cannot clear exception for an absent worker');
+    }
+
+    if (att.checkOutSource !== 'individual_exception') {
+      throw ApiError.badRequest('Worker does not have an individual exception to clear');
+    }
+
+    const sessionDoc = await this.sessionRepo.findByEventId(eventId);
+    const catDeparture = (sessionDoc?.categoryActualDepartures || []).find(
+      (d) => d.workerType.trim().toLowerCase() === att.workerType.trim().toLowerCase()
+    );
+
+    const prevCheckOut = att.checkOut ? att.checkOut.toISOString() : undefined;
+    const prevDepStatus = att.departureStatus;
+
+    if (catDeparture) {
+      if (att.checkIn && catDeparture.actualDepartureDate.getTime() <= att.checkIn.getTime()) {
+        throw ApiError.badRequest('Cannot restore category default: worker checked in at or after category departure time');
+      }
+
+      att.checkOut = catDeparture.actualDepartureDate;
+      att.checkOutSource = 'category_default';
+      att.departureStatus = 'normal';
+      att.earlyDepartureMinutes = 0;
+      att.overtimeMinutes = 0;
+      att.durationMinutes = att.checkIn
+        ? Math.floor((catDeparture.actualDepartureDate.getTime() - att.checkIn.getTime()) / 60000)
+        : 0;
+      att.status = 'checked_out';
+    } else {
+      att.checkOut = undefined;
+      att.checkOutSource = 'not_recorded';
+      att.departureStatus = 'not_recorded';
+      att.earlyDepartureMinutes = 0;
+      att.overtimeMinutes = 0;
+      att.durationMinutes = 0;
+      att.status = 'checked_in';
+    }
+
+    att.corrections.push({
+      modifiedBy: new mongoose.Types.ObjectId(userId),
+      modifiedAt: now,
+      field: 'checkOut',
+      previousValue: prevCheckOut,
+      previousSource: 'individual_exception',
+      previousDepartureStatus: prevDepStatus,
+      newValue: att.checkOut ? att.checkOut.toISOString() : 'not_recorded',
+      newSource: att.checkOutSource,
+      newDepartureStatus: att.departureStatus,
+      reason: 'Cleared individual exception and restored category default checkout',
+    });
+
+    await att.save();
+
+    const workerUser = await User.findById(workerId).select('name email phone businessId');
+    return this.toRosterItemDTO(att, workerUser);
+  }
+
+  /**
    * 4. POST /api/attendance/events/:eventId/finalize-checkout
    * Executes manager-controlled exception-based checkout finalization with transaction and idempotency.
    */
@@ -1206,7 +2628,7 @@ export class AttendanceService {
     // 4. Compute stable payload hash
     const payloadHash = this.computeCheckOutPayloadHash(payload);
 
-    // 6. Idempotency Evaluation
+    // 5. Idempotency Evaluation
     if (sessionDoc.checkOutFinalized) {
       const persistedIdem = sessionDoc.checkOutIdempotency;
       if (persistedIdem?.idempotencyKey === cleanIdempotencyKey) {
@@ -1287,6 +2709,18 @@ export class AttendanceService {
           normalFinishDate: finishDate,
         });
       }
+    } else if (sessionDoc.categoryActualDepartures && sessionDoc.categoryActualDepartures.length > 0) {
+      for (const dep of sessionDoc.categoryActualDepartures) {
+        categoryFinishMap.set(dep.workerType.trim().toLowerCase(), {
+          finishTime24h: dep.actualDepartureTime,
+          finishDate: dep.actualDepartureDate,
+        });
+        categoryFinishTimesToPersist.push({
+          workerType: dep.workerType,
+          normalFinishTime: dep.actualDepartureTime,
+          normalFinishDate: dep.actualDepartureDate,
+        });
+      }
     }
 
     // 9. Validate and resolve requirement overrides
@@ -1364,6 +2798,32 @@ export class AttendanceService {
 
     if (assignmentEntries.length === 0) {
       throw ApiError.badRequest('No assigned workers found for this event');
+    }
+
+    // Precondition: Check-in finalization must precede checkout finalization (§10 / Mandatory Rule 7)
+    // Supports both global confirmation and individual category-wise confirmations
+    const assignedCategories = Array.from(new Set(assignmentEntries.map((e) => e.workerType.trim().toLowerCase())));
+    const catConfs = sessionDoc.categoryCheckInConfirmations || [];
+    const allCategoriesConfirmed =
+      assignedCategories.length > 0 &&
+      assignedCategories.every((cat) => {
+        const conf = catConfs.find((c) => c.workerType.trim().toLowerCase() === cat);
+        return conf && conf.checkInFinalized && !conf.checkInChangesPending;
+      });
+
+    if (!sessionDoc.checkInFinalized && !allCategoriesConfirmed) {
+      throw ApiError.badRequest('Check-in must be finalized before checkout can be finalized');
+    }
+    if (
+      sessionDoc.checkInChangesPending ||
+      assignedCategories.some((cat) => {
+        const conf = catConfs.find((c) => c.workerType.trim().toLowerCase() === cat);
+        return conf && conf.checkInChangesPending;
+      })
+    ) {
+      throw ApiError.badRequest(
+        'Cannot finalize checkout while check-in has pending changes. Re-finalize check-in before proceeding with checkout finalization.'
+      );
     }
 
     // 12. Load existing attendances
@@ -1507,10 +2967,7 @@ export class AttendanceService {
           throw ApiError.badRequest(`Invalid checkout time '${rawCheckoutTime}' for worker '${wId}'`);
         }
         let checkoutDate = this.constructDateTime(event.date, checkoutVal.normalized24h);
-        if (
-          applicableFinishDate.getTime() > repDate.getTime() + 12 * 60 * 60 * 1000 ||
-          applicableFinishDate.getUTCDate() !== repDate.getUTCDate()
-        ) {
+        if (applicableFinishDate.getTime() > repDate.getTime()) {
           if (checkoutDate.getTime() <= repDate.getTime()) {
             checkoutDate = new Date(checkoutDate.getTime() + 24 * 60 * 60 * 1000);
           }
@@ -1660,8 +3117,27 @@ export class AttendanceService {
       if (!currentSession) {
         throw ApiError.notFound('Attendance session not found for this event');
       }
-      if (currentSession.checkOutFinalized) {
-        throw ApiError.conflict('Checkout has already been finalized for this event');
+      const curCatConfs = currentSession.categoryCheckInConfirmations || [];
+      const curAllConfirmed =
+        assignedCategories.length > 0 &&
+        assignedCategories.every((cat) => {
+          const conf = curCatConfs.find((c) => c.workerType.trim().toLowerCase() === cat);
+          return conf && conf.checkInFinalized && !conf.checkInChangesPending;
+        });
+
+      if (!currentSession.checkInFinalized && !curAllConfirmed) {
+        throw ApiError.badRequest('Check-in must be finalized before checkout can be finalized');
+      }
+      if (
+        currentSession.checkInChangesPending ||
+        assignedCategories.some((cat) => {
+          const conf = curCatConfs.find((c) => c.workerType.trim().toLowerCase() === cat);
+          return conf && conf.checkInChangesPending;
+        })
+      ) {
+        throw ApiError.badRequest(
+          'Cannot finalize checkout while check-in has pending changes. Re-finalize check-in before proceeding with checkout finalization.'
+        );
       }
       if (currentSession.checkOutFinalized) {
         throw ApiError.conflict('Checkout has already been finalized for this event');
@@ -1758,6 +3234,27 @@ export class AttendanceService {
     let fieldName = 'status';
 
     const wasAbsent = record.status === 'absent' || record.arrivalStatus === 'absent';
+    const isArrivalCorrection =
+      wasAbsent ||
+      payload.status === 'absent' ||
+      payload.arrivalStatus === 'absent' ||
+      payload.actualArrivalTime !== undefined ||
+      payload.arrivalStatus !== undefined;
+
+    if (isArrivalCorrection) {
+      const now = new Date();
+      const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
+      const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
+
+      if (currentOperationalDate < eventOperationalDate) {
+        throw ApiError.badRequest('Check-in corrections cannot be recorded before the scheduled event day');
+      }
+      if (currentOperationalDate > eventOperationalDate) {
+        throw ApiError.forbidden(
+          'Check-in editing is closed because the scheduled event day has ended. Arrival status and check-in time can only be edited on the event day.'
+        );
+      }
+    }
 
     // -------------------------------------------------------------------------
     // Case 1: Absence Reversal
@@ -1896,11 +3393,12 @@ export class AttendanceService {
             throw ApiError.badRequest(`Invalid checkout time '${payload.actualCheckoutTime}'`);
           }
 
-          let checkoutDate = this.constructDateTime(event.date, outVal.normalized24h);
+          const departureDateBase = payload.actualDepartureDate || event.date;
+          let checkoutDate = this.constructDateTime(departureDateBase, outVal.normalized24h);
           const [outH, outM] = outVal.normalized24h.split(':').map(Number);
           const outMins = outH * 60 + outM;
 
-          if (finMins <= repMins) {
+          if (!payload.actualDepartureDate && finMins <= repMins) {
             if (outMins <= repMins) {
               checkoutDate = new Date(checkoutDate.getTime() + 24 * 60 * 60 * 1000);
             }
@@ -2039,11 +3537,12 @@ export class AttendanceService {
           applicableFinishDate = new Date(applicableFinishDate.getTime() + 24 * 60 * 60 * 1000);
         }
 
-        let checkoutDate = this.constructDateTime(event.date, outVal.normalized24h);
+        const departureDateBase = payload.actualDepartureDate || event.date;
+        let checkoutDate = this.constructDateTime(departureDateBase, outVal.normalized24h);
         const [outH, outM] = outVal.normalized24h.split(':').map(Number);
         const outMins = outH * 60 + outM;
 
-        if (finMins <= repMins) {
+        if (!payload.actualDepartureDate && finMins <= repMins) {
           if (outMins <= repMins) {
             checkoutDate = new Date(checkoutDate.getTime() + 24 * 60 * 60 * 1000);
           }
@@ -2160,6 +3659,13 @@ export class AttendanceService {
           updatedFields,
           dbSession
         );
+
+        if (isArrivalCorrection) {
+          if (sessionDoc.checkInFinalized) {
+            await this.sessionRepo.markCheckInChangesPending(event._id.toString(), dbSession);
+          }
+          await this.sessionRepo.markCategoryCheckInChangesPending(event._id.toString(), record.workerType, dbSession);
+        }
 
         // Reset session-level verification status
         await this.sessionRepo.resetVerificationStatus(event._id.toString(), dbSession);

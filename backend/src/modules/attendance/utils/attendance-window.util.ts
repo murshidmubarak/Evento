@@ -1,4 +1,4 @@
-import { isValidTimeString } from '../validation/attendance.validation.js';
+import { isValidTimeString, isValidDateString } from '../validation/attendance.validation.js';
 
 export function getOperationalDateString(
   dateVal: string | Date | null | undefined,
@@ -17,6 +17,51 @@ export function getOperationalDateString(
   const month = parts.find((p) => p.type === 'month')?.value;
   const day = parts.find((p) => p.type === 'day')?.value;
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Constructs a canonical UTC Date representing an exact Asia/Kolkata (+05:30) wall-clock date and time.
+ * Accepts:
+ *  - dateVal: string (YYYY-MM-DD) or Date instance
+ *  - timeStr24h: normalized 24-hour time string ("HH:mm")
+ *
+ * Example:
+ *  constructKolkataDateTime('2026-11-14', '15:55') -> 2026-11-14T10:25:00.000Z
+ *  constructKolkataDateTime('2026-11-15', '02:00') -> 2026-11-14T20:30:00.000Z
+ */
+export function constructKolkataDateTime(
+  dateVal: string | Date,
+  timeStr24h: string
+): Date {
+  let opDateStr: string;
+  if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateVal.trim())) {
+    const check = isValidDateString(dateVal.trim());
+    if (!check.valid) {
+      throw new Error(`Invalid date format for Kolkata conversion: '${dateVal}' - ${check.error}`);
+    }
+    opDateStr = check.normalized!;
+  } else {
+    opDateStr = getOperationalDateString(dateVal, 'Asia/Kolkata');
+  }
+
+  if (!opDateStr) {
+    throw new Error(`Unable to extract Asia/Kolkata operational date from: '${dateVal}'`);
+  }
+
+  const [hStr, mStr] = timeStr24h.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+    throw new Error(`Invalid time format for Kolkata conversion: '${timeStr24h}'`);
+  }
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const isoString = `${opDateStr}T${pad(h)}:${pad(m)}:00.000+05:30`;
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) {
+    throw new Error(`Failed to construct valid Date from '${isoString}'`);
+  }
+  return d;
 }
 
 export interface EventCorrectionWindow {
@@ -87,9 +132,12 @@ export function calculateEventCorrectionWindow(
   const isAfterDeadline = nowMs > correctionDeadlineAt.getTime();
   const canNormalCorrect = !isAfterDeadline;
 
-  const isEventDay = currentOperationalDate === eventOperationalDate;
+  const endOperationalDate = isOvernight ? `${y}-${pad(m)}-${pad(d)}` : eventOperationalDate;
+
+  const isEventDay =
+    currentOperationalDate >= eventOperationalDate && currentOperationalDate <= endOperationalDate;
   const isBeforeEventDay = currentOperationalDate < eventOperationalDate;
-  const isAfterEventDay = currentOperationalDate > eventOperationalDate;
+  const isAfterEventDay = currentOperationalDate > endOperationalDate;
 
   return {
     scheduledEventEndAt,

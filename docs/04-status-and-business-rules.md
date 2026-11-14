@@ -1639,3 +1639,162 @@ Notifications for Work Requirement lifecycle transitions strictly query persiste
   - *Missing Configuration*: When `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, or `VAPID_SUBJECT` are absent, deliveries are paused in `pending` status without penalty to the device subscription or exhaustion of retry attempts, allowing automatic recovery when configuration is supplied.
   - *Invalid Configuration*: Malformed or rejected VAPID keys transition deliveries to `dead_letter` with `configuration` error category without deactivating user subscriptions.
 
+---
+
+## 10. Attendance Checkout Business Rules & Classification Engine (Exception-Based, Category-Wise System)
+
+### 10.1 System Principles & Scope Boundaries
+- **Exception-Based Philosophy**: Event Managers do not enter checkout timestamps for every individual worker. Instead, they record one authoritative actual departure time per worker category.
+- **Scope Boundary**: This subsystem strictly controls attendance checkout timestamps, actual working duration, and departure classification. It explicitly excludes payroll, wages, travel allowance, and financial calculations.
+- **Three Core Classifications**:
+  1. `normal`
+  2. `early_departure`
+  3. `overtime`
+  *(No expected finishing time or planned finishing time concept is used. All references are actual operational timestamps).*
+
+### 10.2 Category-Wise Default Checkout
+- The manager records one actual departure date (`actualDepartureDate: YYYY-MM-DD`) and time (`actualDepartureTime: HH:mm`) per assigned worker category (e.g. Catering Boys: 2026-11-14 16:00, Photographers: 2026-11-14 17:30).
+- Local wall-clock inputs are converted to canonical UTC instants using exact Asia/Kolkata (+05:30) offset (`constructKolkataDateTime`).
+- This timestamp becomes the default checkout for all eligible non-absent workers in that category:
+  - `departureStatus = 'normal'`
+  - `checkOut = categoryActualDeparture`
+  - `checkOutSource = 'category_default'`
+  - `earlyDepartureMinutes = 0`
+  - `overtimeMinutes = 0`
+  - `durationMinutes = Math.floor((categoryActualDeparture - workerEffectiveCheckIn) / 60000)`
+
+### 10.3 Individual Departure Exceptions
+- Exceptional workers are entered individually by the manager with their specific actual departure date and time:
+  - **Early Departure**: Worker leaves before the category departure timestamp.
+    - `departureStatus = 'early_departure'`
+    - `checkOutSource = 'individual_exception'`
+    - `earlyDepartureMinutes = Math.round((categoryDepartureDate - workerDepartureDate) / 60000)`
+    - `overtimeMinutes = 0`
+  - **Overtime**: Worker leaves after the category departure timestamp.
+    - `departureStatus = 'overtime'`
+    - `checkOutSource = 'individual_exception'`
+    - `earlyDepartureMinutes = 0`
+    - `overtimeMinutes = Math.round((workerDepartureDate - categoryDepartureDate) / 60000)`
+  - Clearing an exception restores the category default checkout (if valid relative to the worker's check-in) and resets departure classification to `normal`.
+
+### 10.4 Dynamic Reclassification Engine
+- When a manager changes a category's departure time or date:
+  - All workers using the category default have their checkout timestamp updated to the new category departure.
+  - Workers with individual exceptions **PRESERVE** their individual departure timestamps.
+  - The engine dynamically evaluates each exceptional worker's timestamp against the updated category departure:
+    - If `workerDeparture < newCategoryDeparture`: Worker becomes `early_departure` with recalculated `earlyDepartureMinutes`.
+    - If `workerDeparture == newCategoryDeparture`: Worker becomes `normal` with 0 exception minutes.
+    - If `workerDeparture > newCategoryDeparture`: Worker becomes `overtime` with recalculated `overtimeMinutes`.
+
+### 10.5 Late Arrival & Chronological Validation Rules
+- Late arrivals are independent of checkout exceptions: duration automatically factors in late check-in without requiring an individual departure exception.
+- If a worker's effective check-in timestamp is later than or equal to the category departure time, the category default cannot be applied to that worker. The manager must record a valid individual departure later than that worker's check-in.
+- Category and individual departures earlier than or equal to worker check-in are rejected with HTTP 400.
+- Departures with timestamps in the future relative to authoritative server clock are strictly rejected with HTTP 400.
+- Cross-midnight overnight shifts: Managers explicitly select the departure calendar date (`actualDepartureDate: YYYY-MM-DD`). Implicit automatic rollover has been eliminated to ensure predictable, deterministic Asia/Kolkata timezone handling.
+
+### 10.6 Absent Worker Exclusion
+- Workers whose arrival status is `absent` are permanently excluded from checkout operations.
+- Absent workers have no checkout timestamp, `checkOutSource = 'not_recorded'`, `departureStatus = 'not_recorded'`, and `durationMinutes = 0`.
+- Attempts to record exceptions for absent workers are rejected with HTTP 400.
+
+### 10.7 Event-Day Departure Boundary & Post-Event Day Closure
+- **Event Day Restriction**: Departure time entry, individual departure exceptions, and checkout modifications can strictly and exclusively be recorded by the assigned Event Manager on the **scheduled event day**.
+- **Closure After Event Day**:
+  - Once the scheduled event day has passed (`currentOperationalDate > eventOperationalDate` or `> endOperationalDate` for overnight shifts), checkout editing is permanently closed.
+  - There is no changing option after the event day has passed.
+  - Any mutation attempt after the event day returns HTTP 403 Forbidden: `Checkout editing is closed because the scheduled event day has ended. Departure times can only be set on the event day.`
+- **Pre-Event Day Protection**:
+  - Attempts to record category departures or exceptions prior to the scheduled event day (`currentOperationalDate < eventOperationalDate`) return HTTP 400 Bad Request: `Category departure time can only be set on the scheduled event day (cannot set before event day)`.
+- **Manager Authorization**:
+  - Only the assigned Event Manager (or Admin with operational authority) can record or update departure times. Client and Worker roles receive HTTP 403 Forbidden. Unassigned managers receive HTTP 403 Forbidden.
+
+---
+
+## 11. Check-in Finalization, Event-Day Editing, and Re-finalization Workflow
+
+### 11.1 Check-in Finalization Objective & Default Present Rule
+- Before proceeding with checkout operations, the Event Manager confirms worker arrival status and check-in times via **Review & Finalize Check-in**.
+- The manager marks required exceptions: Late (with actual arrival time) or Absent.
+- All assigned workers not explicitly marked as Late or Absent automatically default to **Present / On Time** at their scheduled reporting time (`arrivalStatus = 'on_time'`, `delayMinutes = 0`, `checkInSource = 'system_default'`).
+- Finalization atomically commits all attendance records, locks initial check-in state, sets `checkInFinalized: true`, `checkInFinalizedAt = now`, `checkInFinalizedBy = managerId`, `checkInRevision: 1`, and logs revision 1 in `checkInRevisions`.
+
+### 11.2 Event-Day Post-Finalization Corrections & Pending Re-finalization State
+- Check-in finalization does not permanently block legitimate corrections during the event's operational day (`isEventDay`).
+- On the event day, the Event Manager can still correct worker attendance (Present $\leftrightarrow$ Late $\leftrightarrow$ Absent) or edit arrival times.
+- Whenever an arrival status or check-in time is corrected after finalization:
+  - Previous check-in finalization is invalidated.
+  - The session enters a pending re-finalization state: `checkInChangesPending: true`.
+  - The UI displays an alert banner warning that changes are pending re-finalization.
+  - Checkout finalization is strictly blocked while `checkInChangesPending === true`.
+
+### 11.3 Re-finalization Workflow & Revision Tracking
+- The manager reviews adjusted records and clicks **Review & Re-finalize Check-in**.
+- The backend validates the update, clears `checkInChangesPending: false`, increments `checkInRevision`, and appends an immutable revision log entry to `checkInRevisions` containing revision number, timestamp, finalizedBy, and change reason.
+- If any worker already has a recorded checkout timestamp, the backend automatically recalculates their active working duration (`durationMinutes = Math.floor((workerCheckout - workerCheckIn) / 60000)`).
+
+### 11.4 Post-Event Day Permanent Lockout (HTTP 403)
+- After the event's scheduled operational date ends (`isAfterEventDay = true`):
+  - Initial check-in marks return HTTP 403 Forbidden (`Check-in editing is closed because the scheduled event day has ended`).
+  - Check-in corrections (arrival status, arrival time) return HTTP 403 Forbidden (`Check-in editing is closed because the scheduled event day has ended. Arrival status and check-in time can only be edited on the event day.`).
+  - New exceptions cannot be introduced via finalization payload.
+
+### 11.5 Permanent Concern & Arrival Information Locks
+- When a worker's Late or Absent arrival status is formally resolved and closed via a concern, the record receives `isStatusLocked: true`.
+- Closed concern records are permanently locked: subsequent check-in corrections, mass edits, or re-finalization payloads cannot alter their arrival status or check-in time.
+
+### 11.6 Absent Worker Exclusion and Checkout Clearing
+- If an eligible worker who previously received a checkout timestamp is corrected to **Absent** post-finalization:
+  - Their checkout is completely cleared (`checkOut = null`, `checkOutSource = 'not_recorded'`, `departureStatus = 'not_recorded'`).
+  - Active working duration is reset to 0 (`durationMinutes = 0`).
+
+### 11.7 Checkout Prerequisite Guard
+- Checkout finalization strictly requires that check-in has been finalized and no changes are pending (`checkInFinalized === true && checkInChangesPending === false`).
+- Attempting checkout finalization before check-in finalization or while changes are pending is rejected with HTTP 400 Bad Request.
+
+---
+
+## 12. Independent Category-Wise Check-in Confirmation and Checkout Eligibility
+
+### 12.1 Category Check-in Independence & Granular Confirmation
+- Every worker category (e.g. `'Catering Boy'`, `'Chef'`, `'Cameraman / Photographer'`) maintains its own independent check-in confirmation lifecycle:
+  - `checkInFinalized`: Indicates whether check-in for that specific category has been confirmed.
+  - `checkInChangesPending`: Scoped invalidation flag indicating that an arrival correction was made to a worker in this category after initial confirmation.
+  - `checkInRevision`: Incremental revision counter tracking each confirmation/re-confirmation event for this category.
+  - `checkInRevisions`: Immutable audit trail recording each revision timestamp, manager ID, change reason, and committed summary.
+  - `checkInIdempotency`: Idempotent deduplication protecting against network retries.
+- Canonical confirmation endpoint: `POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin`.
+
+### 12.2 Scoped Invalidation & Re-confirmation
+- If a worker's arrival status or check-in time is corrected on the event day, invalidation is strictly isolated to that worker's category:
+  - `category.checkInChangesPending = true`.
+  - Unrelated worker categories remain completely unaffected (`checkInChangesPending` remains false).
+  - The manager must re-confirm check-in strictly for the affected category via `POST /api/attendance/events/:eventId/categories/:workerType/finalize-checkin`.
+  - Re-confirming clears `checkInChangesPending` for that category and increments its revision.
+
+### 12.3 Category-Specific Checkout Eligibility Unlocking
+- Confirming Category $A$ unlocks Category $A$'s checkout immediately:
+  - Category actual departure recording (`POST /api/attendance/events/:eventId/categories/departure`) and individual checkout exceptions (`POST /api/attendance/events/:eventId/workers/:workerId/checkout-exception`) are enabled for Category $A$.
+  - Unconfirmed or pending-change categories remain checkout-locked without preventing or delaying checkout operations for Category $A$.
+  - Attempting to record category departure or individual exceptions for an unconfirmed category is rejected with HTTP 400 Bad Request.
+
+### 12.4 Partial Category Eligibility for Late Arrivals
+- When the manager sets a category actual departure time:
+  - All non-absent eligible workers in that category who checked in **before** the departure time inherit that timestamp as their category-default checkout (`checkOutSource = 'category_default'`, `departureStatus = 'normal'`).
+  - If a worker checked in **at or after** the category departure time (`checkIn >= categoryDeparture`), the system safely **excludes** that worker from receiving the invalid default timestamp to prevent chronological anomalies (`checkOut` remains null, `departureStatus = 'not_recorded'`).
+  - The roster summary flags `ineligibleOvertimeRequiredCount > 0` for that category, informing the manager that an individual overtime exception is required for late-arriving workers.
+  - Other eligible workers in the same category are processed and checked out safely without aborting the batch operation.
+
+### 12.5 Strict Chronology Enforcement
+- Every worker checkout timestamp must be strictly later than that worker's effective check-in timestamp (`actualCheckoutTimestamp > effectiveCheckInTimestamp`).
+- Any attempt to record an individual checkout exception where `checkOut <= checkIn` is rejected with HTTP 400 Bad Request (`Individual departure time must be strictly later than the worker's check-in time`).
+
+### 12.6 Dynamic Reclassification on Category Departure Updates
+- If a worker has an individual checkout exception (Early Departure or Overtime) and the manager subsequent updates the category departure time:
+  - The worker's exception timestamp is strictly preserved.
+  - The worker's departure classification (`departureStatus`) and `earlyDepartureMinutes` / `overtimeMinutes` are automatically and dynamically recalculated against the new category departure.
+
+### 12.7 Overall Checkout Finalization Integration
+- Overall checkout finalization (`POST /api/attendance/events/:eventId/finalize-checkout`) verifies that check-in has been confirmed for all assigned categories and no category has changes pending before sealing the final session state.
+
+
