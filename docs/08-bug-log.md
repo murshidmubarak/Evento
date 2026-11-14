@@ -1599,15 +1599,15 @@ operator: 'strictEqual'
 
 ### Root Cause
 
-The approved check-in finalization architecture enforced a mandatory lifecycle prerequisite: checkout finalization (`POST /api/attendance/events/:eventId/finalize-checkout`) is strictly blocked and returns HTTP 400 Bad Request (`"Check-in must be finalized before checkout can be finalized"`) if check-in has not yet been finalized.
-
-Two older test fixtures written before this requirement existed (`attendanceConcernsAndDeadlines.test.ts` and `attendanceCategoryAndImmediateCheckIn.test.ts`) called `finalize-checkout` directly without finalizing check-in first. When the backend returned HTTP 400 as mandated by business rules, the tests' legacy assertions `assert.strictEqual(res.status, 200)` threw `ERR_ASSERTION`.
+1. The approved check-in finalization architecture enforced a mandatory lifecycle prerequisite: checkout finalization (`POST /api/attendance/events/:eventId/finalize-checkout`) is strictly blocked and returns HTTP 400 Bad Request (`"Check-in must be finalized before checkout can be finalized"`) if check-in has not yet been finalized. Two older test fixtures written before this requirement existed (`attendanceConcernsAndDeadlines.test.ts` and `attendanceCategoryAndImmediateCheckIn.test.ts`) called `finalize-checkout` directly without finalizing check-in first.
+2. In `attendanceCategoryAndImmediateCheckIn.test.ts:330`, an older test asserting post-event day lockout expected HTTP 400 (`assert.strictEqual(res.status, 400)`), whereas the approved business rules enforce that all post-event day initial check-in attempts are permanently locked with HTTP 403 Forbidden (`'Check-in editing is closed because the scheduled event day has ended'`).
 
 ### Solution
 
-Updated both test suites to finalize check-in first (via `attendanceService.finalizeCheckIn` with `{ skipTimingGuard: true }`), provisioning default on-time check-in records for unmarked workers and satisfying the check-in finalization prerequisite before invoking checkout finalization.
+1. Updated both test suites to finalize check-in first (via `attendanceService.finalizeCheckIn` with `{ skipTimingGuard: true }`), provisioning default on-time check-in records for unmarked workers and satisfying the check-in finalization prerequisite before invoking checkout finalization.
+2. Updated `attendanceCategoryAndImmediateCheckIn.test.ts:330` to assert `res.status === 403` and match the canonical forbidden error message, aligning with `attendanceCheckInFinalization.test.ts` and `attendanceCategoryCheckInIndependence.test.ts`.
 
 ### Rule
 
-All checkout finalization tests and API callers must ensure check-in is finalized/confirmed prior to attempting checkout finalization.
+All checkout finalization tests and API callers must ensure check-in is finalized/confirmed prior to attempting checkout finalization. Initial check-ins attempted after the event day has ended must be rejected with HTTP 403 Forbidden.
 

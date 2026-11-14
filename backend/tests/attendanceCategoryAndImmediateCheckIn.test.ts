@@ -327,9 +327,9 @@ describe('Milestone 4 — Attendance Workflow Refinement: Category Finish Times,
           body: JSON.stringify({ arrivalStatus: 'absent' }),
         }
       );
-      assert.strictEqual(res.status, 400);
+      assert.strictEqual(res.status, 403);
       const json = await res.json();
-      assert.match(json.message, /event day has passed/i);
+      assert.match(json.message, /Check-in editing is closed because the scheduled event day has ended|event day has passed/i);
     });
 
     it('should validate arrivalStatus payload (missing or invalid)', async () => {
