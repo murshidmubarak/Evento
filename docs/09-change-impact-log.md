@@ -2434,3 +2434,38 @@ Implemented complete browser and device push notification system for EventOps ER
   - Test Suite (`npm run test:file tests/attendanceCompletedEventException.test.ts`): 6/6 tests passing, clean teardown with `mongoose.disconnect()`, exit code 0.
   - Test Suite (`npm run test:file tests/attendanceCheckIn.test.ts`): 24/24 passing, exit code 0.
   - Test Suite (`npm run test:file tests/attendanceCheckOut.test.ts`): 31/31 passing, exit code 0.
+
+---
+
+### [2026-11-17] Attendance Workspace: Explicit Button Navigation for Checkout Stage
+- **Requested Change**:
+  - Remove automatic tab switching from Check-in to Checkout upon saving worker arrival exceptions or checking attendance data. Ensure the workspace stays on the Check-in tab and only transitions to Checkout when the manager explicitly clicks the Checkout button.
+- **Impact Level**: LOW (UI navigation and tab preservation).
+- **Directly Affected Files**:
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Removed automatic redirect to `checkout_form` in `loadAttendanceData`; added `initialTab` prop; preserved active tab during refresh and updates.
+  - `frontend/src/tests/attendanceCheckOutUI.test.tsx`: Verified clicking Checkout button navigates to Category-Wise Checkout Workspace.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Frontend Test Suite (`npm test`): 154/154 tests passing across 23 test files, exit code 0.
+  - Frontend Production Build (`npm run build`): compiled in 10.15s with 0 errors, exit code 0.
+
+---
+
+### [2026-11-17] Check-in Frontend Page: UI Precision Alignment & Mobile Responsiveness
+- **Requested Change**:
+  - Match check-in page frontend UI exactly to the desktop mockup design:
+    1. Header stage controls: Update Check-in and Checkout toggle buttons to standalone dark and white buttons side-by-side with responsive mobile stacking.
+    2. Remove the redundant second banner (`Assigned Worker Check-in` / `Check-in Finalized ✓ (Rev 1)`).
+    3. Category check-in status & eligibility cards: 3-column stats layout (Assigned, Present, Absent), status badge (`Pending confirmation` / `Confirmed · Rev X`), footer with `Checkout locked` / `Checkout unlocked` and `Review & Confirm` / `Confirmed ✓` buttons.
+    4. Assigned Workers card: Header with worker count badge (`8`), search bar, dropdown filters (`All Statuses (8) ⌄` and `All Roles ⌄`), table columns (`WORKER`, `ROLE`, `SCHEDULED SHIFT`, `ATTENDANCE STATUS`), worker row display (name, business ID, role, shift time, status badge, right chevron `>`), and client-side pagination (`Showing 1–3 of 8 workers`, `< Previous`, `1 2 3`, `Next >`).
+    5. Complete mobile and tablet responsiveness across viewports.
+- **Impact Level**: LOW (Frontend styling and component layout; zero backend or schema changes).
+- **Directly Affected Files**:
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Removed duplicate `Assigned Worker Check-in` control bar; aligned toggle buttons to dark/white styling; updated Category Status cards with 3-column metric layout and `displayCategorySummaries` fallback.
+  - `frontend/src/components/manager/attendance/AttendanceRosterTable.tsx`: Integrated card layout, count badge, dropdown selects, 3-row client-side pagination with previous/next controls, and mobile responsive containers.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled in 10.55s with 0 errors, exit code 0.
+  - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 test files, exit code 0.
+  - Uniform Badge Dimensions: Set all attendance status badges (`Saved On-Time`, `Late`, `Absent`, `Locked`, `Present`) to fixed `w-[132px]` with `justify-center` for consistent alignment across all rows.
+  - Category Badge Revision Removal: Removed revision text (`· Rev X`) from category check-in status pills, simplifying labels to `Confirmed` and `Re-confirm` with `whitespace-nowrap shrink-0` to eliminate wrapping.

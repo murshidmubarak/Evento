@@ -53,6 +53,7 @@ interface EventAttendanceWorkspaceProps {
   eventTitle: string;
   eventDate?: string | Date;
   eventStatus: string;
+  initialTab?: 'checkin' | 'checkout_form' | 'checkin_history' | 'finalized';
 }
 
 export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> = ({
@@ -60,6 +61,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   eventTitle: _eventTitle,
   eventDate: _eventDate,
   eventStatus,
+  initialTab = 'checkin',
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -87,8 +89,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>('');
   const [checkoutPayloadHash, setCheckoutPayloadHash] = useState<string>('');
 
-  // Active workspace tab
-  const [activeStageTab, setActiveStageTab] = useState<'checkin' | 'checkout_form' | 'checkin_history' | 'finalized'>('checkin');
+  // Active workspace tab (defaults to checkin; navigation to checkout happens only via user clicking Checkout button)
+  const [activeStageTab, setActiveStageTab] = useState<'checkin' | 'checkout_form' | 'checkin_history' | 'finalized'>(initialTab);
 
   // ---------------------------------------------------------
   // Phase 4.5: Correction & Verification State
@@ -117,10 +119,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
       const activeSession = sess || rost.session;
 
-      if (activeSession?.checkOutFinalized) {
+      if (!isRefresh && activeSession?.checkOutFinalized) {
         setActiveStageTab((prev) => (prev === 'checkin' ? 'finalized' : prev));
-      } else if (activeSession?.checkInFinalized) {
-        setActiveStageTab((prev) => (prev === 'checkin' ? 'checkout_form' : prev));
       }
 
       // Populate default finish time and category finish times if session already has them
@@ -484,6 +484,42 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
     return rosterData.categorySummaries.some((c) => c.checkInChangesPending);
   }, [rosterData]);
 
+  const displayCategorySummaries = useMemo(() => {
+    if (rosterData?.categorySummaries && rosterData.categorySummaries.length > 0) {
+      return rosterData.categorySummaries;
+    }
+    if (!rosterData?.roster || rosterData.roster.length === 0) return [];
+
+    const groups = new Map<string, typeof rosterData.roster>();
+    rosterData.roster.forEach((w) => {
+      const type = w.workerType || 'General Staff';
+      if (!groups.has(type)) groups.set(type, []);
+      groups.get(type)!.push(w);
+    });
+
+    return Array.from(groups.entries()).map(([workerType, workers]) => {
+      const totalAssigned = workers.length;
+      let normalCount = 0;
+      let absentCount = 0;
+      workers.forEach((w) => {
+        const exc = checkInExceptions[w.workerId]?.type || (w.arrivalStatus === 'absent' ? 'absent' : 'present');
+        if (exc === 'absent') absentCount++;
+        else normalCount++;
+      });
+
+      return {
+        workerType,
+        totalAssigned,
+        normalCount,
+        absentCount,
+        checkInFinalized: isCheckInFinalized,
+        checkInChangesPending: isCheckInChangesPending,
+        canFinalizeCheckIn: rosterData.canFinalizeCheckIn,
+        checkInRevision: rosterData.checkInRevision || session?.checkInRevision || 1,
+      };
+    });
+  }, [rosterData, checkInExceptions, isCheckInFinalized, isCheckInChangesPending, session]);
+
   const handleOpenCheckoutReview = () => {
     if (!isCheckInFinalized && !allCategoriesConfirmed) {
       setErrorMessage(
@@ -665,15 +701,15 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             {activeStageTab === 'checkout_form'
               ? 'Category-Wise Checkout Workspace'
               : activeStageTab === 'finalized'
-              ? 'Finalized Attendance Summary'
-              : 'Check-in Exceptions Workspace'}
+                ? 'Finalized Attendance Summary'
+                : 'Check-in Exceptions Workspace'}
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">
             {activeStageTab === 'checkout_form'
               ? 'Record actual category departures. Only early or overtime workers require individual exception entries.'
               : activeStageTab === 'finalized'
-              ? 'Official finalized attendance records and duration breakdowns.'
-              : 'Staff not marked late or absent are recorded as Present / On Time.'}
+                ? 'Official finalized attendance records and duration breakdowns.'
+                : 'Staff not marked late or absent are recorded as Present / On Time.'}
           </p>
         </div>
 
@@ -682,11 +718,10 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             <button
               type="button"
               onClick={() => setActiveStageTab('finalized')}
-              className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
-                activeStageTab === 'finalized'
-                  ? 'bg-gray-900 text-white font-bold shadow-xs'
-                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
-              }`}
+              className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${activeStageTab === 'finalized'
+                ? 'bg-gray-900 text-white font-bold shadow-xs'
+                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+                }`}
             >
               Summary
             </button>
@@ -695,11 +730,10 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           <button
             type="button"
             onClick={() => setActiveStageTab('checkin')}
-            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
-              activeStageTab === 'checkin'
-                ? 'bg-gray-900 text-white font-bold shadow-xs'
-                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
-            }`}
+            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${activeStageTab === 'checkin'
+              ? 'bg-slate-900 text-white font-semibold shadow-xs'
+              : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+              }`}
           >
             Check-in
           </button>
@@ -707,13 +741,12 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           <button
             type="button"
             onClick={() => setActiveStageTab('checkout_form')}
-            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${
-              activeStageTab === 'checkout_form'
-                ? 'bg-gray-900 text-white font-bold shadow-xs'
-                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
-            }`}
+            className={`flex-1 sm:flex-none h-10 px-5 inline-flex items-center justify-center text-xs rounded-lg transition-all ${activeStageTab === 'checkout_form'
+              ? 'bg-slate-900 text-white font-semibold shadow-xs'
+              : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 font-semibold'
+              }`}
           >
-            Checkout {isCheckoutFinalized && rosterData?.canModifyCheckout ? '(Active)' : ''}
+            Checkout
           </button>
         </div>
       </div>
@@ -770,139 +803,73 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             </div>
           )}
 
-          {/* Check-in Control Bar */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-bold text-gray-900">Assigned Worker Check-in</h4>
-                {isCheckInFinalized ? (
-                  isCheckInChangesPending ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                      Changes Pending (Rev {rosterData?.checkInRevision || session?.checkInRevision || 1})
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      Check-in Finalized ✓ (Rev {rosterData?.checkInRevision || session?.checkInRevision || 1})
-                    </span>
-                  )
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
-                    Not Finalized
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {isCheckInFinalized
-                  ? isCheckInChangesPending
-                    ? 'Attendance details were adjusted. Review summary and re-finalize to confirm updated records.'
-                    : `Check-in is finalized${
-                        rosterData?.session?.checkInFinalizedAt
-                          ? ` on ${new Date(rosterData.session.checkInFinalizedAt).toLocaleDateString('en-IN', {
-                              timeZone: 'Asia/Kolkata',
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}`
-                          : ''
-                      }. Event-day corrections remain permitted.`
-                  : 'Review exceptions: mark Late or Absent. Unmarked workers follow default Present / On Time.'}
-              </p>
-            </div>
-
-            <div className="shrink-0">
-              {!isCheckInFinalized ? (
-                <button
-                  type="button"
-                  onClick={handleOpenCheckInReview}
-                  disabled={!rosterData?.canFinalizeCheckIn || eventStatus === 'cancelled'}
-                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors"
-                >
-                  <CheckCircle2 size={15} />
-                  Review & Finalize Check-in
-                </button>
-              ) : isCheckInChangesPending ? (
-                <button
-                  type="button"
-                  onClick={handleOpenCheckInReview}
-                  disabled={eventStatus === 'cancelled'}
-                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs transition-colors animate-pulse"
-                >
-                  <CheckCircle2 size={15} />
-                  Review & Re-finalize Check-in
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="w-full sm:w-auto h-10 px-5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg cursor-default"
-                >
-                  <CheckCircle2 size={15} className="text-emerald-600" />
-                  Finalized ✓
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* Independent Category Check-in Confirmation Cards */}
-          {rosterData?.categorySummaries && rosterData.categorySummaries.length > 0 && (
+          {displayCategorySummaries.length > 0 && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                  Category Check-in Status & Eligibility
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                <h5 className="text-sm font-bold text-gray-900">
+                  Category check-in status & eligibility
                 </h5>
-                <span className="text-[11px] text-gray-400">
+                <span className="text-xs text-gray-400">
                   Confirming a category unlocks its checkout independently
                 </span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rosterData.categorySummaries.map((cat) => {
+                {displayCategorySummaries.map((cat) => {
                   const isCatConfirmed = Boolean(cat.checkInFinalized);
                   const isCatChangesPending = Boolean(cat.checkInChangesPending);
 
                   return (
                     <div
                       key={cat.workerType}
-                      className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs flex flex-col justify-between gap-3"
+                      className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-4 hover:border-gray-300 transition-all"
                     >
                       <div>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-gray-900 text-sm">{cat.workerType}</span>
+                          <span className="font-bold text-gray-900 text-base">{cat.workerType}</span>
                           {isCatConfirmed ? (
                             isCatChangesPending ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                <AlertTriangle size={11} />
-                                Re-confirm (Rev {(cat.checkInRevision || 1) + 1})
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 animate-pulse whitespace-nowrap shrink-0">
+                                <AlertTriangle size={12} />
+                                Re-confirm
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                <CheckCircle2 size={11} />
-                                Confirmed (Rev {cat.checkInRevision || 1})
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-nowrap shrink-0">
+                                <CheckCircle2 size={12} className="text-emerald-600" />
+                                Confirmed
                               </span>
                             )
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200">
-                              <Clock size={11} />
-                              Pending Confirmation
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap shrink-0">
+                              <Clock size={12} className="text-amber-600" />
+                              Pending confirmation
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-                          <span>Assigned: <strong className="text-gray-800">{cat.totalAssigned}</strong></span>
-                          <span>•</span>
-                          <span>Present: <strong className="text-emerald-700">{cat.normalCount}</strong></span>
-                          <span>•</span>
-                          <span>Absent: <strong className="text-red-700">{cat.absentCount}</strong></span>
+                        {/* 3 Metric Columns */}
+                        <div className="grid grid-cols-3 gap-2 mt-4 pt-1">
+                          <div>
+                            <div className="text-2xl sm:text-3xl font-bold text-gray-900">{cat.totalAssigned}</div>
+                            <div className="text-xs text-gray-500 font-normal mt-0.5">Assigned</div>
+                          </div>
+                          <div>
+                            <div className="text-2xl sm:text-3xl font-bold text-emerald-600">{cat.normalCount}</div>
+                            <div className="text-xs text-gray-500 font-normal mt-0.5">Present</div>
+                          </div>
+                          <div>
+                            <div className={`text-2xl sm:text-3xl font-bold ${cat.absentCount > 0 ? 'text-rose-600' : 'text-gray-900'}`}>{cat.absentCount}</div>
+                            <div className="text-xs text-gray-500 font-normal mt-0.5">Absent</div>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-medium text-gray-400">
+                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2 mt-auto">
+                        <span className="text-xs font-medium">
                           {isCatConfirmed && !isCatChangesPending ? (
-                            <span className="text-emerald-700 font-semibold">Checkout Unlocked</span>
+                            <span className="text-emerald-700">Checkout unlocked</span>
                           ) : (
-                            <span>Checkout Locked</span>
+                            <span className="text-gray-400">Checkout locked</span>
                           )}
                         </span>
                         {!isCatConfirmed ? (
@@ -910,9 +877,8 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                             type="button"
                             onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
                             disabled={!cat.canFinalizeCheckIn || eventStatus === 'cancelled'}
-                            className="px-3 py-1.5 inline-flex items-center gap-1 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg transition-colors shadow-2xs"
+                            className="px-3.5 py-1.5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed border border-gray-200/80 rounded-lg transition-colors cursor-pointer"
                           >
-                            <CheckCircle2 size={13} />
                             Review & Confirm
                           </button>
                         ) : isCatChangesPending ? (
@@ -920,7 +886,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                             type="button"
                             onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
                             disabled={eventStatus === 'cancelled'}
-                            className="px-3 py-1.5 inline-flex items-center gap-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors shadow-2xs animate-pulse"
+                            className="px-3.5 py-1.5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors shadow-2xs animate-pulse cursor-pointer"
                           >
                             <AlertTriangle size={13} />
                             Review & Re-confirm
@@ -929,9 +895,9 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                           <button
                             type="button"
                             onClick={() => handleOpenCategoryCheckInReview(cat.workerType)}
-                            className="px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors inline-flex items-center gap-1"
+                            className="px-3.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer"
                           >
-                            <CheckCircle2 size={12} className="text-emerald-600" />
+                            <CheckCircle2 size={13} className="text-emerald-600" />
                             Confirmed ✓
                           </button>
                         )}
@@ -988,36 +954,32 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             )}
           {/* 24-Hour Modification Window Status Banner */}
           <div
-            className={`border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${
-              rosterData?.canModifyCheckout
-                ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-emerald-50/90 border-emerald-200'
-                : 'bg-gradient-to-r from-amber-50/90 via-rose-50/80 to-amber-50/90 border-amber-300'
-            }`}
+            className={`border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${rosterData?.canModifyCheckout
+              ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-emerald-50/90 border-emerald-200'
+              : 'bg-gradient-to-r from-amber-50/90 via-rose-50/80 to-amber-50/90 border-amber-300'
+              }`}
           >
             <div className="flex items-center gap-3">
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                  rosterData?.canModifyCheckout
-                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border-amber-300'
-                }`}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${rosterData?.canModifyCheckout
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-amber-100 text-amber-800 border-amber-300'
+                  }`}
               >
                 {rosterData?.canModifyCheckout ? <Clock size={20} /> : <Lock size={20} />}
               </div>
               <div className="space-y-0.5">
                 <h4
-                  className={`text-sm font-bold ${
-                    rosterData?.canModifyCheckout ? 'text-emerald-950' : 'text-amber-950'
-                  }`}
+                  className={`text-sm font-bold ${rosterData?.canModifyCheckout ? 'text-emerald-950' : 'text-amber-950'
+                    }`}
                 >
                   {rosterData?.canModifyCheckout
                     ? 'Category Checkout Workspace — Active on Event Day'
                     : 'Checkout Editing Closed (Locked)'}
                 </h4>
                 <p
-                  className={`text-xs ${
-                    rosterData?.canModifyCheckout ? 'text-emerald-800' : 'text-amber-800'
-                  }`}
+                  className={`text-xs ${rosterData?.canModifyCheckout ? 'text-emerald-800' : 'text-amber-800'
+                    }`}
                 >
                   {rosterData?.canModifyCheckout
                     ? 'Departure time entry and modifications are permitted during the scheduled event day. Record actual category departure times below.'
@@ -1171,31 +1133,31 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
           isReFinalize={
             selectedCheckInCategory
               ? Boolean(
-                  rosterData?.categorySummaries?.find(
-                    (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
-                  )?.checkInFinalized
-                )
+                rosterData?.categorySummaries?.find(
+                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+                )?.checkInFinalized
+              )
               : isCheckInFinalized
           }
           currentRevision={
             selectedCheckInCategory
               ? rosterData?.categorySummaries?.find(
-                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
-                )?.checkInRevision || 1
+                (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+              )?.checkInRevision || 1
               : rosterData?.checkInRevision || session?.checkInRevision || 1
           }
           previousFinalizedAt={
             selectedCheckInCategory
               ? rosterData?.categorySummaries?.find(
-                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
-                )?.checkInFinalizedAt || undefined
+                (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+              )?.checkInFinalizedAt || undefined
               : rosterData?.session?.checkInFinalizedAt || session?.checkInFinalizedAt
           }
           previousFinalizedBy={
             selectedCheckInCategory
               ? rosterData?.categorySummaries?.find(
-                  (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
-                )?.checkInFinalizedBy || undefined
+                (c) => c.workerType.trim().toLowerCase() === selectedCheckInCategory.trim().toLowerCase()
+              )?.checkInFinalizedBy || undefined
               : rosterData?.session?.checkInFinalizedBy || session?.checkInFinalizedBy
           }
         />

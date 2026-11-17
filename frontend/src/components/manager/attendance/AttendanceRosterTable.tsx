@@ -9,7 +9,6 @@ import { calculateDelayMinutes } from '../../../features/attendance/attendanceAp
 import { formatTimeTo12Hour } from '../../../utils/formatters';
 import {
   Search,
-  Filter,
   Clock,
   UserX,
   AlertCircle,
@@ -18,8 +17,8 @@ import {
   X,
   Lock,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  Info,
 } from 'lucide-react';
 
 export interface WorkerExceptionState {
@@ -77,6 +76,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'late' | 'absent'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [savedWorkerIds, setSavedWorkerIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal State for Changing Status
   const [selectedWorkerForModal, setSelectedWorkerForModal] = useState<AttendanceRosterItem | null>(null);
@@ -144,6 +144,15 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
       return true;
     });
   }, [roster, searchTerm, statusFilter, typeFilter, exceptions]);
+
+  // Pagination calculation (matches 3 rows per page as specified in UI mockup)
+  const pageSize = 3;
+  const totalPages = Math.max(1, Math.ceil(filteredRoster.length / pageSize));
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const paginatedRoster = useMemo(() => {
+    return filteredRoster.slice(startIndex, startIndex + pageSize);
+  }, [filteredRoster, startIndex, pageSize]);
 
   // ---------------------------------------------------------
   // Modal Handlers
@@ -292,65 +301,82 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 shadow-xs">
+    <>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
       {/* Header & Subtitle */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-bold text-gray-900 tracking-tight">
-            Assigned Workers ({roster.length})
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Click any row to record an exception if a worker arrived late or was absent.
-          </p>
-        </div>
-      </div>
-
-      {/* Filters & Search Row */}
-      <div className="flex flex-col sm:flex-row items-center gap-3">
-        <div className="relative w-full sm:flex-1">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search by name, type, ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-9 py-2 bg-white border border-gray-200 rounded-lg text-xs font-normal text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 transition-colors"
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              aria-label="Clear search"
-            >
-              <X size={14} />
-            </button>
-          )}
+      <div className="p-4 sm:p-5 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base sm:text-lg font-bold text-gray-900 tracking-tight">
+                Assigned Workers
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                {roster.length}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Click any row to record an exception if a worker arrived late or was absent.
+            </p>
+          </div>
         </div>
 
-        <div className="w-full sm:w-auto flex items-center gap-2">
-          <Filter size={15} className="text-gray-400 shrink-0" />
-          <div className="relative flex-1 sm:flex-none sm:w-auto min-w-0">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full sm:w-auto appearance-none pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
-              aria-label="Filter by attendance status"
-            >
-              <option value="all">All Statuses ({counts.total})</option>
-              <option value="present">On Time ({counts.present})</option>
-              <option value="late">Late ({counts.late})</option>
-              <option value="absent">Absent ({counts.absent})</option>
-            </select>
-            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+        {/* Filters & Search Row */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-4">
+          <div className="relative flex-1">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search by name, type, ID..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-9 pr-9 py-2 bg-white border border-gray-200 rounded-lg text-xs font-normal text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 transition-colors"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCurrentPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
-          {uniqueWorkerTypes.length > 1 && (
-            <div className="relative flex-1 sm:flex-none sm:w-auto min-w-0">
+          <div className="flex items-center gap-2 self-stretch sm:self-auto">
+            <div className="relative flex-1 sm:flex-none">
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className="w-full sm:w-auto appearance-none pl-3.5 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
+                aria-label="Filter by attendance status"
+              >
+                <option value="all">All Statuses ({counts.total})</option>
+                <option value="present">On Time ({counts.present})</option>
+                <option value="late">Late ({counts.late})</option>
+                <option value="absent">Absent ({counts.absent})</option>
+              </select>
+              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+
+            <div className="relative flex-1 sm:flex-none">
               <select
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full sm:w-auto appearance-none pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
+                onChange={(e) => {
+                  setTypeFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full sm:w-auto appearance-none pl-3.5 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none cursor-pointer truncate"
                 aria-label="Filter by worker role"
               >
                 <option value="all">All Roles</option>
@@ -360,23 +386,23 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                   </option>
                 ))}
               </select>
-              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {/* Roster Table Content */}
       {filteredRoster.length === 0 ? (
-        <div className="p-8 sm:p-12 text-center text-gray-500">
+        <div className="p-8 sm:p-12 text-center text-gray-500 border-t border-gray-100">
           <p className="text-sm font-semibold">No workers match the selected filters.</p>
           <p className="text-xs text-gray-400 mt-1">Try resetting your search query or filter options.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto no-scrollbar rounded-lg border border-gray-200">
+        <div className="overflow-x-auto no-scrollbar border-t border-gray-100">
           <table className="w-full text-left text-xs border-collapse min-w-[540px]">
             <thead>
-              <tr className="bg-gray-50/75 border-b border-gray-200/80 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+              <tr className="border-b border-gray-100 text-[11px] font-semibold text-gray-400 uppercase tracking-wider bg-transparent">
                 <th className="py-3 px-4 sm:px-6">WORKER</th>
                 <th className="py-3 px-3 sm:px-4">ROLE</th>
                 <th className="py-3 px-3 sm:px-4">SCHEDULED SHIFT</th>
@@ -385,7 +411,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredRoster.map((worker) => {
+              {paginatedRoster.map((worker) => {
                 const currentExc = exceptions[worker.workerId] || { type: 'present' };
                 const currentType = currentExc.type;
                 const isLocked = Boolean(worker.isStatusLocked || disabled || isAfterEventDay || isAfterCorrectionDeadline);
@@ -394,13 +420,15 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                   <tr
                     key={worker.workerId}
                     onClick={() => !isLocked && handleOpenModal(worker)}
-                    className={`group transition-colors ${isLocked ? 'bg-gray-50/30 cursor-default' : 'cursor-pointer hover:bg-gray-50/70'
-                      } ${currentType === 'absent'
+                    className={`group transition-colors ${
+                      isLocked ? 'bg-gray-50/30 cursor-default' : 'cursor-pointer hover:bg-gray-50/70'
+                    } ${
+                      currentType === 'absent'
                         ? 'bg-rose-50/15'
                         : currentType === 'late'
                           ? 'bg-amber-50/15'
                           : ''
-                      }`}
+                    }`}
                   >
                     {/* Worker Details */}
                     <td className="py-3.5 px-4 sm:px-6">
@@ -408,7 +436,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                         {worker.workerName}
                       </div>
                       {worker.businessId && (
-                        <div className="text-gray-500 text-xs font-mono mt-0.5">
+                        <div className="text-gray-400 text-xs mt-0.5">
                           {worker.businessId}
                         </div>
                       )}
@@ -416,12 +444,12 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
 
                     {/* Role */}
                     <td className="py-3.5 px-3 sm:px-4">
-                      <span className="text-xs text-gray-700 leading-tight block">
+                      <span className="text-xs text-gray-600 leading-tight block">
                         {worker.workerType}
                       </span>
                     </td>
 
-                    {/* Scheduled Shift (Clean text matching mockup) */}
+                    {/* Scheduled Shift */}
                     <td className="py-3.5 px-3 sm:px-4">
                       <span className="text-xs font-semibold text-gray-900">
                         {formatTimeTo12Hour(worker.reportingTime)}
@@ -431,40 +459,40 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                     {/* Attendance Status Badge */}
                     <td className="py-3.5 px-3 sm:px-4 whitespace-nowrap">
                       {worker.isStatusLocked ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-600 border border-gray-200">
+                        <span className="inline-flex items-center justify-center w-[132px] gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 border border-gray-200">
                           <Lock size={12} />
                           <span>Locked</span>
                         </span>
                       ) : (
                         (worker.attendanceId || savedWorkerIds.has(worker.workerId) || worker.status === 'checked_in' || worker.status === 'absent') ? (
                           worker.status === 'absent' || worker.arrivalStatus === 'absent' ? (
-                            <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                               <UserX size={12} className="text-rose-600" />
                               <span>Absent</span>
                             </span>
                           ) : worker.arrivalStatus === 'late' ? (
-                            <span className="inline-flex items-center gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                               <Clock size={12} className="text-amber-600" />
                               <span>{formatLateDuration(worker.delayMinutes)}</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                            <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                               <CheckCircle2 size={12} className="text-emerald-600" />
                               <span>Saved On-Time</span>
                             </span>
                           )
                         ) : currentType === 'present' ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                          <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                             <CheckCircle2 size={12} className="text-emerald-600" />
                             <span>Present</span>
                           </span>
                         ) : currentType === 'late' ? (
-                          <span className="inline-flex items-center gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                          <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                             <Clock size={12} className="text-amber-600" />
                             <span>{currentExc.delayMinutes ? formatLateDuration(currentExc.delayMinutes) : 'Late'}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/70 px-2.5 py-1 rounded-md text-xs font-semibold">
+                          <span className="inline-flex items-center justify-center w-[132px] gap-1.5 text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1 rounded-lg text-xs font-medium">
                             <UserX size={12} className="text-rose-600" />
                             <span>Absent</span>
                           </span>
@@ -472,7 +500,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                       )}
                     </td>
 
-                    {/* Arrow Mark / Details Button to identify user to click */}
+                    {/* Arrow Mark */}
                     <td className="py-3.5 px-3 pr-4 sm:pr-6 text-right whitespace-nowrap">
                       {!worker.isStatusLocked && (
                         <button
@@ -483,7 +511,7 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
                             handleOpenModal(worker);
                           }}
                           disabled={isLocked}
-                          className="inline-flex items-center justify-center w-7 h-7 text-gray-400 group-hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                          className="inline-flex items-center justify-center w-7 h-7 text-gray-400 group-hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
                           title="Click to change status"
                         >
                           <ChevronRight size={16} />
@@ -498,18 +526,50 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
         </div>
       )}
 
-      {/* Helpful Operational Disclaimer Footer */}
-      <div className="p-4 sm:p-5 bg-gray-50/70 border border-gray-200 rounded-xl flex items-start gap-3">
-        <Info size={16} className="text-gray-400 shrink-0 mt-0.5" />
-        <div className="space-y-0.5">
-          <h4 className="text-xs font-bold text-gray-900">
-            Exception-Based Check-in
-          </h4>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            By default, all workers are assumed present and on time. Click any row to record an exception if a worker arrived late or was absent.
-          </p>
+      {/* Pagination Footer */}
+      {filteredRoster.length > 0 && (
+        <div className="px-4 sm:px-6 py-3.5 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500">
+          <div>
+            Showing {startIndex + 1}–{Math.min(startIndex + pageSize, filteredRoster.length)} of {filteredRoster.length} workers
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={validCurrentPage <= 1}
+              className="px-2.5 py-1 text-xs font-medium text-gray-500 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-colors"
+            >
+              <ChevronLeft size={14} /> Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                onClick={() => setCurrentPage(pageNum)}
+                className={`min-w-7 h-7 px-2 rounded-md text-xs font-semibold flex items-center justify-center transition-colors ${
+                  pageNum === validCurrentPage
+                    ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={validCurrentPage >= totalPages}
+              className="px-2.5 py-1 text-xs font-medium text-gray-500 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 transition-colors"
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+    </div>
 
       {/* Formal Status Change Modal */}
       {selectedWorkerForModal && (
@@ -754,6 +814,6 @@ export const AttendanceRosterTable: React.FC<AttendanceRosterTableProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

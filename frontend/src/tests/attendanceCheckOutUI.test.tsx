@@ -249,7 +249,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
   // ---------------------------------------------------------------------------
   // 1. Initial State & Category-Wise Workspace Rendering
   // ---------------------------------------------------------------------------
-  it('renders Category-Wise Checkout Workspace when check-in is finalized', async () => {
+  it('renders Category-Wise Checkout Workspace when clicking Checkout button', async () => {
     vi.mocked(attendanceApi.getSession).mockResolvedValue(mockSessionCheckInFinalized);
     vi.mocked(attendanceApi.getRoster).mockResolvedValue(mockRosterCheckInFinalized);
 
@@ -260,6 +260,11 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventStatus="confirmed"
       />
     );
+
+    await waitFor(() => {
+      const checkoutBtn = screen.getByRole('button', { name: /Checkout/i });
+      fireEvent.click(checkoutBtn);
+    });
 
     // Verify workspace header & event day banner
     await waitFor(() => {
@@ -297,6 +302,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
@@ -362,6 +368,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
@@ -445,6 +452,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
@@ -478,6 +486,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
@@ -573,6 +582,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
@@ -644,6 +654,7 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         eventId="ev_checkout_101"
         eventTitle="Grand Royal Gala"
         eventStatus="confirmed"
+        initialTab="checkout_form"
       />
     );
 
