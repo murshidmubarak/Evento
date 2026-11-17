@@ -89,7 +89,8 @@ export interface EventCorrectionWindow {
  */
 export function calculateEventCorrectionWindow(
   event: { date: Date | string; startTime?: string; endTime?: string },
-  now = new Date()
+  now = new Date(),
+  options?: { latestDepartureDate?: string }
 ): EventCorrectionWindow {
   const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
   const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
@@ -122,6 +123,18 @@ export function calculateEventCorrectionWindow(
   }
 
   const pad = (n: number) => n.toString().padStart(2, '0');
+  let endOperationalDate = isOvernight ? `${y}-${pad(m)}-${pad(d)}` : eventOperationalDate;
+
+  if (options?.latestDepartureDate && options.latestDepartureDate > endOperationalDate) {
+    const [ey, em, ed] = options.latestDepartureDate.split('-').map(Number);
+    if (!isNaN(ey) && !isNaN(em) && !isNaN(ed)) {
+      y = ey;
+      m = em;
+      d = ed;
+      endOperationalDate = options.latestDepartureDate;
+    }
+  }
+
   const isoEndString = `${y}-${pad(m)}-${pad(d)}T${pad(eH)}:${pad(eM)}:00.000+05:30`;
   const scheduledEventEndAt = new Date(isoEndString);
 
@@ -131,8 +144,6 @@ export function calculateEventCorrectionWindow(
   const isBeforeEventEnd = nowMs < scheduledEventEndAt.getTime();
   const isAfterDeadline = nowMs > correctionDeadlineAt.getTime();
   const canNormalCorrect = !isAfterDeadline;
-
-  const endOperationalDate = isOvernight ? `${y}-${pad(m)}-${pad(d)}` : eventOperationalDate;
 
   const isEventDay =
     currentOperationalDate >= eventOperationalDate && currentOperationalDate <= endOperationalDate;

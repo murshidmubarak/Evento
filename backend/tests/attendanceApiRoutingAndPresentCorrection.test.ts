@@ -380,7 +380,7 @@ describe('Milestone 4 — API Routing for Existing Records & Change to Present O
   // SECTION 3: Completed Event Restrictions vs Corrections (Items 5 & 6)
   // ===========================================================================
   describe('3. Completed Event Rules', () => {
-    it('Item 5: recordWorkerCheckIn on a completed event is rejected with 400 Bad Request', async () => {
+    it('Item 5: recordWorkerCheckIn on a completed event with checkout finalized is rejected with 400 Bad Request', async () => {
       const res = await fetch(
         `http://localhost:${port}/api/attendance/events/${completedEventId}/workers/${worker1Id}/checkin`,
         {
@@ -399,7 +399,7 @@ describe('Milestone 4 — API Routing for Existing Records & Change to Present O
       assert.strictEqual(res.status, 400);
       const json = await res.json();
       assert.strictEqual(json.success, false);
-      assert.match(json.message, /Attendance check-in cannot be recorded on completed events/i);
+      assert.match(json.message, /checkout has already been finalized/i);
     });
 
     it('Item 6: updating an existing attendance record on a completed event via correctAttendance succeeds within 24h deadline', async () => {

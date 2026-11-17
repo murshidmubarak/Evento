@@ -606,26 +606,39 @@ export class AttendanceService {
     }
 
     const now = new Date();
-    const windowInfo = calculateEventCorrectionWindow(event, now);
+    let latestDepartureDate: string | undefined;
+    for (const d of session.categoryActualDepartures || []) {
+      if (d.actualDepartureDate) {
+        const depDateStr = getOperationalDateString(d.actualDepartureDate, 'Asia/Kolkata');
+        if (!latestDepartureDate || depDateStr > latestDepartureDate) {
+          latestDepartureDate = depDateStr;
+        }
+      }
+    }
+    const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
     const { isEventDay, isBeforeEventDay, isAfterEventDay, eventOperationalDate, currentOperationalDate } = windowInfo;
 
     const openConcernsCount = await attendanceConcernRepository.countOpenByEventId(eventId);
+
+    const isEventActiveOrEventDayCompleted =
+      ['confirmed', 'in_progress'].includes(event.status) ||
+      (event.status === 'completed' && windowInfo.isEventDay);
 
     const canFinalizeCheckIn =
       !session.checkInFinalized &&
       latestReportingTimestamp !== null &&
       now.getTime() >= latestReportingTimestamp.getTime() &&
-      event.status !== 'completed';
+      isEventActiveOrEventDayCompleted;
 
     const canReFinalizeCheckIn =
       Boolean(session.checkInFinalized && session.checkInChangesPending) &&
-      event.status !== 'completed';
+      isEventActiveOrEventDayCompleted;
 
     const canEditCheckIn =
       windowInfo.isEventDay &&
       !windowInfo.isAfterEventDay &&
       !windowInfo.isBeforeEventDay &&
-      ['confirmed', 'in_progress'].includes(event.status);
+      isEventActiveOrEventDayCompleted;
 
     // Map requirement items
     const requirementItems: AttendanceRosterRequirementItem[] = requirements.map((req) => ({
@@ -735,17 +748,18 @@ export class AttendanceService {
         const canFinalizeCheckIn =
           !checkInFinalized &&
           (catTiming?.latestTimestamp ? now.getTime() >= catTiming.latestTimestamp.getTime() : false) &&
-          event.status !== 'completed';
+          isEventActiveOrEventDayCompleted;
 
         const canReFinalizeCheckIn =
           Boolean(checkInFinalized && checkInChangesPending) &&
-          event.status !== 'completed';
+          isEventActiveOrEventDayCompleted;
 
         const canModifyCheckout =
           Boolean(checkInFinalized && !checkInChangesPending) &&
           windowInfo.isEventDay &&
           !windowInfo.isAfterEventDay &&
-          !windowInfo.isBeforeEventDay;
+          !windowInfo.isBeforeEventDay &&
+          isEventActiveOrEventDayCompleted;
 
         distinctCategoriesMap.set(typeKey, {
           workerType: typeKey,
@@ -858,7 +872,11 @@ export class AttendanceService {
       correctionDeadlineAt: windowInfo.correctionDeadlineAt,
       canNormalCorrect: windowInfo.canNormalCorrect,
       isAfterCorrectionDeadline: windowInfo.isAfterDeadline,
-      canModifyCheckout: windowInfo.isEventDay && !windowInfo.isAfterEventDay && !windowInfo.isBeforeEventDay,
+      canModifyCheckout:
+        windowInfo.isEventDay &&
+        !windowInfo.isAfterEventDay &&
+        !windowInfo.isBeforeEventDay &&
+        isEventActiveOrEventDayCompleted,
       checkoutModificationDeadlineAt: windowInfo.correctionDeadlineAt,
       checkoutModificationTimeRemainingMs: Math.max(0, windowInfo.correctionDeadlineAt.getTime() - now.getTime()),
       categoryActualDepartures: (session.categoryActualDepartures || []).map((d) => ({
@@ -955,12 +973,16 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
-    if (event.status === 'completed') {
+
+    const now = new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now);
+
+    if (event.status === 'completed' && !windowInfo.isEventDay) {
       throw ApiError.badRequest('Attendance check-in cannot be recorded on completed events');
     }
-    if (!['confirmed', 'in_progress'].includes(event.status)) {
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
       throw ApiError.badRequest(
-        `Cannot record check-in for event in '${event.status}' status. Event must be confirmed or in_progress.`
+        `Cannot record check-in for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
       );
     }
 
@@ -986,16 +1008,12 @@ export class AttendanceService {
     }
 
     // 4. Check event-day restrictions
-    const now = new Date();
-    const currentOperationalDate = getOperationalDateString(now, 'Asia/Kolkata');
-    const eventOperationalDate = getOperationalDateString(event.date, 'Asia/Kolkata');
-
-    if (currentOperationalDate < eventOperationalDate) {
+    if (windowInfo.isBeforeEventDay) {
       throw ApiError.badRequest(
         'Initial attendance marks can only be recorded on the scheduled event day (cannot mark before event day)'
       );
     }
-    if (currentOperationalDate > eventOperationalDate) {
+    if (windowInfo.isAfterEventDay) {
       throw ApiError.forbidden(
         'Check-in editing is closed because the scheduled event day has ended'
       );
@@ -1235,20 +1253,30 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
-    if (event.status === 'completed') {
-      throw ApiError.badRequest('Attendance check-in cannot be confirmed on completed events');
-    }
-    if (!['confirmed', 'in_progress'].includes(event.status)) {
-      throw ApiError.badRequest(
-        `Cannot confirm check-in for event in '${event.status}' status. Event must be confirmed or in_progress.`
-      );
-    }
 
     // 3. Retrieve or safely initialize the session
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
 
     const now = new Date();
-    const windowInfo = calculateEventCorrectionWindow(event, now);
+    let latestDepartureDate: string | undefined;
+    for (const d of sessionDoc.categoryActualDepartures || []) {
+      if (d.actualDepartureDate) {
+        const depDateStr = getOperationalDateString(d.actualDepartureDate, 'Asia/Kolkata');
+        if (!latestDepartureDate || depDateStr > latestDepartureDate) {
+          latestDepartureDate = depDateStr;
+        }
+      }
+    }
+    const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
+
+    if (event.status === 'completed' && !windowInfo.isEventDay) {
+      throw ApiError.badRequest('Attendance check-in cannot be confirmed on completed events');
+    }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot confirm check-in for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
+      );
+    }
 
     // 4. Validate category exists in event requirements
     const requirements = await WorkRequirement.find({
@@ -1651,20 +1679,30 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
-    if (event.status === 'completed') {
-      throw ApiError.badRequest('Attendance check-in cannot be finalized on completed events');
-    }
-    if (!['confirmed', 'in_progress'].includes(event.status)) {
-      throw ApiError.badRequest(
-        `Cannot finalize check-in for event in '${event.status}' status. Event must be confirmed or in_progress.`
-      );
-    }
 
     // 3. Retrieve or safely initialize the session
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
 
     const now = new Date();
-    const windowInfo = calculateEventCorrectionWindow(event, now);
+    let latestDepartureDate: string | undefined;
+    for (const d of sessionDoc.categoryActualDepartures || []) {
+      if (d.actualDepartureDate) {
+        const depDateStr = getOperationalDateString(d.actualDepartureDate, 'Asia/Kolkata');
+        if (!latestDepartureDate || depDateStr > latestDepartureDate) {
+          latestDepartureDate = depDateStr;
+        }
+      }
+    }
+    const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
+
+    if (event.status === 'completed' && !windowInfo.isEventDay) {
+      throw ApiError.badRequest('Attendance check-in cannot be finalized on completed events');
+    }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot finalize check-in for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
+      );
+    }
 
     // 4. Compute stable payload hash
     const payloadHash = this.computePayloadHash(payload);
@@ -2156,9 +2194,16 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot record category departure for event in '${event.status}' status.`
+      );
+    }
 
     const now = this.getNow();
-    const windowInfo = calculateEventCorrectionWindow(event, now);
+    const windowInfo = calculateEventCorrectionWindow(event, now, {
+      latestDepartureDate: payload.actualDepartureDate,
+    });
 
     // Rule: Departure time can only be set on the scheduled event day; closed after event day
     if (windowInfo.isBeforeEventDay) {
@@ -2377,9 +2422,16 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot record checkout exception for event in '${event.status}' status.`
+      );
+    }
 
     const now = this.getNow();
-    const windowInfo = calculateEventCorrectionWindow(event, now);
+    const windowInfo = calculateEventCorrectionWindow(event, now, {
+      latestDepartureDate: payload.actualDepartureDate,
+    });
 
     // Rule: Departure exceptions can only be recorded on the scheduled event day; closed after event day
     if (windowInfo.isBeforeEventDay) {
@@ -2515,6 +2567,11 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot clear checkout exception for event in '${event.status}' status.`
+      );
+    }
 
     const now = new Date();
     const windowInfo = calculateEventCorrectionWindow(event, now);
@@ -2602,7 +2659,8 @@ export class AttendanceService {
     userRole: string,
     eventId: string,
     idempotencyKey: string,
-    payload: FinalizeCheckOutPayload
+    payload: FinalizeCheckOutPayload,
+    options?: { skipTimingGuard?: boolean }
   ): Promise<FinalizeCheckOutSummary> {
     // 1. Mandatory Idempotency-Key header validation
     if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
@@ -2616,14 +2674,31 @@ export class AttendanceService {
     if (event.status === 'cancelled') {
       throw ApiError.badRequest('Attendance operations cannot be performed on cancelled events');
     }
-    if (!['confirmed', 'in_progress'].includes(event.status)) {
-      throw ApiError.badRequest(
-        `Cannot finalize checkout for event in '${event.status}' status. Event must be confirmed or in_progress.`
-      );
-    }
 
     // 3. Retrieve or safely initialize the session
     const sessionDoc = await this.sessionRepo.getOrCreateSession(eventId);
+
+    let latestDepartureDate: string | undefined;
+    for (const d of sessionDoc.categoryActualDepartures || []) {
+      if (d.actualDepartureDate) {
+        const depDateStr = getOperationalDateString(d.actualDepartureDate, 'Asia/Kolkata');
+        if (!latestDepartureDate || depDateStr > latestDepartureDate) {
+          latestDepartureDate = depDateStr;
+        }
+      }
+    }
+
+    const now = this.getNow ? this.getNow() : new Date();
+    const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
+
+    if (event.status === 'completed' && !windowInfo.isEventDay) {
+      throw ApiError.badRequest('Checkout cannot be finalized on completed events after the event day');
+    }
+    if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
+      throw ApiError.badRequest(
+        `Cannot finalize checkout for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
+      );
+    }
 
     // 4. Compute stable payload hash
     const payloadHash = this.computeCheckOutPayloadHash(payload);
@@ -2885,7 +2960,6 @@ export class AttendanceService {
     const earlyMap = new Map(earlyExceptions.map((e) => [e.workerId, e.actualCheckoutTime]));
     const overtimeMap = new Map(overtimeExceptions.map((o) => [o.workerId, o.actualCheckoutTime]));
 
-    const now = new Date();
     const managerObjectId = new mongoose.Types.ObjectId(userId);
     const attendanceUpdates: any[] = [];
 

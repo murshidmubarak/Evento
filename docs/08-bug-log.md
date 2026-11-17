@@ -1701,3 +1701,97 @@ Updated lines 484-485 and 531-532 in `attendanceApiRoutingAndPresentCorrection.t
 
 When asserting against UTC methods (`getUTCHours()`, `getUTCMinutes()`) on dates constructed from Asia/Kolkata wall-clock time, calculate the UTC offset accurately (UTC = IST - 5h 30m).
 
+
+
+---
+
+## BUG-036 — Premature Attendance Lockout on Completed Events During Event Operational Day / Overnight Window
+
+### Date
+
+2026-11-17
+
+### Feature / Module
+
+Attendance Lifecycle & Event Status Sync / `backend/src/modules/attendance/service/attendance.service.ts` & `backend/src/modules/attendance/utils/attendance-window.util.ts`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When an event's scheduled `endTime` elapsed on the event day (e.g., event ended at 12:00 PM and current time was 03:35 PM), background event synchronization transitioned `event.status` to `'completed'`. When a manager attempted to confirm worker check-in or finalize checkout, the API threw HTTP 400 Bad Request:
+- `"Attendance check-in cannot be confirmed on completed events"`
+- `"Cannot finalize checkout for event in 'completed' status. Event must be confirmed or in_progress."`
+
+Additionally, roster flags `canEditCheckIn` and `canFinalizeCheckIn` evaluated to `false`, disabling finalization buttons in the manager UI.
+
+### Root Cause
+
+Unconditional rejection of `event.status === 'completed'` in `recordInitialCheckIn`, `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout`. While event auto-completion marks events as `completed` immediately when `endTime` passes, attendance business rules permit check-in and checkout operations throughout the entire event operational day (and across overnight finishes, e.g. 17-11-2026 through 18-11-2026). Rejecting `completed` status without evaluating `windowInfo.isEventDay` created an architectural deadlock.
+
+### Solution
+
+1. In `attendance.service.ts`, replaced unconditional `event.status === 'completed'` rejections with operational day window checks:
+   - Allow `event.status === 'completed'` whenever `windowInfo.isEventDay` is true.
+   - Enforce rejection with `403 Forbidden` (`"Check-in editing is closed because the scheduled event day has ended"` / `"Checkout editing is closed because the scheduled event day has ended"`) only when `windowInfo.isAfterEventDay` is true.
+2. In `calculateEventCorrectionWindow`, added support for `latestDepartureDate` to seamlessly encompass overnight finishes into `endOperationalDate` (e.g. event starting 17-11-2026 and finishing 18-11-2026 stays open through 18-11-2026).
+3. In `getRoster`, updated `isEventActiveOrEventDayCompleted` to ensure `canEditCheckIn`, `canFinalizeCheckIn`, `canReFinalizeCheckIn`, and `canModifyCheckout` reflect true during event day for completed events.
+
+### Rule
+
+Attendance check-in and checkout operations remain active and editable throughout the scheduled event operational day (`isEventDay`). Events auto-completed upon elapsed `endTime` must not block attendance finalization until the scheduled event operational day has actually ended.
+
+### Recurrence / CI Regression Update (2026-11-17)
+
+- **Symptom**: CI assertion failure in `attendanceCheckIn.test.ts:762` and `attendanceCheckOut.test.ts:878` where `checkInFinalized` and `checkOutFinalized` evaluated to `false`.
+- **Cause**: Unconditional `if (windowInfo.isAfterEventDay)` timing guard additions in `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout` rejected test events that used historical fixture dates (`earlierToday = Date.now() - 24h`) for testing shift completions.
+- **Resolution**: Removed the redundant timing guard block from `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout`. Retained the specific `event.status === 'completed' && !windowInfo.isEventDay` guard, which selectively protects completed events while preserving legacy test fixtures for `confirmed` / `in_progress` events. All backend tests and type checks pass cleanly.
+
+---
+
+## BUG-037 — Test Runner Hanging and Schema Enum ValidationError in Attendance Completed Event Exception Suite
+
+### Date
+
+2026-11-17
+
+### Feature / Module
+
+Attendance Test Suite / `backend/tests/attendanceCompletedEventException.test.ts`
+
+### Severity
+
+High (Blocked CI pipeline and caused runner to freeze for >1 hour)
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+1. CI test runner stalled indefinitely in GitHub Actions ("Run backend tests 1h 10m 29s"), keeping the workflow process alive until manual cancellation or job timeout.
+2. In the test suite, all 6 subtests were marked `cancelled` with error: `ValidationError: eventType: 'Concert' is not a valid enum value for path 'eventType'`.
+
+### Root Cause
+
+1. `await mongoose.disconnect();` was omitted from the `after()` teardown hook in `attendanceCompletedEventException.test.ts`. Because active database connection sockets and connection pool listeners remained open on the Node.js event loop, the test runner process could not exit.
+2. An invalid enum value (`eventType: 'Concert'`) was supplied in the test fixture for `completedOvernightEventId` (valid schema values are `'Nikah' | 'Wedding' | 'Reception' | 'Engagement' | 'Birthday' | 'Corporate' | 'Other'`). Mongoose threw a validation error during the `before()` hook, crashing test fixture initialization.
+3. The test suite did not freeze service test clock via `attendanceService.setTestClock()`, allowing machine clock variations across runners to conflict with shift reporting times.
+
+### Solution
+
+1. Added `await mongoose.disconnect();` and `attendanceService.setTestClock(null);` in the `after()` teardown hook.
+2. Fixed the enum value in the event fixture to `'Corporate'`.
+3. Locked the test clock to late evening on the operational date (`${todayStr}T23:59:00.000+05:30`) so that shift reporting times are deterministically satisfied.
+
+### Rule
+
+Every integration test suite creating a database connection MUST call `await mongoose.disconnect();` in its `after()` teardown hook to allow Node.js to cleanly drain the event loop and terminate. All Mongoose documents must strictly use valid schema enum values.
+
+
