@@ -2397,3 +2397,23 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+
+
+---
+
+### [2026-11-17] Attendance Lifecycle: Operational Window Exception for Completed Events & Overnight Spans
+- **Requested Change**:
+  - Implement an exception for events in `'completed'` status allowing check-in and checkout operations during the scheduled event operational day(s) (`isEventDay`).
+  - Support cross-midnight and overnight event spans (e.g. event starting 17-11-2026 and finishing 18-11-2026) so both check-in and checkout remain editable and confirmable until the end of 18-11-2026.
+  - Enforce closure with 403 Forbidden after the event operational day has ended (`isAfterEventDay`) for both check-in and checkout.
+- **Impact Level**: HIGH (Modifies core business validation guards across attendance check-in and checkout endpoints).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/utils/attendance-window.util.ts`: Added `latestDepartureDate` support to extend `endOperationalDate` for overnight finishes.
+  - `backend/src/modules/attendance/service/attendance.service.ts`: Updated `getRoster`, `recordInitialCheckIn`, `finalizeCategoryCheckIn`, `finalizeCheckIn`, `recordCategoryDeparture`, `recordWorkerCheckOutException`, `recordCheckoutCorrection`, and `finalizeCheckout`.
+  - `backend/tests/attendanceApiRoutingAndPresentCorrection.test.ts`: Updated Item 5 test assertion for finalized checkout.
+  - `backend/tests/attendanceCompletedEventException.test.ts`: Added automated integration tests covering completed event operations on event day, overnight windows, and post-event day closures.
+  - `docs/08-bug-log.md`: Logged BUG-036.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.

@@ -1701,3 +1701,48 @@ Updated lines 484-485 and 531-532 in `attendanceApiRoutingAndPresentCorrection.t
 
 When asserting against UTC methods (`getUTCHours()`, `getUTCMinutes()`) on dates constructed from Asia/Kolkata wall-clock time, calculate the UTC offset accurately (UTC = IST - 5h 30m).
 
+
+
+---
+
+## BUG-036 — Premature Attendance Lockout on Completed Events During Event Operational Day / Overnight Window
+
+### Date
+
+2026-11-17
+
+### Feature / Module
+
+Attendance Lifecycle & Event Status Sync / `backend/src/modules/attendance/service/attendance.service.ts` & `backend/src/modules/attendance/utils/attendance-window.util.ts`
+
+### Severity
+
+High
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+When an event's scheduled `endTime` elapsed on the event day (e.g., event ended at 12:00 PM and current time was 03:35 PM), background event synchronization transitioned `event.status` to `'completed'`. When a manager attempted to confirm worker check-in or finalize checkout, the API threw HTTP 400 Bad Request:
+- `"Attendance check-in cannot be confirmed on completed events"`
+- `"Cannot finalize checkout for event in 'completed' status. Event must be confirmed or in_progress."`
+
+Additionally, roster flags `canEditCheckIn` and `canFinalizeCheckIn` evaluated to `false`, disabling finalization buttons in the manager UI.
+
+### Root Cause
+
+Unconditional rejection of `event.status === 'completed'` in `recordInitialCheckIn`, `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout`. While event auto-completion marks events as `completed` immediately when `endTime` passes, attendance business rules permit check-in and checkout operations throughout the entire event operational day (and across overnight finishes, e.g. 17-11-2026 through 18-11-2026). Rejecting `completed` status without evaluating `windowInfo.isEventDay` created an architectural deadlock.
+
+### Solution
+
+1. In `attendance.service.ts`, replaced unconditional `event.status === 'completed'` rejections with operational day window checks:
+   - Allow `event.status === 'completed'` whenever `windowInfo.isEventDay` is true.
+   - Enforce rejection with `403 Forbidden` (`"Check-in editing is closed because the scheduled event day has ended"` / `"Checkout editing is closed because the scheduled event day has ended"`) only when `windowInfo.isAfterEventDay` is true.
+2. In `calculateEventCorrectionWindow`, added support for `latestDepartureDate` to seamlessly encompass overnight finishes into `endOperationalDate` (e.g. event starting 17-11-2026 and finishing 18-11-2026 stays open through 18-11-2026).
+3. In `getRoster`, updated `isEventActiveOrEventDayCompleted` to ensure `canEditCheckIn`, `canFinalizeCheckIn`, `canReFinalizeCheckIn`, and `canModifyCheckout` reflect true during event day for completed events.
+
+### Rule
+
+Attendance check-in and checkout operations remain active and editable throughout the scheduled event operational day (`isEventDay`). Events auto-completed upon elapsed `endTime` must not block attendance finalization until the scheduled event operational day has actually ended.
