@@ -12,6 +12,7 @@ import { WorkRequirement } from '../src/modules/work-requirements/model/work-req
 import { AttendanceSession } from '../src/modules/attendance/model/attendance-session.model.js';
 import { Attendance } from '../src/modules/attendance/model/attendance.model.js';
 import { getOperationalDateString } from '../src/modules/attendance/utils/attendance-window.util.js';
+import { attendanceService } from '../src/modules/attendance/service/attendance.service.js';
 
 describe('Attendance Completed Event Exception & Event-Day Window Rules', () => {
   let server: any;
@@ -31,6 +32,8 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
 
   let completedOvernightEventId: string;
   let reqOvernightId: string;
+
+  let todayStr: string;
 
   const generateToken = (userId: string, role: string) => {
     return jwt.sign({ userId, role }, env.jwtSecret, { expiresIn: '1h' });
@@ -81,10 +84,12 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
       isActive: true,
     });
 
-    const now = new Date();
-    const todayStr = getOperationalDateString(now, 'Asia/Kolkata');
+    todayStr = getOperationalDateString(new Date(), 'Asia/Kolkata');
     const [y, m, d] = todayStr.split('-').map(Number);
-    const todayDate = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+    const todayDate = new Date(`${todayStr}T04:00:00.000Z`);
+
+    // Lock service clock to late evening on todayStr so reporting times are guaranteed to have passed
+    attendanceService.setTestClock(new Date(`${todayStr}T23:59:00.000+05:30`));
 
     // 1. Completed Event on Event Day (Today)
     const evToday = await Event.create({
@@ -109,8 +114,8 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
       reportingTime: '08:00',
       status: 'filled',
       assignedWorkers: [
-        { workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: now },
-        { workerId: new mongoose.Types.ObjectId(worker2Id), assignedAt: now },
+        { workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() },
+        { workerId: new mongoose.Types.ObjectId(worker2Id), assignedAt: new Date() },
       ],
     });
     reqTodayId = reqToday._id.toString();
@@ -138,7 +143,7 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
       requiredCount: 1,
       reportingTime: '08:00',
       status: 'filled',
-      assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: now }],
+      assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() }],
     });
     reqPastId = reqPast._id.toString();
 
@@ -147,7 +152,7 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
     const evOvernight = await Event.create({
       title: 'Completed Overnight Event',
       description: 'Overnight event crossing midnight into today',
-      eventType: 'Concert',
+      eventType: 'Corporate',
       date: yesterdayDate,
       startTime: '20:00',
       endTime: '04:00',
@@ -165,12 +170,13 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
       requiredCount: 1,
       reportingTime: '20:00',
       status: 'filled',
-      assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: now }],
+      assignedWorkers: [{ workerId: new mongoose.Types.ObjectId(worker1Id), assignedAt: new Date() }],
     });
     reqOvernightId = reqOvernight._id.toString();
   });
 
   after(async () => {
+    attendanceService.setTestClock(null);
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -179,6 +185,7 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
     await WorkRequirement.deleteMany({});
     await AttendanceSession.deleteMany({});
     await Attendance.deleteMany({});
+    await mongoose.disconnect();
   });
 
   describe('1. Completed Event on Event Day Exception', () => {
@@ -300,4 +307,3 @@ describe('Attendance Completed Event Exception & Event-Day Window Rules', () => 
     });
   });
 });
-

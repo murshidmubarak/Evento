@@ -2418,3 +2418,19 @@ Implemented complete browser and device push notification system for EventOps ER
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
   - Follow-up CI Fix: Removed premature event-day timing guards from `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout` that collided with legacy test suites (`attendanceCheckIn.test.ts:762` and `attendanceCheckOut.test.ts:878`) using historical test fixtures (`earlierToday = Date.now() - 24h`). Restored clean pass for both legacy fixtures and completed event exceptions.
+
+---
+
+### [2026-11-17] Attendance Completed Event Test Teardown & Schema Fix
+- **Requested Change**:
+  - Fix test runner freeze/hang in CI and resolve test fixture validation errors in `attendanceCompletedEventException.test.ts`.
+- **Impact Level**: LOW (Test suite stability and teardown cleanup).
+- **Directly Affected Files**:
+  - `backend/tests/attendanceCompletedEventException.test.ts`: Added `mongoose.disconnect()` and `attendanceService.setTestClock()`, corrected `eventType` enum to `'Corporate'`.
+  - `docs/08-bug-log.md`: Logged BUG-037.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
+  - Test Suite (`npm run test:file tests/attendanceCompletedEventException.test.ts`): 6/6 tests passing, clean teardown with `mongoose.disconnect()`, exit code 0.
+  - Test Suite (`npm run test:file tests/attendanceCheckIn.test.ts`): 24/24 passing, exit code 0.
+  - Test Suite (`npm run test:file tests/attendanceCheckOut.test.ts`): 31/31 passing, exit code 0.
