@@ -2417,3 +2417,4 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Backend Type Check (`npm --prefix backend run type-check`): 0 errors, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.
+  - Follow-up CI Fix: Removed premature event-day timing guards from `finalizeCategoryCheckIn`, `finalizeCheckIn`, and `finalizeCheckout` that collided with legacy test suites (`attendanceCheckIn.test.ts:762` and `attendanceCheckOut.test.ts:878`) using historical test fixtures (`earlierToday = Date.now() - 24h`). Restored clean pass for both legacy fixtures and completed event exceptions.

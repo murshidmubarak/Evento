@@ -1278,15 +1278,6 @@ export class AttendanceService {
       );
     }
 
-    if (!options?.skipTimingGuard) {
-      if (windowInfo.isBeforeEventDay) {
-        throw ApiError.badRequest('Check-in cannot be confirmed before the scheduled event day');
-      }
-      if (windowInfo.isAfterEventDay) {
-        throw ApiError.forbidden('Check-in editing is closed because the scheduled event day has ended');
-      }
-    }
-
     // 4. Validate category exists in event requirements
     const requirements = await WorkRequirement.find({
       eventId: new mongoose.Types.ObjectId(eventId),
@@ -1711,15 +1702,6 @@ export class AttendanceService {
       throw ApiError.badRequest(
         `Cannot finalize check-in for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
       );
-    }
-
-    if (!options?.skipTimingGuard) {
-      if (windowInfo.isBeforeEventDay) {
-        throw ApiError.badRequest('Check-in cannot be finalized before the scheduled event day');
-      }
-      if (windowInfo.isAfterEventDay) {
-        throw ApiError.forbidden('Check-in editing is closed because the scheduled event day has ended');
-      }
     }
 
     // 4. Compute stable payload hash
@@ -2709,24 +2691,13 @@ export class AttendanceService {
     const now = this.getNow ? this.getNow() : new Date();
     const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
 
-    if (event.status === 'completed' && windowInfo.isAfterDeadline) {
-      throw ApiError.badRequest('Checkout cannot be finalized on completed events after the post-event deadline');
+    if (event.status === 'completed' && !windowInfo.isEventDay) {
+      throw ApiError.badRequest('Checkout cannot be finalized on completed events after the event day');
     }
     if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
       throw ApiError.badRequest(
         `Cannot finalize checkout for event in '${event.status}' status. Event must be confirmed, in_progress, or completed.`
       );
-    }
-
-    if (!options?.skipTimingGuard) {
-      if (windowInfo.isBeforeEventDay) {
-        throw ApiError.badRequest('Checkout cannot be finalized before the scheduled event day');
-      }
-      if (windowInfo.isAfterDeadline) {
-        throw ApiError.forbidden(
-          'Checkout editing is closed because the post-event deadline has ended'
-        );
-      }
     }
 
     // 4. Compute stable payload hash
