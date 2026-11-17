@@ -2677,7 +2677,8 @@ export class AttendanceService {
     userRole: string,
     eventId: string,
     idempotencyKey: string,
-    payload: FinalizeCheckOutPayload
+    payload: FinalizeCheckOutPayload,
+    options?: { skipTimingGuard?: boolean }
   ): Promise<FinalizeCheckOutSummary> {
     // 1. Mandatory Idempotency-Key header validation
     if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
@@ -2708,8 +2709,8 @@ export class AttendanceService {
     const now = this.getNow ? this.getNow() : new Date();
     const windowInfo = calculateEventCorrectionWindow(event, now, { latestDepartureDate });
 
-    if (event.status === 'completed' && !windowInfo.isEventDay) {
-      throw ApiError.badRequest('Checkout cannot be finalized on completed events after the event day');
+    if (event.status === 'completed' && windowInfo.isAfterDeadline) {
+      throw ApiError.badRequest('Checkout cannot be finalized on completed events after the post-event deadline');
     }
     if (!['confirmed', 'in_progress', 'completed'].includes(event.status)) {
       throw ApiError.badRequest(
@@ -2717,13 +2718,15 @@ export class AttendanceService {
       );
     }
 
-    if (windowInfo.isBeforeEventDay) {
-      throw ApiError.badRequest('Checkout cannot be finalized before the scheduled event day');
-    }
-    if (windowInfo.isAfterEventDay) {
-      throw ApiError.forbidden(
-        'Checkout editing is closed because the scheduled event day has ended'
-      );
+    if (!options?.skipTimingGuard) {
+      if (windowInfo.isBeforeEventDay) {
+        throw ApiError.badRequest('Checkout cannot be finalized before the scheduled event day');
+      }
+      if (windowInfo.isAfterDeadline) {
+        throw ApiError.forbidden(
+          'Checkout editing is closed because the post-event deadline has ended'
+        );
+      }
     }
 
     // 4. Compute stable payload hash
