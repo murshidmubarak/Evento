@@ -391,9 +391,8 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                   <tr
                     key={worker.workerId}
                     onClick={() => handleOpenWorkerModal(worker)}
-                    className={`cursor-pointer transition-colors ${
-                      isAbsent ? 'bg-gray-50/50 hover:bg-gray-100/60' : 'hover:bg-gray-50/70'
-                    }`}
+                    className={`cursor-pointer transition-colors ${isAbsent ? 'bg-gray-50/50 hover:bg-gray-100/60' : 'hover:bg-gray-50/70'
+                      }`}
                   >
                     {/* Worker Info */}
                     <td className="py-3 px-4">
