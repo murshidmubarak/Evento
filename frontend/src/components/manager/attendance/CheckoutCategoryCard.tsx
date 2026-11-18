@@ -215,119 +215,53 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
   const currentSavedTime = savedDeparture?.actualDepartureTime || category.actualDepartureTime;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200/90 shadow-xs overflow-hidden transition-all">
+    <div className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs overflow-hidden transition-all">
       {/* Category Card Header */}
-      <div className="p-5 bg-gradient-to-r from-gray-50/80 to-white border-b border-gray-200/80">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="p-4 sm:p-5 bg-white">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center font-bold text-xs shadow-2xs">
-                {category.workerType.charAt(0).toUpperCase()}
-              </span>
-              <h3 className="text-base font-bold text-gray-900">{category.workerType}</h3>
-              {isCategoryUnconfirmed ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300">
-                  <Lock size={12} />
-                  <span>Checkout Locked — Confirm Check-in First</span>
-                </span>
-              ) : isCategoryChangesPending ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-300">
-                  <Lock size={12} />
-                  <span>Checkout Locked — Re-confirmation Required</span>
-                </span>
-              ) : isLocked ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-300">
-                  <Lock size={12} />
-                  <span>Locked</span>
-                </span>
-              ) : currentSavedTime ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                  <CheckCircle2 size={12} />
-                  <span>Departure: {formatTimeTo12Hour(currentSavedTime)}</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
-                  <Clock size={12} />
-                  <span>Check-in Confirmed · Departure Pending</span>
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
-              <span>Assigned: <strong className="text-gray-900">{category.totalAssigned}</strong></span>
-              <span>•</span>
-              <span>Eligible: <strong className="text-gray-900">{category.eligibleCount}</strong></span>
-              <span>•</span>
-              <span>Absent: <strong className="text-gray-900">{category.absentCount}</strong></span>
-              <span>•</span>
-              <span>Normal: <strong className="text-emerald-700">{category.normalCount}</strong></span>
-              <span>•</span>
-              <span>Early: <strong className="text-amber-700">{category.earlyCount}</strong></span>
-              <span>•</span>
-              <span>Overtime: <strong className="text-blue-700">{category.overtimeCount}</strong></span>
+            <h3 className="text-base sm:text-lg font-bold text-gray-900">{category.workerType}</h3>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
+              <span>Assigned <strong className="text-gray-900 font-bold ml-0.5">{category.totalAssigned}</strong></span>
+              <span>Eligible <strong className="text-gray-900 font-bold ml-0.5">{category.eligibleCount}</strong></span>
+              <span>Absent <strong className="text-rose-600 font-bold ml-0.5">{category.absentCount}</strong></span>
+              <span>Normal <strong className="text-emerald-600 font-bold ml-0.5">{category.normalCount}</strong></span>
+              <span>Early <strong className="text-amber-600 font-bold ml-0.5">{category.earlyCount}</strong></span>
+              <span>Overtime <strong className="text-purple-600 font-bold ml-0.5">{category.overtimeCount}</strong></span>
               {category.pendingCount > 0 && (
-                <>
-                  <span>•</span>
-                  <span>Pending: <strong className="text-red-700">{category.pendingCount}</strong></span>
-                </>
+                <span>Pending <strong className="text-gray-700 font-bold ml-0.5">{category.pendingCount}</strong></span>
               )}
             </div>
           </div>
 
-          {/* Departure Date & Time Input Form */}
-          {!isLocked && (
-            <form onSubmit={handleSaveCategoryDeparture} className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  value={departureDateInput}
-                  onChange={(e) => {
-                    setDepartureDateInput(e.target.value);
-                    setSaveError(null);
-                  }}
-                  disabled={disabled || isSaving || isCategoryCheckoutLocked}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-gray-900 bg-white text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed cursor-pointer"
-                  title="Actual Departure Date"
-                />
-                <div className="relative">
-                  <Clock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input
-                    type="time"
-                    value={formatTimeTo24Hour(departureInput)}
-                    onChange={(e) => {
-                      setDepartureInput(e.target.value);
-                      setSaveError(null);
-                    }}
-                    disabled={disabled || isSaving || isCategoryCheckoutLocked}
-                    placeholder="e.g. 16:00 or 04:00 PM"
-                    className="pl-8 pr-3 py-1.5 text-xs font-semibold rounded-xl border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-gray-900 w-36 transition-all bg-white text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed cursor-pointer"
-                  />
-                </div>
-                {departureInput && (
-                  <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2.5 py-1 rounded-xl border border-gray-200">
-                    {formatTimeTo12Hour(departureInput)}
-                  </span>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={disabled || isSaving || isCategoryCheckoutLocked || !departureInput.trim() || !departureDateInput.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed rounded-xl transition-all shadow-2xs"
-              >
-                {isSaving ? (
-                  <>
-                    <RotateCw size={12} className="animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={12} />
-                    <span>{currentSavedTime ? 'Update Departure' : 'Save Departure'}</span>
-                  </>
-                )}
-              </button>
-            </form>
-          )}
+          <div className="shrink-0 self-start sm:self-auto">
+            {isCategoryUnconfirmed ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300">
+                <Lock size={12} />
+                <span>Checkout Locked — Confirm Check-in First</span>
+              </span>
+            ) : isCategoryChangesPending ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-300">
+                <Lock size={12} />
+                <span>Checkout Locked — Re-confirmation Required</span>
+              </span>
+            ) : isLocked ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-300">
+                <Lock size={12} />
+                <span>Locked</span>
+              </span>
+            ) : currentSavedTime ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                <CheckCircle2 size={13} className="text-emerald-600" />
+                <span>Departure: {formatTimeTo12Hour(currentSavedTime)}</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                <Clock size={12} />
+                <span>Check-in Confirmed · Departure Pending</span>
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Notices */}
@@ -352,7 +286,6 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
           </div>
         )}
 
-        {/* Notices */}
         {saveError && (
           <div className="mt-3 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
             <AlertCircle size={14} className="shrink-0" />
@@ -367,17 +300,80 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
         )}
       </div>
 
+      {/* Actual Departure Section */}
+      {!isLocked && (
+        <div className="p-4 sm:p-5 bg-gray-50/40 border-t border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <h4 className="text-xs font-bold text-gray-900">Actual departure</h4>
+            <p className="text-[11px] text-gray-500">
+              Applies to all normal workers in this category.
+            </p>
+          </div>
+
+          <form onSubmit={handleSaveCategoryDeparture} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">Departure date</label>
+              <input
+                type="date"
+                value={departureDateInput}
+                onChange={(e) => {
+                  setDepartureDateInput(e.target.value);
+                  setSaveError(null);
+                }}
+                disabled={disabled || isSaving || isCategoryCheckoutLocked}
+                className="px-3 py-1.5 text-xs text-gray-900 bg-white border border-gray-200 rounded-lg shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed cursor-pointer"
+                title="Departure date"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">Departure time</label>
+              <input
+                type="time"
+                value={formatTimeTo24Hour(departureInput)}
+                onChange={(e) => {
+                  setDepartureInput(e.target.value);
+                  setSaveError(null);
+                }}
+                disabled={disabled || isSaving || isCategoryCheckoutLocked}
+                placeholder="e.g. 16:00 or 04:00 PM"
+                className="px-3 py-1.5 text-xs text-gray-900 bg-white border border-gray-200 rounded-lg shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 w-36 disabled:bg-gray-100 disabled:cursor-not-allowed cursor-pointer"
+                title="Departure time"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={disabled || isSaving || isCategoryCheckoutLocked || !departureInput.trim() || !departureDateInput.trim()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors shadow-2xs shrink-0 cursor-pointer"
+            >
+              {isSaving ? (
+                <>
+                  <RotateCw size={13} className="animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={13} />
+                  <span>{currentSavedTime ? 'Update Departure' : 'Save Departure'}</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* Workers Roster Table */}
       <div className="overflow-x-auto no-scrollbar">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-gray-50/70 border-b border-gray-200/80 text-gray-600 font-semibold uppercase tracking-wider text-[11px]">
+        <table className="w-full text-left text-xs min-w-[640px]">
+          <thead className="bg-white border-b border-gray-100 text-gray-400 font-semibold uppercase tracking-wider text-[11px]">
             <tr>
-              <th className="py-2.5 px-4">Worker</th>
-              <th className="py-2.5 px-4">Arrival</th>
-              <th className="py-2.5 px-4">Check-in</th>
-              <th className="py-2.5 px-4">Actual Checkout</th>
-              <th className="py-2.5 px-4">Classification</th>
-              <th className="py-2.5 px-4 text-right">Action</th>
+              <th className="py-3 px-4">Worker</th>
+              <th className="py-3 px-4">Arrival</th>
+              <th className="py-3 px-4">Check-in</th>
+              <th className="py-3 px-4">Actual Checkout</th>
+              <th className="py-3 px-4">Classification</th>
+              <th className="py-3 px-4 text-left">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -401,22 +397,22 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                   >
                     {/* Worker Info */}
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-gray-900">{worker.workerName}</div>
-                      <div className="text-[11px] text-gray-500">{worker.businessId || '—'}</div>
+                      <div className="text-sm font-bold text-gray-900">{worker.workerName}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{worker.businessId || '—'}</div>
                     </td>
 
                     {/* Arrival Status */}
                     <td className="py-3 px-4">
                       {isAbsent ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100">
                           Absent
                         </span>
                       ) : worker.arrivalStatus === 'late' ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                           Late (+{worker.delayMinutes}m)
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                           On Time
                         </span>
                       )}
@@ -426,7 +422,7 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                     </td>
 
                     {/* Effective Check-in */}
-                    <td className="py-3 px-4 text-gray-700 font-medium">
+                    <td className="py-3 px-4 text-gray-700 font-normal">
                       {isAbsent ? '—' : formatRecordedTime(worker.checkIn)}
                     </td>
 
@@ -435,11 +431,11 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                       {isAbsent ? (
                         <span className="text-gray-400">—</span>
                       ) : worker.checkOut ? (
-                        <span className="font-bold text-gray-900">
+                        <span className="text-xs font-bold text-gray-900">
                           {formatRecordedTime(worker.checkOut)}
                         </span>
                       ) : (
-                        <span className="text-amber-700 font-medium italic">Pending departure</span>
+                        <span className="text-gray-400">—</span>
                       )}
                     </td>
 
@@ -448,17 +444,17 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                       {isAbsent ? (
                         <span className="text-gray-400">—</span>
                       ) : worker.departureStatus === 'early_departure' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/80">
                           <TrendingDown size={12} />
                           <span>Early</span>
                         </span>
                       ) : worker.departureStatus === 'overtime' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200/80">
                           <TrendingUp size={12} />
                           <span>Overtime</span>
                         </span>
                       ) : worker.departureStatus === 'normal' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
                           <CheckCircle2 size={12} />
                           <span>On Time</span>
                         </span>
@@ -468,14 +464,14 @@ export const CheckoutCategoryCard: React.FC<CheckoutCategoryCardProps> = ({
                     </td>
 
                     {/* Action */}
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4 text-left">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleOpenWorkerModal(worker);
                         }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg shadow-2xs hover:border-gray-300 transition-all cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-2xs hover:border-gray-300 transition-all cursor-pointer"
                         title="View details and manage departure"
                       >
                         <span>Action</span>

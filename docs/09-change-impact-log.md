@@ -2546,3 +2546,24 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 11.48s with 0 errors, exit code 0.
   - Frontend Test Suite (`npm --prefix frontend test -- --run`): 154/154 tests passing across 23 test suites, exit code 0.
+
+---
+
+### [2026-11-18] Frontend: Pixel-Perfect Alignment of Checkout Page UI with Reference Design Across All Screen Sizes
+- **Requested Change**:
+  - Match the exact UI layout, color palette, badges, and counters shown in the reference screenshot:
+    - Overall summary counters: Sentence-case labels (`Total staff`, `Eligible`, `Normal`, `Early departure`, `Overtime`, `Absent excluded`, `Pending out`), bold numbers with exact colors (gray-900, emerald-600, amber-600, purple-600, rose-600, gray-700), and responsive 7-column desktop grid.
+    - Category Departure Management toolbar: Updated subtitle text (`Normal workers inherit the actual departure time recorded for their category.`) with refined `Refresh` and emerald `Review & Finalize Checkout` buttons.
+    - Category Card Header: Clean white background without initial avatar badge; inline counters (`Assigned 1  Eligible 0  Absent 1  Normal 0  Early 0  Overtime 0`) with bold color coding; green pill departure badge (`✓ Departure: HH:MM AM/PM`).
+    - Actual departure row: Distinct partitioned section with `Actual departure` / `Applies to all normal workers in this category.` on left, and `Departure date` label + input, `Departure time` label + input, and blue `Update Departure` button on right.
+    - Workers Roster Table: Clean uppercase gray column headers (`WORKER`, `ARRIVAL`, `CHECK-IN`, `ACTUAL CHECKOUT`, `CLASSIFICATION`, `ACTION`), bold worker names with ID, clean colored pills (`Absent`, `Late (+Xm)`, `On Time`, `↗ Overtime`, `✓ On Time`, `↘ Early`), and `[Action >]` buttons.
+    - Full mobile responsiveness: Horizontally scrollable roster table (`min-w-[640px]`), stacked responsive departure form inputs, responsive summary grid, and centered mobile-friendly modals.
+  - Zero logical or backend changes.
+- **Impact Level**: LOW (Frontend UI styling and layout polish only).
+- **Directly Affected Files**:
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`
+  - `docs/09-change-impact-log.md`
+- **Verification Results**:
+  - Frontend Test Suite (`npm --prefix frontend test -- src/tests/attendanceCheckOutUI.test.tsx src/tests/attendanceCheckInUI.test.tsx --run`): 17/17 tests passing, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly with 0 errors, exit code 0.

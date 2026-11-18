@@ -972,35 +972,35 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
 
           {/* Checkout Overall Summary Counters */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Total Staff</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">{rosterData?.summary?.total ?? roster.length}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Total staff</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{rosterData?.summary?.total ?? roster.length}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Eligible</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Eligible</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
                 {(rosterData?.summary?.total ?? roster.length) - (rosterData?.summary?.absent ?? 0)}
               </p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Normal</p>
-              <p className="text-xl font-bold text-emerald-700 mt-0.5">{rosterData?.summary?.normalCount ?? 0}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Normal</p>
+              <p className="text-2xl font-bold text-emerald-600 mt-1">{rosterData?.summary?.normalCount ?? 0}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">Early Departure</p>
-              <p className="text-xl font-bold text-amber-700 mt-0.5">{rosterData?.summary?.earlyDepartureCount ?? 0}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Early departure</p>
+              <p className="text-2xl font-bold text-amber-600 mt-1">{rosterData?.summary?.earlyDepartureCount ?? 0}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-indigo-600 uppercase tracking-wider">Overtime</p>
-              <p className="text-xl font-bold text-indigo-700 mt-0.5">{rosterData?.summary?.overtimeCount ?? 0}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Overtime</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">{rosterData?.summary?.overtimeCount ?? 0}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wider">Absent Excluded</p>
-              <p className="text-xl font-bold text-rose-700 mt-0.5">{rosterData?.summary?.absent ?? 0}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Absent excluded</p>
+              <p className="text-2xl font-bold text-rose-600 mt-1">{rosterData?.summary?.absent ?? 0}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200/90 p-3 shadow-2xs">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pending Out</p>
-              <p className="text-xl font-bold text-gray-700 mt-0.5">{rosterData?.summary?.pendingCheckOutCount ?? 0}</p>
+            <div className="bg-white rounded-xl border border-gray-200/90 p-3.5 shadow-2xs">
+              <p className="text-xs text-gray-500 font-medium">Pending out</p>
+              <p className="text-2xl font-bold text-gray-700 mt-1">{rosterData?.summary?.pendingCheckOutCount ?? 0}</p>
             </div>
           </div>
 
@@ -1009,7 +1009,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
             <div className="space-y-0.5">
               <h3 className="text-sm font-bold text-gray-900">Category Departure Management</h3>
               <p className="text-xs text-gray-500">
-                Record actual departure times per category. Normal workers inherit this timestamp as their checkout.
+                Normal workers inherit the actual departure time recorded for their category.
               </p>
             </div>
 
@@ -1018,7 +1018,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                 type="button"
                 onClick={() => loadAttendanceData(true)}
                 disabled={isRefreshing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
               >
                 <RotateCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
                 <span>Refresh</span>
@@ -1028,7 +1028,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                 type="button"
                 onClick={handleOpenCheckoutReview}
                 disabled={!isFinishingTimeConfigured || roster.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors shrink-0"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-800 hover:bg-emerald-900 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors shrink-0 cursor-pointer"
                 title={
                   !isFinishingTimeConfigured
                     ? 'Record actual departure times for categories with eligible workers to finalize'
@@ -1036,7 +1036,7 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                 }
               >
                 <ShieldCheck size={14} />
-                Review & Finalize Checkout
+                <span>Review & Finalize Checkout</span>
               </button>
             </div>
           </div>
