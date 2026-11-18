@@ -2523,3 +2523,26 @@ Implemented complete browser and device push notification system for EventOps ER
   - Backend Concern Tests (`npm --prefix backend run test:file tests/attendanceConcernsAndDeadlines.test.ts`): 25/25 tests passing across 7 suites in 14.1s with clean teardown, exit code 0.
   - Frontend Test Suite (`npm --prefix frontend test -- --run`): 154/154 tests passing across 23 suites in 72s, exit code 0.
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 12.23s with 0 errors, exit code 0.
+
+---
+
+### [2026-11-18] Frontend: Streamline Checkout Category Table UI & Dedicated Worker Details Modal
+- **Requested Change**:
+  - In checkout page (`CheckoutCategoryCard`):
+    - Replace `Absent · Excluded` in arrival column with clean `Absent` badge.
+    - Remove `Source` column from the table.
+    - In classification column, display only clean badges: `Early`, `On Time`, or `Overtime` (without extra minute numbers).
+    - Remove `Duration` column and multiple action buttons (`Mark Early`, `Mark Overtime`, `Edit`, `Return to Normal`) from the table rows.
+    - Add a single clean `Action` trigger button per row (and make row clickable).
+    - Provide a simple, understandable, professional unified modal displaying:
+      - Prominent Total Shift Duration card with `Clock` icon and shift context.
+      - Worker details, arrival check-in timestamp, departure checkout timestamp, classification, and source.
+      - Streamlined actions: Mark Early Departure, Mark Overtime, Edit Departure Time, and Return to Category Default.
+- **Impact Level**: LOW (Frontend UI/UX presentation only; zero backend or database changes).
+- **Directly Affected Files**:
+  - `frontend/src/components/manager/attendance/CheckoutCategoryCard.tsx`: Updated table columns and row rendering; implemented the unified `selectedWorkerForModal` dialog.
+  - `frontend/src/tests/attendanceCheckOutUI.test.tsx`: Updated test interaction to click `Action` to open the modal before triggering exceptions.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 11.48s with 0 errors, exit code 0.
+  - Frontend Test Suite (`npm --prefix frontend test -- --run`): 154/154 tests passing across 23 test suites, exit code 0.

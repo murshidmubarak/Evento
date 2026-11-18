@@ -375,13 +375,18 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
       expect(screen.getByText('Farhan Ali')).toBeInTheDocument();
     });
 
-    // Find "Mark Early" button for Farhan Ali
+    // Click "Action" button for Farhan Ali to open details modal
+    const actionBtns = screen.getAllByRole('button', { name: /Action/i });
+    expect(actionBtns.length).toBeGreaterThan(0);
+    fireEvent.click(actionBtns[0]);
+
+    // Find "Mark Early" button inside modal
     const markEarlyBtns = screen.getAllByRole('button', { name: /Mark Early/i });
     expect(markEarlyBtns.length).toBeGreaterThan(0);
 
     fireEvent.click(markEarlyBtns[0]);
 
-    // Modal appears
+    // Form mode appears
     await waitFor(() => {
       expect(screen.getByText(/Mark Early Departure/i)).toBeInTheDocument();
     });
@@ -454,6 +459,15 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
         initialTab="checkout_form"
       />
     );
+
+    await waitFor(() => {
+      expect(screen.getByText('Farhan Ali')).toBeInTheDocument();
+    });
+
+    // Open modal via Action button
+    const actionBtns = screen.getAllByRole('button', { name: /Action/i });
+    expect(actionBtns.length).toBeGreaterThan(0);
+    fireEvent.click(actionBtns[0]);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Return to Normal/i })).toBeInTheDocument();
