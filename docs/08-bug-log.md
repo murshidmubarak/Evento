@@ -1794,4 +1794,69 @@ Fixed / Verified
 
 Every integration test suite creating a database connection MUST call `await mongoose.disconnect();` in its `after()` teardown hook to allow Node.js to cleanly drain the event loop and terminate. All Mongoose documents must strictly use valid schema enum values.
 
+---
+
+## BUG-038 — GitHub Actions CI Assertion Failure at `attendanceConcernsAndDeadlines.test.ts:636` Due to Wall-Clock Time Dependency in Past Event Fixtures
+
+### Date
+
+2026-11-18
+
+### Feature / Module
+
+Attendance Concerns & Deadlines Test Suite / `backend/tests/attendanceConcernsAndDeadlines.test.ts`
+
+### Severity
+
+High (Blocked GitHub Actions CI pipeline on push to `main`)
+
+### Status
+
+Fixed / Verified
+
+### Error / Symptom
+
+GitHub Actions backend test workflow failed with:
+
+```text
+at SuiteContext.<anonymous> (/home/runner/work/Evento/Evento/backend/tests/attendanceConcernsAndDeadlines.test.ts:636:14)
+at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+at async TestHook.run (node:internal/test_runner/test:1409:7)
+at async Suite.runHook (node:internal/test_runner/test:1289:9)
+at async Suite.run (node:internal/test_runner/test:1899:7)
+at async Suite.processPendingSubtests (node:internal/test_runner/test:974:7) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: null,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+Error: Process completed with exit code 1.
+```
+
+### Root Cause
+
+In `backend/tests/attendanceConcernsAndDeadlines.test.ts`, the `before()` fixture for Suite 3 created an event intended to represent a completed shift within the 24-hour correction window:
+```typescript
+const eventDate = new Date();
+const pastEvent = await Event.create({
+  date: eventDate,
+  startTime: '08:00',
+  endTime: '12:00', // Ended at 12:00 PM today
+  ...
+});
+```
+When CI executed in the morning at ~05:08 UTC (~10:38 AM IST), current time was before 12:00 PM IST. Under EventOps domain business rules, worker concerns cannot be raised before the scheduled event has ended (`validateConcernEligibility` checks `windowInfo.isBeforeEventEnd` and throws HTTP 400 `'Concerns can only be raised after the scheduled event has ended'`).
+
+Consequently, test 9 (`Eligible worker can submit concern for Late attendance within deadline`) was rejected with HTTP 400 instead of creating the concern. In the subsequent suite `4. Concern Conversation Foundation (§11)` line 636, `AttendanceConcern.findOne({ status: 'open' })` returned `null`, causing `assert.ok(concern)` to fail with `ERR_ASSERTION: actual: null, expected: true`.
+
+### Solution
+
+Implemented a helper function `getPastEventTiming(hoursAgoEnd = 2, durationHours = 4)` that calculates `date`, `startTime`, and `endTime` dynamically relative to `Date.now()` in `Asia/Kolkata` (+05:30) timezone. This guarantees that `isBeforeEventEnd` is always `false` and `isAfterDeadline` is always `false` (within 24-hour correction window) regardless of the wall-clock execution time or CI runner timezone. Updated `pastEvent` (Suite 3), `resEvent` (Suite 5), and `vEvent` (Suite 6) to use `getPastEventTiming`.
+
+### Rule
+
+Test fixtures validating time-of-day-gated business rules (such as post-event eligibility or deadlines) must never hardcode wall-clock hours against `new Date()`. Fixture timestamps must be dynamically offset relative to `Date.now()` or locked using a deterministic test clock.
+
 

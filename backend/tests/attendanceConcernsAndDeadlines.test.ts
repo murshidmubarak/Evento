@@ -51,6 +51,30 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
     return jwt.sign({ userId, role }, env.jwtSecret, { expiresIn: '1h' });
   };
 
+  const getPastEventTiming = (hoursAgoEnd = 2, durationHours = 4) => {
+    const now = new Date();
+    const endTimeDate = new Date(now.getTime() - hoursAgoEnd * 60 * 60 * 1000);
+    const startTimeDate = new Date(endTimeDate.getTime() - durationHours * 60 * 60 * 1000);
+
+    const getKolkataTime = (d: Date) => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(d);
+      const hour = parts.find((p) => p.type === 'hour')!.value;
+      const minute = parts.find((p) => p.type === 'minute')!.value;
+      return `${hour}:${minute}`;
+    };
+
+    return {
+      date: startTimeDate,
+      startTime: getKolkataTime(startTimeDate),
+      endTime: getKolkataTime(endTimeDate),
+    };
+  };
+
   before(async () => {
     await connectDB();
     server = app.listen(0);
@@ -411,15 +435,15 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
 
     before(async () => {
       // Create an event that ended 2 hours ago (within 24h window)
-      const eventDate = new Date();
+      const pastTiming = getPastEventTiming(2, 4);
       const pastEvent = await Event.create({
         clientId,
         eventManagerId: managerId,
         title: 'Afternoon Gala',
         eventType: 'Wedding',
-        date: eventDate,
-        startTime: '08:00',
-        endTime: '12:00', // Ended at 12:00 PM today
+        date: pastTiming.date,
+        startTime: pastTiming.startTime,
+        endTime: pastTiming.endTime,
         guestCount: 150,
         status: 'confirmed',
         location: { address: 'Palace Grounds' },
@@ -432,7 +456,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         requirementId: reqId,
         workerId: worker2Id,
         workerType: 'Cameraman / Photographer',
-        reportingTimeSnapshot: '08:00',
+        reportingTimeSnapshot: pastTiming.startTime,
         arrivalStatus: 'late',
         status: 'checked_out',
         delayMinutes: 45,
@@ -445,7 +469,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         requirementId: reqId,
         workerId: worker1Id,
         workerType: 'Cameraman / Photographer',
-        reportingTimeSnapshot: '08:00',
+        reportingTimeSnapshot: pastTiming.startTime,
         arrivalStatus: 'on_time',
         status: 'checked_out',
       });
@@ -696,15 +720,15 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
 
     before(async () => {
       // Event ended 3 hours ago
-      const eventDate = new Date();
+      const pastTiming = getPastEventTiming(3, 4);
       const resEvent = await Event.create({
         clientId,
         eventManagerId: managerId,
         title: 'Spring Festival',
         eventType: 'Wedding',
-        date: eventDate,
-        startTime: '08:00',
-        endTime: '11:00',
+        date: pastTiming.date,
+        startTime: pastTiming.startTime,
+        endTime: pastTiming.endTime,
         guestCount: 200,
         status: 'confirmed',
         location: { address: 'Garden Hall' },
@@ -716,7 +740,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         eventId: resEvent._id,
         checkInFinalized: false,
         checkOutFinalized: true,
-        actualNormalFinishTime: '11:00',
+        actualNormalFinishTime: pastTiming.endTime,
         lifecycleStatus: 'checkout_finalized',
       });
 
@@ -726,7 +750,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         requirementId: reqId,
         workerId: worker2Id,
         workerType: 'Cameraman / Photographer',
-        reportingTimeSnapshot: '08:00',
+        reportingTimeSnapshot: pastTiming.startTime,
         arrivalStatus: 'absent',
         status: 'absent',
       });
@@ -738,7 +762,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         workerId: worker2Id,
         managerId,
         concernCategory: 'absent_dispute',
-        explanation: 'I worked the entire morning shift from 8 AM to 11 AM.',
+        explanation: 'I worked the entire morning shift.',
         status: 'open',
         messages: [{ senderId: worker2Id, senderRole: 'worker', message: 'Worked full shift', sentAt: new Date() }],
       });
@@ -751,7 +775,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         requirementId: reqId,
         workerId: worker3Id,
         workerType: 'Cameraman / Photographer',
-        reportingTimeSnapshot: '08:00',
+        reportingTimeSnapshot: pastTiming.startTime,
         arrivalStatus: 'late',
         status: 'checked_out',
         delayMinutes: 60,
@@ -910,15 +934,15 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
     let openConcernId: string;
 
     before(async () => {
-      const eventDate = new Date();
+      const pastTiming = getPastEventTiming(2, 5);
       const vEvent = await Event.create({
         clientId,
         eventManagerId: managerId,
         title: 'Royal Wedding Reception',
         eventType: 'Wedding',
-        date: eventDate,
-        startTime: '10:00',
-        endTime: '15:00',
+        date: pastTiming.date,
+        startTime: pastTiming.startTime,
+        endTime: pastTiming.endTime,
         guestCount: 300,
         status: 'confirmed',
         location: { address: 'Palace Grounds' },
@@ -931,7 +955,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         requirementId: reqId,
         workerId: worker1Id,
         workerType: 'Cameraman / Photographer',
-        reportingTimeSnapshot: '10:00',
+        reportingTimeSnapshot: pastTiming.startTime,
         arrivalStatus: 'late',
         status: 'checked_out',
         checkIn: new Date(),
@@ -943,7 +967,7 @@ describe('Milestone 4 — Prompt 2: Worker Concerns, 24h Normal Correction Windo
         eventId: vEvent._id,
         checkInFinalized: false,
         checkOutFinalized: true,
-        actualNormalFinishTime: '15:00',
+        actualNormalFinishTime: pastTiming.endTime,
         lifecycleStatus: 'checkout_finalized',
       });
 

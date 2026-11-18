@@ -2483,3 +2483,19 @@ Implemented complete browser and device push notification system for EventOps ER
 - **Verification Results**:
   - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 8.69s with 0 errors, exit code 0.
   - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 test suites, exit code 0.
+
+---
+
+### [2026-11-18] Backend Tests: Resolve Wall-Clock Time Dependency in Attendance Concerns Test Suite
+- **Requested Change**:
+  - Diagnose and resolve the GitHub Actions CI assertion failure in `attendanceConcernsAndDeadlines.test.ts:636` (`ERR_ASSERTION: actual: null, expected: true`).
+  - Replace static `endTime: '12:00'` on `new Date()` event fixtures with dynamic timestamps relative to `Date.now()` so test suites execute deterministically across all time zones and wall-clock times of the day.
+- **Impact Level**: LOW (Test fixture timestamp resilience; zero production runtime or database schema changes).
+- **Directly Affected Files**:
+  - `backend/tests/attendanceConcernsAndDeadlines.test.ts`: Added `getPastEventTiming(hoursAgoEnd, durationHours)` helper calculating `date`, `startTime`, and `endTime` in `Asia/Kolkata` (+05:30) timezone; updated fixtures in Suite 3 (`pastEvent`), Suite 5 (`resEvent`), and Suite 6 (`vEvent`).
+  - `docs/08-bug-log.md`: Recorded `BUG-038` with root cause, symptom, solution, and rule.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): compiled with 0 errors, exit code 0.
+  - Backend Test Suite (`npm --prefix backend run test:file tests/attendanceConcernsAndDeadlines.test.ts`): 25/25 tests passing across 7 suites in 8.8s with clean teardown, exit code 0.
+  - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 suites, exit code 0.
