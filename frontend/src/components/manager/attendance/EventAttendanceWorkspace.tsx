@@ -43,7 +43,6 @@ import {
   RotateCw,
   CheckCircle2,
   ShieldCheck,
-  Undo2,
   Clock,
   Lock,
 } from 'lucide-react';
@@ -952,53 +951,24 @@ export const EventAttendanceWorkspace: React.FC<EventAttendanceWorkspaceProps> =
                 </button>
               </div>
             )}
-          {/* 24-Hour Modification Window Status Banner */}
-          <div
-            className={`border rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${rosterData?.canModifyCheckout
-              ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-emerald-50/90 border-emerald-200'
-              : 'bg-gradient-to-r from-amber-50/90 via-rose-50/80 to-amber-50/90 border-amber-300'
-              }`}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${rosterData?.canModifyCheckout
-                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                  : 'bg-amber-100 text-amber-800 border-amber-300'
-                  }`}
-              >
-                {rosterData?.canModifyCheckout ? <Clock size={20} /> : <Lock size={20} />}
-              </div>
-              <div className="space-y-0.5">
-                <h4
-                  className={`text-sm font-bold ${rosterData?.canModifyCheckout ? 'text-emerald-950' : 'text-amber-950'
-                    }`}
-                >
-                  {rosterData?.canModifyCheckout
-                    ? 'Category Checkout Workspace — Active on Event Day'
-                    : 'Checkout Editing Closed (Locked)'}
-                </h4>
-                <p
-                  className={`text-xs ${rosterData?.canModifyCheckout ? 'text-emerald-800' : 'text-amber-800'
-                    }`}
-                >
-                  {rosterData?.canModifyCheckout
-                    ? 'Departure time entry and modifications are permitted during the scheduled event day. Record actual category departure times below.'
-                    : 'Checkout departure times can only be set on the scheduled event day and are permanently closed after the event day. Further edits are disabled.'}
-                </p>
+          {/* Post-Event Day Lock Notice */}
+          {!rosterData?.canModifyCheckout && (
+            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border bg-amber-100 text-amber-800 border-amber-300">
+                  <Lock size={20} />
+                </div>
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-bold text-amber-950">
+                    Checkout Editing Closed (Locked)
+                  </h4>
+                  <p className="text-xs text-amber-800">
+                    Checkout departure times can only be set on the scheduled event day and are permanently closed after the event day. Further edits are disabled.
+                  </p>
+                </div>
               </div>
             </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-              <button
-                type="button"
-                onClick={() => setActiveStageTab('checkin')}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl shadow-2xs transition-colors shrink-0"
-              >
-                <Undo2 size={13} />
-                <span>← Back to Check-in</span>
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* Checkout Overall Summary Counters */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">

@@ -266,9 +266,8 @@ describe('Category-Wise, Exception-Based Checkout Frontend Integration', { timeo
       fireEvent.click(checkoutBtn);
     });
 
-    // Verify workspace header & event day banner
+    // Verify category departure workspace & categories
     await waitFor(() => {
-      expect(screen.getByText(/Category Checkout Workspace — Active on Event Day/i)).toBeInTheDocument();
       expect(screen.getByText(/Category Departure Management/i)).toBeInTheDocument();
       expect(screen.getByText(/Catering Boy/i)).toBeInTheDocument();
       expect(screen.getByText(/Photographer/i)).toBeInTheDocument();

@@ -2469,3 +2469,17 @@ Implemented complete browser and device push notification system for EventOps ER
   - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 test files, exit code 0.
   - Uniform Badge Dimensions: Set all attendance status badges (`Saved On-Time`, `Late`, `Absent`, `Locked`, `Present`) to fixed `w-[132px]` with `justify-center` for consistent alignment across all rows.
   - Category Badge Revision Removal: Removed revision text (`· Rev X`) from category check-in status pills, simplifying labels to `Confirmed` and `Re-confirm` with `whitespace-nowrap shrink-0` to eliminate wrapping.
+
+---
+
+### [2026-11-18] Attendance Checkout: Removal of Redundant Green Modification Window Banner
+- **Requested Change**:
+  - Remove the green-tinted banner (`Category Checkout Workspace — Active on Event Day` / `Departure time entry and modifications are permitted during the scheduled event day...` with `← Back to Check-in` button) from the Checkout tab.
+- **Impact Level**: LOW (UI banner cleanup).
+- **Directly Affected Files**:
+  - `frontend/src/components/manager/attendance/EventAttendanceWorkspace.tsx`: Removed the active green banner and redundant `← Back to Check-in` button; preserved lock notice when `!rosterData?.canModifyCheckout`; removed unused `Undo2` icon import.
+  - `frontend/src/tests/attendanceCheckOutUI.test.tsx`: Updated test assertion in Category-Wise Checkout Workspace rendering.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 8.69s with 0 errors, exit code 0.
+  - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 test suites, exit code 0.
