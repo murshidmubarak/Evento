@@ -16,6 +16,8 @@ import {
   type IAttendance,
   type ArrivalStatus,
   type DepartureStatus,
+  type OperationalAttendanceStatus,
+  type TimestampSource,
 } from '../model/attendance.model.js';
 import {
   AttendanceSessionRepository,
@@ -197,6 +199,7 @@ export interface AttendanceRosterItem {
   statusLockedReason?: string;
   hasOpenConcern?: boolean;
   activeConcernId?: string | null;
+  autoAbsentDueToDeparture?: boolean;
 }
 
 export interface CorrectAttendancePayload {
@@ -653,6 +656,104 @@ export class AttendanceService {
       const user = userMap.get(entry.workerId);
       const att = attendanceMap.get(entry.workerId);
 
+      const catDep = (session.categoryActualDepartures || []).find(
+        (d) => d.workerType.trim().toLowerCase() === entry.workerType.trim().toLowerCase()
+      );
+
+      let effectiveStatus = att?.status || 'not_started';
+      let effectiveArrivalStatus = att?.arrivalStatus || 'unrecorded';
+      let effectiveCheckIn = att?.checkIn || null;
+      let effectiveCheckInSource = att?.checkInSource || 'not_recorded';
+      let effectiveDelayMinutes = att?.delayMinutes ?? 0;
+      let effectiveCheckOut = att?.checkOut || null;
+      let effectiveCheckOutSource = att?.checkOutSource || 'not_recorded';
+      let effectiveDepartureStatus = att?.departureStatus || 'not_recorded';
+      let effectiveDurationMinutes = att?.durationMinutes ?? 0;
+      let effectiveAutoAbsent = Boolean(att?.autoAbsentDueToDeparture);
+
+      if (att && catDep) {
+        if (att.autoAbsentDueToDeparture && att.autoAbsentCheckInSnapshot) {
+          // If category departure is now strictly after snapshot check-in time, restore to normal!
+          if (catDep.actualDepartureDate.getTime() > att.autoAbsentCheckInSnapshot.getTime()) {
+            effectiveCheckIn = att.autoAbsentCheckInSnapshot;
+            effectiveCheckInSource = att.autoAbsentCheckInSource || 'manager_actual';
+            effectiveDelayMinutes = att.autoAbsentDelayMinutes ?? 0;
+            effectiveArrivalStatus = effectiveDelayMinutes > 0 ? 'late' : 'on_time';
+            effectiveCheckOut = catDep.actualDepartureDate;
+            effectiveCheckOutSource = 'category_default';
+            effectiveDepartureStatus = 'normal';
+            effectiveDurationMinutes = Math.floor((catDep.actualDepartureDate.getTime() - effectiveCheckIn.getTime()) / 60000);
+            effectiveStatus = 'checked_out';
+            effectiveAutoAbsent = false;
+
+            Attendance.updateOne(
+              { _id: att._id },
+              {
+                $set: {
+                  checkIn: effectiveCheckIn,
+                  checkInSource: effectiveCheckInSource,
+                  delayMinutes: effectiveDelayMinutes,
+                  arrivalStatus: effectiveArrivalStatus,
+                  checkOut: effectiveCheckOut,
+                  checkOutSource: effectiveCheckOutSource,
+                  departureStatus: effectiveDepartureStatus,
+                  durationMinutes: effectiveDurationMinutes,
+                  status: effectiveStatus,
+                  autoAbsentDueToDeparture: false,
+                },
+                $unset: {
+                  autoAbsentCheckInSnapshot: 1,
+                  autoAbsentCheckInSource: 1,
+                  autoAbsentDelayMinutes: 1,
+                },
+              }
+            ).exec().catch(() => {});
+          }
+        } else if (
+          att.checkIn &&
+          effectiveArrivalStatus !== 'absent' &&
+          catDep.actualDepartureDate.getTime() <= att.checkIn.getTime() &&
+          att.checkOutSource !== 'individual_exception'
+        ) {
+          // Checked in at or after category departure:
+          // Rule: Mark that person automatically absent!
+          effectiveArrivalStatus = 'absent';
+          effectiveStatus = 'absent';
+          effectiveAutoAbsent = true;
+          const checkInSnap = att.checkIn;
+          const checkInSrc = att.checkInSource;
+          const delaySnap = att.delayMinutes;
+          effectiveCheckIn = null;
+          effectiveCheckInSource = 'not_recorded';
+          effectiveDelayMinutes = 0;
+          effectiveCheckOut = null;
+          effectiveCheckOutSource = 'not_recorded';
+          effectiveDepartureStatus = 'not_recorded';
+          effectiveDurationMinutes = 0;
+
+          Attendance.updateOne(
+            { _id: att._id },
+            {
+              $set: {
+                status: 'absent',
+                arrivalStatus: 'absent',
+                checkIn: null,
+                checkInSource: 'not_recorded',
+                delayMinutes: 0,
+                checkOut: null,
+                checkOutSource: 'not_recorded',
+                departureStatus: 'not_recorded',
+                durationMinutes: 0,
+                autoAbsentDueToDeparture: true,
+                autoAbsentCheckInSnapshot: checkInSnap,
+                autoAbsentCheckInSource: checkInSrc,
+                autoAbsentDelayMinutes: delaySnap,
+              },
+            }
+          ).exec().catch(() => {});
+        }
+      }
+
       return {
         workerId: entry.workerId,
         workerName: user?.name || 'Assigned Worker',
@@ -666,17 +767,17 @@ export class AttendanceService {
         applicableNormalFinishTimeSnapshot: att?.applicableNormalFinishTimeSnapshot,
         applicableNormalFinishDate: att?.applicableNormalFinishDate || null,
         attendanceId: att?._id?.toString() || null,
-        status: att?.status || 'not_started',
-        arrivalStatus: att?.arrivalStatus || 'unrecorded',
-        checkIn: att?.checkIn || null,
-        checkInSource: att?.checkInSource || 'not_recorded',
-        delayMinutes: att?.delayMinutes ?? 0,
-        checkOut: att?.checkOut || null,
-        checkOutSource: att?.checkOutSource || 'not_recorded',
-        departureStatus: att?.departureStatus || 'not_recorded',
+        status: effectiveStatus,
+        arrivalStatus: effectiveArrivalStatus,
+        checkIn: effectiveCheckIn,
+        checkInSource: effectiveCheckInSource,
+        delayMinutes: effectiveDelayMinutes,
+        checkOut: effectiveCheckOut,
+        checkOutSource: effectiveCheckOutSource,
+        departureStatus: effectiveDepartureStatus,
         earlyDepartureMinutes: att?.earlyDepartureMinutes ?? 0,
         overtimeMinutes: att?.overtimeMinutes ?? 0,
-        durationMinutes: att?.durationMinutes ?? 0,
+        durationMinutes: effectiveDurationMinutes,
         verificationStatus: att?.verificationStatus || 'pending_review',
         verifiedBy: att?.verifiedBy?.toString(),
         verifiedAt: att?.verifiedAt,
@@ -688,6 +789,7 @@ export class AttendanceService {
         statusLockedReason: att?.statusLockedReason,
         hasOpenConcern: Boolean(att?.hasOpenConcern),
         activeConcernId: att?.activeConcernId ? att.activeConcernId.toString() : null,
+        autoAbsentDueToDeparture: effectiveAutoAbsent,
       };
     });
 
@@ -805,7 +907,8 @@ export class AttendanceService {
         totalEligible++;
         if (catSum) catSum.eligibleCount++;
 
-        // Track partial eligibility: if category departure is set and worker checked in at or after departure
+        // If category departure is set and worker checked in at or after departure
+        // Rule: Mark that person automatically absent!
         if (
           catSum &&
           catSum.actualDepartureDate &&
@@ -813,8 +916,19 @@ export class AttendanceService {
           catSum.actualDepartureDate.getTime() <= item.checkIn.getTime() &&
           item.checkOutSource !== 'individual_exception'
         ) {
-          catSum.ineligibleOvertimeRequiredCount = (catSum.ineligibleOvertimeRequiredCount || 0) + 1;
-          (item as any).ineligibleForCategoryCheckout = true;
+          totalEligible--;
+          catSum.eligibleCount--;
+          totalAbsent++;
+          catSum.absentCount++;
+          item.arrivalStatus = 'absent';
+          item.status = 'absent';
+          item.checkIn = null;
+          item.checkOut = null;
+          item.checkOutSource = 'not_recorded';
+          item.departureStatus = 'not_recorded';
+          item.durationMinutes = 0;
+          item.autoAbsentDueToDeparture = true;
+          continue;
         }
 
         if (item.departureStatus === 'normal') {
@@ -1102,11 +1216,55 @@ export class AttendanceService {
 
     const managerObjectId = new mongoose.Types.ObjectId(userId);
 
+    // Check if category departure is already recorded for this category
+    const catDeparture = (sessionDoc?.categoryActualDepartures || []).find(
+      (d) => d.workerType.trim().toLowerCase() === assignedReq.workerType.trim().toLowerCase()
+    );
+
+    let effectiveArrivalStatus: ArrivalStatus = finalArrivalStatus;
+    let effectiveStatus: OperationalAttendanceStatus = finalStatus;
+    let effectiveCheckIn = checkIn;
+    let effectiveCheckInSource = checkInSource;
+    let effectiveDelayMinutes = delayMinutes;
+    let checkOut: Date | null = null;
+    let checkOutSource: TimestampSource = 'not_recorded';
+    let departureStatus: DepartureStatus = 'not_recorded';
+    let durationMinutes = 0;
+    let autoAbsentDueToDeparture = false;
+    let autoAbsentCheckInSnapshot: Date | null = null;
+    let autoAbsentCheckInSource: TimestampSource | null = null;
+    let autoAbsentDelayMinutes = 0;
+
+    if (catDeparture && checkIn && finalArrivalStatus !== 'absent') {
+      if (catDeparture.actualDepartureDate.getTime() <= checkIn.getTime()) {
+        // Checked in at or after category departure:
+        // Rule: mark that person automatically absent!
+        effectiveArrivalStatus = 'absent';
+        effectiveStatus = 'absent';
+        autoAbsentDueToDeparture = true;
+        autoAbsentCheckInSnapshot = checkIn;
+        autoAbsentCheckInSource = checkInSource;
+        autoAbsentDelayMinutes = delayMinutes;
+        effectiveCheckIn = null;
+        effectiveCheckInSource = 'not_recorded';
+        effectiveDelayMinutes = 0;
+      } else {
+        // Checked in BEFORE category departure:
+        // "back to normal case as like what happen now"!
+        checkOut = catDeparture.actualDepartureDate;
+        checkOutSource = 'category_default';
+        departureStatus = 'normal';
+        durationMinutes = Math.floor((catDeparture.actualDepartureDate.getTime() - checkIn.getTime()) / 60000);
+        effectiveStatus = 'checked_out';
+        autoAbsentDueToDeparture = false;
+      }
+    }
+
     // Check if status changed compared to existing record
     const isStatusChanged =
       !existingRecord ||
-      existingRecord.arrivalStatus !== finalArrivalStatus ||
-      (finalArrivalStatus === 'late' && existingRecord.checkIn?.getTime() !== checkIn?.getTime());
+      existingRecord.arrivalStatus !== effectiveArrivalStatus ||
+      (effectiveArrivalStatus === 'late' && existingRecord.checkIn?.getTime() !== effectiveCheckIn?.getTime());
 
     let correction: any = undefined;
     if (existingRecord && isStatusChanged && existingRecord.arrivalStatus !== 'unrecorded') {
@@ -1122,16 +1280,18 @@ export class AttendanceService {
         previousStatus: existingRecord.status,
         previousArrivalStatus: existingRecord.arrivalStatus,
         previousDepartureStatus: existingRecord.departureStatus,
-        newValue: checkIn ? formatTime(checkIn) : finalArrivalStatus,
-        newSource: checkInSource,
-        newStatus: finalStatus,
-        newArrivalStatus: finalArrivalStatus,
+        newValue: effectiveCheckIn ? formatTime(effectiveCheckIn) : effectiveArrivalStatus,
+        newSource: effectiveCheckInSource,
+        newStatus: effectiveStatus,
+        newArrivalStatus: effectiveArrivalStatus,
         newDepartureStatus: existingRecord.departureStatus,
         reason:
           (payload as any).reason ||
-          (finalArrivalStatus === 'late'
+          (effectiveArrivalStatus === 'late'
             ? `Updated arrival time to ${payload.actualArrivalTime}`
-            : `Updated status to ${finalArrivalStatus}`),
+            : autoAbsentDueToDeparture
+              ? `Automatically marked absent: check-in at or after category departure (${catDeparture?.actualDepartureTime})`
+              : `Updated status to ${effectiveArrivalStatus}`),
       };
     }
 
@@ -1142,15 +1302,22 @@ export class AttendanceService {
       workerId: new mongoose.Types.ObjectId(workerId),
       workerType: assignedReq.workerType,
       reportingTimeSnapshot: assignedReq.reportingTime,
-      checkIn,
-      checkInSource,
-      arrivalStatus: finalArrivalStatus,
-      delayMinutes,
+      checkIn: effectiveCheckIn,
+      checkInSource: effectiveCheckInSource,
+      arrivalStatus: effectiveArrivalStatus,
+      delayMinutes: effectiveDelayMinutes,
+      checkOut,
+      checkOutSource,
+      departureStatus,
+      durationMinutes,
+      autoAbsentDueToDeparture,
+      autoAbsentCheckInSnapshot,
+      autoAbsentCheckInSource,
+      autoAbsentDelayMinutes,
       checkInRecordedBy: managerObjectId,
       checkInRecordedAt: now,
-      status: finalStatus,
+      status: effectiveStatus,
       verificationStatus: 'pending_review',
-      durationMinutes: 0,
     };
 
     const savedRecord = await this.attRepo.upsertIndividualCheckIn(eventId, workerId, updateData, correction);
@@ -2288,6 +2455,27 @@ export class AttendanceService {
 
       // 2. Update workers
       for (const att of catAttendances) {
+        // If worker was auto-marked absent due to departure, check if the updated departure now allows restoration
+        if (att.autoAbsentDueToDeparture && att.autoAbsentCheckInSnapshot) {
+          if (actualDepartureDate.getTime() > att.autoAbsentCheckInSnapshot.getTime()) {
+            // Category departure is now strictly later than the worker's check-in:
+            // Restore worker back to normal!
+            att.checkIn = att.autoAbsentCheckInSnapshot;
+            att.checkInSource = att.autoAbsentCheckInSource || 'manager_actual';
+            att.delayMinutes = att.autoAbsentDelayMinutes ?? 0;
+            att.arrivalStatus = (att.autoAbsentDelayMinutes ?? 0) > 0 ? 'late' : 'on_time';
+            att.status = 'checked_in';
+            att.autoAbsentDueToDeparture = false;
+            att.autoAbsentCheckInSnapshot = undefined;
+            att.autoAbsentCheckInSource = undefined;
+            att.autoAbsentDelayMinutes = undefined;
+          } else {
+            // Still at or after departure time: remains auto-absent
+            absentCount++;
+            continue;
+          }
+        }
+
         const isAbsent = att.arrivalStatus === 'absent' || att.status === 'absent';
         if (isAbsent) {
           absentCount++;
@@ -2297,18 +2485,49 @@ export class AttendanceService {
         affectedCount++;
 
         if (att.checkOutSource !== 'individual_exception') {
-          // Partial eligibility check:
-          // If worker checked in at or after category departure, do not apply invalid category default!
-          // Leave worker pending an individual overtime exception.
+          // Rule: If worker checked in at or after category departure, mark that person automatically absent!
           if (att.checkIn && actualDepartureDate.getTime() <= att.checkIn.getTime()) {
-            if (att.checkOut && att.checkOutSource === 'category_default') {
-              att.checkOut = undefined;
-              att.checkOutSource = 'not_recorded';
-              att.departureStatus = 'not_recorded';
-              att.durationMinutes = 0;
-              att.status = 'checked_in';
-              await att.save({ session: dbSession });
-            }
+            absentCount++;
+            const prevArrivalStatus = att.arrivalStatus;
+            const prevCheckIn = att.checkIn;
+            const prevSource = att.checkInSource;
+            const prevDelay = att.delayMinutes;
+
+            att.autoAbsentDueToDeparture = true;
+            att.autoAbsentCheckInSnapshot = prevCheckIn;
+            att.autoAbsentCheckInSource = prevSource;
+            att.autoAbsentDelayMinutes = prevDelay;
+
+            att.arrivalStatus = 'absent';
+            att.status = 'absent';
+            att.checkIn = undefined;
+            att.checkInSource = 'not_recorded';
+            att.delayMinutes = 0;
+            att.checkOut = undefined;
+            att.checkOutSource = 'not_recorded';
+            att.departureStatus = 'not_recorded';
+            att.earlyDepartureMinutes = 0;
+            att.overtimeMinutes = 0;
+            att.durationMinutes = 0;
+
+            att.corrections.push({
+              modifiedBy: new mongoose.Types.ObjectId(userId),
+              modifiedAt: now,
+              field: 'arrivalStatus',
+              previousValue: prevCheckIn.toISOString(),
+              previousSource: prevSource,
+              previousStatus: 'checked_in',
+              previousArrivalStatus: prevArrivalStatus,
+              previousDepartureStatus: att.departureStatus,
+              newValue: 'absent',
+              newSource: 'not_recorded',
+              newStatus: 'absent',
+              newArrivalStatus: 'absent',
+              newDepartureStatus: 'not_recorded',
+              reason: `Automatically marked absent: check-in time was at or after category departure time (${departureTime24h})`,
+            });
+
+            await att.save({ session: dbSession });
             continue;
           }
 
@@ -2455,19 +2674,34 @@ export class AttendanceService {
       throw ApiError.notFound('Attendance record not found for this worker');
     }
 
-    // Rule: Absent worker cannot receive checkout
-    if (att.arrivalStatus === 'absent' || att.status === 'absent') {
-      throw ApiError.badRequest('Cannot record checkout exception for an absent worker');
-    }
+    // Construct checkout date using explicit date selection (Asia/Kolkata instant)
+    const departureDateBase =
+      payload.actualDepartureDate ||
+      getOperationalDateString(att.checkIn || att.autoAbsentCheckInSnapshot || event.date, 'Asia/Kolkata');
+    const actualCheckoutDate = constructKolkataDateTime(departureDateBase, outTime24h);
 
-    // Rule: Must have checked in
-    if (!att.checkIn) {
+    // Rule: Auto-absent worker due to departure chronology
+    if (att.autoAbsentDueToDeparture && att.autoAbsentCheckInSnapshot) {
+      if (actualCheckoutDate.getTime() <= att.autoAbsentCheckInSnapshot.getTime()) {
+        throw ApiError.badRequest(
+          `Individual departure time must be strictly later than the worker's check-in time`
+        );
+      }
+      // Checkout time changed to after check-in!
+      // Restore check-in from snapshot:
+      att.checkIn = att.autoAbsentCheckInSnapshot;
+      att.checkInSource = att.autoAbsentCheckInSource || 'manager_actual';
+      att.delayMinutes = att.autoAbsentDelayMinutes ?? 0;
+      att.arrivalStatus = (att.autoAbsentDelayMinutes ?? 0) > 0 ? 'late' : 'on_time';
+      att.autoAbsentDueToDeparture = false;
+      att.autoAbsentCheckInSnapshot = undefined;
+      att.autoAbsentCheckInSource = undefined;
+      att.autoAbsentDelayMinutes = undefined;
+    } else if (att.arrivalStatus === 'absent' || att.status === 'absent') {
+      throw ApiError.badRequest('Cannot record checkout exception for an absent worker');
+    } else if (!att.checkIn) {
       throw ApiError.badRequest('Worker has not checked in. Cannot record checkout before check-in.');
     }
-
-    // Construct checkout date using explicit date selection (Asia/Kolkata instant)
-    const departureDateBase = payload.actualDepartureDate || getOperationalDateString(att.checkIn || event.date, 'Asia/Kolkata');
-    const actualCheckoutDate = constructKolkataDateTime(departureDateBase, outTime24h);
 
     // Rule 2: Cannot be in future relative to authoritative server clock
     if (actualCheckoutDate.getTime() > now.getTime()) {
@@ -2609,18 +2843,35 @@ export class AttendanceService {
 
     if (catDeparture) {
       if (att.checkIn && catDeparture.actualDepartureDate.getTime() <= att.checkIn.getTime()) {
-        throw ApiError.badRequest('Cannot restore category default: worker checked in at or after category departure time');
+        // Clearing individual exception leaves worker checked in at or after category departure:
+        // Rule: mark that person automatically absent!
+        att.autoAbsentDueToDeparture = true;
+        att.autoAbsentCheckInSnapshot = att.checkIn;
+        att.autoAbsentCheckInSource = att.checkInSource;
+        att.autoAbsentDelayMinutes = att.delayMinutes;
+        att.arrivalStatus = 'absent';
+        att.status = 'absent';
+        att.checkIn = undefined;
+        att.checkInSource = 'not_recorded';
+        att.delayMinutes = 0;
+        att.checkOut = undefined;
+        att.checkOutSource = 'not_recorded';
+        att.departureStatus = 'not_recorded';
+        att.earlyDepartureMinutes = 0;
+        att.overtimeMinutes = 0;
+        att.durationMinutes = 0;
+      } else {
+        att.autoAbsentDueToDeparture = false;
+        att.checkOut = catDeparture.actualDepartureDate;
+        att.checkOutSource = 'category_default';
+        att.departureStatus = 'normal';
+        att.earlyDepartureMinutes = 0;
+        att.overtimeMinutes = 0;
+        att.durationMinutes = att.checkIn
+          ? Math.floor((catDeparture.actualDepartureDate.getTime() - att.checkIn.getTime()) / 60000)
+          : 0;
+        att.status = 'checked_out';
       }
-
-      att.checkOut = catDeparture.actualDepartureDate;
-      att.checkOutSource = 'category_default';
-      att.departureStatus = 'normal';
-      att.earlyDepartureMinutes = 0;
-      att.overtimeMinutes = 0;
-      att.durationMinutes = att.checkIn
-        ? Math.floor((catDeparture.actualDepartureDate.getTime() - att.checkIn.getTime()) / 60000)
-        : 0;
-      att.status = 'checked_out';
     } else {
       att.checkOut = undefined;
       att.checkOutSource = 'not_recorded';
@@ -3134,6 +3385,38 @@ export class AttendanceService {
           verificationStatus: 'pending_review',
         });
       } else {
+        // If worker checked in at or after applicable finish date:
+        // Rule: Mark that person automatically absent!
+        if (applicableFinishDate.getTime() <= checkInDate.getTime()) {
+          absentCount++;
+          attendanceUpdates.push({
+            eventId: new mongoose.Types.ObjectId(eventId),
+            workerId: new mongoose.Types.ObjectId(wId),
+            requirementId: new mongoose.Types.ObjectId(entry.requirementId),
+            workerType: entry.workerType,
+            reportingTimeSnapshot: repTimeStr,
+            applicableNormalFinishTimeSnapshot: applicableFinishTimeStr,
+            applicableNormalFinishDate: applicableFinishDate,
+            checkIn: null,
+            checkInSource: 'not_recorded',
+            arrivalStatus: 'absent',
+            delayMinutes: 0,
+            checkOut: null,
+            checkOutSource: 'not_recorded',
+            departureStatus: 'not_recorded',
+            earlyDepartureMinutes: 0,
+            overtimeMinutes: 0,
+            durationMinutes: 0,
+            status: 'absent',
+            verificationStatus: 'pending_review',
+            autoAbsentDueToDeparture: true,
+            autoAbsentCheckInSnapshot: checkInDate,
+            autoAbsentCheckInSource: checkInSource,
+            autoAbsentDelayMinutes: delayMinutes,
+          });
+          continue;
+        }
+
         // Normal default checkout
         normalCheckoutCount++;
         const durationMinutes = Math.round((applicableFinishDate.getTime() - checkInDate.getTime()) / 60000);
@@ -3380,26 +3663,69 @@ export class AttendanceService {
         );
       }
 
-      updatedFields.checkIn = arrivalDate;
-      updatedFields.checkInSource = 'manager_actual';
-      updatedFields.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
-      updatedFields.checkInRecordedAt = new Date();
-      updatedFields.arrivalStatus = newArrivalStatus;
-      updatedFields.delayMinutes = delayMinutes;
+      // Check category departure
+      const catDeparture = (sessionDoc?.categoryActualDepartures || []).find(
+        (d) => d.workerType.trim().toLowerCase() === record.workerType.trim().toLowerCase()
+      );
 
-      // Subcase 1A: Checkout is not yet finalized
-      if (!sessionDoc.checkOutFinalized) {
-        updatedFields.status = 'checked_in';
-        updatedFields.checkOut = undefined;
+      if (catDeparture && catDeparture.actualDepartureDate.getTime() <= arrivalDate.getTime()) {
+        // Checked in at or after category departure:
+        // Rule: mark that person automatically absent!
+        updatedFields.status = 'absent';
+        updatedFields.arrivalStatus = 'absent';
+        updatedFields.checkIn = null as any;
+        updatedFields.checkInSource = 'not_recorded';
+        updatedFields.delayMinutes = 0;
+        updatedFields.checkOut = null as any;
         updatedFields.checkOutSource = 'not_recorded';
         updatedFields.departureStatus = 'not_recorded';
-        updatedFields.earlyDepartureMinutes = 0;
-        updatedFields.overtimeMinutes = 0;
         updatedFields.durationMinutes = 0;
+        updatedFields.autoAbsentDueToDeparture = true;
+        updatedFields.autoAbsentCheckInSnapshot = arrivalDate;
+        updatedFields.autoAbsentCheckInSource = 'manager_actual';
+        updatedFields.autoAbsentDelayMinutes = delayMinutes;
         fieldName = 'status';
         prevValStr = 'absent';
-        newValStr = `checked_in (${newArrivalStatus} at ${normalizedArrivalStr})`;
+        newValStr = `absent (arrival at or after category departure ${catDeparture.actualDepartureTime})`;
       } else {
+        updatedFields.autoAbsentDueToDeparture = false;
+        updatedFields.autoAbsentCheckInSnapshot = null as any;
+        updatedFields.autoAbsentCheckInSource = null as any;
+        updatedFields.autoAbsentDelayMinutes = 0;
+
+        updatedFields.checkIn = arrivalDate;
+        updatedFields.checkInSource = 'manager_actual';
+        updatedFields.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
+        updatedFields.checkInRecordedAt = new Date();
+        updatedFields.arrivalStatus = newArrivalStatus;
+        updatedFields.delayMinutes = delayMinutes;
+
+        // Subcase 1A: Checkout is not yet finalized
+        if (!sessionDoc.checkOutFinalized) {
+          if (catDeparture && (!payload.actualCheckoutTime)) {
+            updatedFields.checkOut = catDeparture.actualDepartureDate;
+            updatedFields.checkOutSource = 'category_default';
+            updatedFields.departureStatus = 'normal';
+            updatedFields.durationMinutes = Math.floor(
+              (catDeparture.actualDepartureDate.getTime() - arrivalDate.getTime()) / 60000
+            );
+            updatedFields.status = 'checked_out';
+            fieldName = 'status';
+            prevValStr = 'absent';
+            newValStr = `checked_out (category departure ${catDeparture.actualDepartureTime})`;
+          } else {
+            updatedFields.status = 'checked_in';
+            updatedFields.checkOut = undefined;
+            updatedFields.checkOutSource = 'not_recorded';
+            updatedFields.departureStatus = 'not_recorded';
+            updatedFields.earlyDepartureMinutes = 0;
+            updatedFields.overtimeMinutes = 0;
+            updatedFields.durationMinutes = 0;
+            fieldName = 'status';
+            prevValStr = 'absent';
+            newValStr = `checked_in (${newArrivalStatus} at ${normalizedArrivalStr})`;
+          }
+        } else {
         // Subcase 1B: Checkout is finalized -> requires actualCheckoutTime or applyDefaultCheckout
         const useDefaultCheckout = Boolean(payload.applyDefaultCheckout);
 
@@ -3508,7 +3834,8 @@ export class AttendanceService {
           newValStr = `checked_out (${depStatus} at ${outVal.normalized24h})`;
         }
       }
-    } else if (payload.status === 'absent' || payload.arrivalStatus === 'absent') {
+    }
+  } else if (payload.status === 'absent' || payload.arrivalStatus === 'absent') {
       // Transition from Present/Late to Absent
       updatedFields.status = 'absent';
       updatedFields.arrivalStatus = 'absent';
@@ -3538,7 +3865,11 @@ export class AttendanceService {
         }
 
         const arrivalDate = this.constructDateTime(event.date, arrVal.normalized24h);
-        if (record.checkOut && record.checkOut.getTime() <= arrivalDate.getTime()) {
+        if (
+          record.checkOut &&
+          record.checkOutSource === 'individual_exception' &&
+          record.checkOut.getTime() <= arrivalDate.getTime()
+        ) {
           throw ApiError.badRequest('New arrival time must be earlier than the recorded checkout time');
         }
 
@@ -3553,27 +3884,65 @@ export class AttendanceService {
           delayMinutes = Math.round((arrivalDate.getTime() - repDate.getTime()) / 60000);
         }
 
-        updatedFields.checkIn = arrivalDate;
-        updatedFields.checkInSource = 'manager_actual';
-        updatedFields.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
-        updatedFields.checkInRecordedAt = new Date();
-        updatedFields.arrivalStatus = newArrivalStatus;
-        updatedFields.delayMinutes = delayMinutes;
+        const catDeparture = (sessionDoc?.categoryActualDepartures || []).find(
+          (d) => d.workerType.trim().toLowerCase() === record.workerType.trim().toLowerCase()
+        );
 
-        if (record.checkOut) {
-          updatedFields.durationMinutes = Math.round(
-            (record.checkOut.getTime() - arrivalDate.getTime()) / 60000
-          );
+        if (catDeparture && catDeparture.actualDepartureDate.getTime() <= arrivalDate.getTime()) {
+          // Checked in at or after category departure:
+          // Rule: mark that person automatically absent!
+          updatedFields.status = 'absent';
+          updatedFields.arrivalStatus = 'absent';
+          updatedFields.checkIn = null as any;
+          updatedFields.checkInSource = 'not_recorded';
+          updatedFields.delayMinutes = 0;
+          updatedFields.checkOut = null as any;
+          updatedFields.checkOutSource = 'not_recorded';
+          updatedFields.departureStatus = 'not_recorded';
+          updatedFields.durationMinutes = 0;
+          updatedFields.autoAbsentDueToDeparture = true;
+          updatedFields.autoAbsentCheckInSnapshot = arrivalDate;
+          updatedFields.autoAbsentCheckInSource = 'manager_actual';
+          updatedFields.autoAbsentDelayMinutes = delayMinutes;
+          fieldName = 'status';
+          prevValStr = record.status;
+          newValStr = `absent (auto-marked: arrival ${arrVal.normalized24h} at or after category departure ${catDeparture.actualDepartureTime})`;
+        } else {
+          updatedFields.autoAbsentDueToDeparture = false;
+          updatedFields.autoAbsentCheckInSnapshot = null as any;
+          updatedFields.autoAbsentCheckInSource = null as any;
+          updatedFields.autoAbsentDelayMinutes = 0;
+
+          updatedFields.checkIn = arrivalDate;
+          updatedFields.checkInSource = 'manager_actual';
+          updatedFields.checkInRecordedBy = new mongoose.Types.ObjectId(userId);
+          updatedFields.checkInRecordedAt = new Date();
+          updatedFields.arrivalStatus = newArrivalStatus;
+          updatedFields.delayMinutes = delayMinutes;
+
+          if (record.checkOut) {
+            updatedFields.durationMinutes = Math.round(
+              (record.checkOut.getTime() - arrivalDate.getTime()) / 60000
+            );
+          } else if (catDeparture && (!record.checkOutSource || record.checkOutSource === 'category_default' || record.checkOutSource === 'not_recorded')) {
+            updatedFields.checkOut = catDeparture.actualDepartureDate;
+            updatedFields.checkOutSource = 'category_default';
+            updatedFields.departureStatus = 'normal';
+            updatedFields.durationMinutes = Math.floor(
+              (catDeparture.actualDepartureDate.getTime() - arrivalDate.getTime()) / 60000
+            );
+            updatedFields.status = 'checked_out';
+          }
+
+          fieldName = 'checkIn';
+          prevValStr = record.checkIn ? record.checkIn.toISOString() : '';
+          newValStr = arrivalDate.toISOString();
         }
-
-        fieldName = 'checkIn';
-        prevValStr = record.checkIn ? record.checkIn.toISOString() : '';
-        newValStr = arrivalDate.toISOString();
       }
 
       // B. Checkout Timestamp Correction
       if (payload.actualCheckoutTime !== undefined && payload.actualCheckoutTime !== null) {
-        const checkInDate = updatedFields.checkIn || record.checkIn;
+        const checkInDate = updatedFields.checkIn || record.checkIn || record.autoAbsentCheckInSnapshot;
         if (!checkInDate) {
           throw ApiError.badRequest('Cannot record checkout time for a worker without a check-in record');
         }
@@ -3624,6 +3993,19 @@ export class AttendanceService {
 
         if (checkoutDate.getTime() <= checkInDate.getTime()) {
           throw ApiError.badRequest('Checkout time must be later than check-in arrival time');
+        }
+
+        if (record.autoAbsentDueToDeparture && checkoutDate.getTime() > checkInDate.getTime()) {
+          // Checkout time changed to strictly after check-in:
+          // Restore worker from auto-absent back to normal!
+          updatedFields.checkIn = checkInDate;
+          updatedFields.checkInSource = record.autoAbsentCheckInSource || record.checkInSource || 'manager_actual';
+          updatedFields.arrivalStatus = (record.autoAbsentDelayMinutes ?? record.delayMinutes ?? 0) > 0 ? 'late' : 'on_time';
+          updatedFields.delayMinutes = record.autoAbsentDelayMinutes ?? record.delayMinutes ?? 0;
+          updatedFields.autoAbsentDueToDeparture = false;
+          updatedFields.autoAbsentCheckInSnapshot = null as any;
+          updatedFields.autoAbsentCheckInSource = null as any;
+          updatedFields.autoAbsentDelayMinutes = 0;
         }
 
         let depStatus: DepartureStatus = 'normal';

@@ -43,6 +43,7 @@ describe('EventOps ERP — Independent Category-Wise Check-in Confirmation and C
   let pastEventId: string;
   let pastReqId: string;
   let todayStr: string;
+  let todayDate: Date;
 
   const generateToken = (userId: string, role: string) => {
     return jwt.sign({ userId, role }, env.jwtSecret, { expiresIn: '1h' });
@@ -152,7 +153,7 @@ describe('EventOps ERP — Independent Category-Wise Check-in Confirmation and C
 
     // 2. Active Event (Today in Asia/Kolkata)
     todayStr = getOperationalDateString(new Date(), 'Asia/Kolkata');
-    const todayDate = new Date(`${todayStr}T04:00:00.000Z`);
+    todayDate = new Date(`${todayStr}T04:00:00.000Z`);
     attendanceService.setTestClock(new Date(`${todayStr}T23:59:00.000+05:30`));
 
     const activeEvent = await Event.create({
@@ -732,13 +733,14 @@ describe('EventOps ERP — Independent Category-Wise Check-in Confirmation and C
       assert.ok(workerB1.checkOut);
       assert.strictEqual(workerB1.checkOutSource, 'category_default');
 
-      // Worker B2 checked in at 17:30 >= 17:00 -> category departure was NOT applied to prevent chronological anomaly
+      // Worker B2 checked in at 17:30 >= 17:00 -> automatically marked absent
+      assert.strictEqual(workerB2.arrivalStatus, 'absent');
+      assert.strictEqual(workerB2.status, 'absent');
       assert.strictEqual(workerB2.checkOut, null);
       assert.strictEqual(workerB2.checkOutSource, 'not_recorded');
-      assert.strictEqual(workerB2.ineligibleForCategoryCheckout, true);
 
-      // Summary flags ineligible overtime required
-      assert.strictEqual(catB.ineligibleOvertimeRequiredCount, 1);
+      // Summary counts Worker B2 under absentCount
+      assert.strictEqual(catB.absentCount, 1);
     });
 
     it('rejects recording individual checkout exception for Worker B2 if departure time <= check-in time (17:15 <= 17:30)', async () => {
@@ -970,6 +972,348 @@ describe('EventOps ERP — Independent Category-Wise Check-in Confirmation and C
       const session = await AttendanceSession.findOne({ eventId });
       assert.ok(session);
       assert.strictEqual(session.checkOutFinalized, true);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 11. Departure Chronology Auto-Absent and Dynamic Restoration Lifecycle
+  // ---------------------------------------------------------------------------
+  describe('11. Departure Chronology Auto-Absent and Dynamic Restoration Lifecycle', () => {
+    let chronoEventId: string;
+    let chronoWorkerId: string;
+
+    before(async () => {
+      chronoWorkerId = new mongoose.Types.ObjectId().toString();
+      await User.create({
+        _id: chronoWorkerId,
+        name: 'Chrono Test Worker',
+        email: 'chrono_worker@example.com',
+        password: 'password123',
+        role: 'worker',
+        workerType: 'Catering Boy',
+        isActive: true,
+      });
+
+      const eventDoc = await Event.create({
+        clientId: new mongoose.Types.ObjectId(clientId),
+        eventManagerId: new mongoose.Types.ObjectId(managerId),
+        title: 'Chronology Auto-Absent Verification Event',
+        eventType: 'Corporate',
+        date: todayDate,
+        startTime: '08:00',
+        endTime: '22:00',
+        guestCount: 100,
+        status: 'confirmed',
+        location: { address: 'Tech Park Hall' },
+      });
+      chronoEventId = eventDoc._id.toString();
+
+      await WorkRequirement.create({
+        eventId: chronoEventId,
+        workerType: 'Catering Boy',
+        requiredCount: 1,
+        reportingTime: '08:00',
+        status: 'filled',
+        assignedWorkers: [
+          {
+            workerId: new mongoose.Types.ObjectId(chronoWorkerId),
+            assignedAt: new Date(),
+          },
+        ],
+      });
+    });
+
+    it('1. Category check-in is finalized with worker late at 17:30', async () => {
+      // 1. Fetch roster to initialize session
+      const rRes = await fetch(`http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`, {
+        headers: { Authorization: `Bearer ${managerToken}` },
+      });
+      assert.strictEqual(rRes.status, 200);
+
+      // 2. Finalize check-in with worker as late exception at 17:30
+      const finRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/categories/Catering%20Boy/finalize-checkin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': 'chrono_fin_key_1',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            lateExceptions: [
+              {
+                workerId: chronoWorkerId,
+                actualArrivalTime: '17:30',
+              },
+            ],
+          }),
+        }
+      );
+      assert.strictEqual(finRes.status, 200);
+      const finData = await finRes.json();
+      assert.strictEqual(finData.success, true);
+      assert.strictEqual(finData.data.lateCount, 1);
+    });
+
+    it('2. Category departure recorded at 17:00 automatically marks worker absent (checkIn 17:30 >= 17:00 departure)', async () => {
+      const depRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/categories/departure`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            workerType: 'Catering Boy',
+            actualDepartureDate: todayStr,
+            actualDepartureTime: '17:00',
+          }),
+        }
+      );
+      assert.strictEqual(depRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'absent');
+      assert.strictEqual(workerItem.arrivalStatus, 'absent');
+      assert.strictEqual(workerItem.checkIn, null);
+      assert.strictEqual(workerItem.checkOut, null);
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, true);
+
+      const catSummary = rosterData.categorySummaries.find((c: any) => c.workerType === 'Catering Boy');
+      assert.strictEqual(catSummary.absentCount, 1);
+      assert.strictEqual(catSummary.ineligibleOvertimeRequiredCount, 0);
+    });
+
+    it('3. Worker check-in corrected to before departure (16:30 < 17:00) automatically restores worker to normal category checkout', async () => {
+      const att = await Attendance.findOne({ eventId: chronoEventId, workerId: chronoWorkerId });
+      assert.ok(att);
+
+      const correctRes = await fetch(
+        `http://localhost:${port}/api/attendance/records/${att._id}/correct`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            actualArrivalTime: '16:30',
+            reason: 'Arrival corrected to 16:30 before departure',
+          }),
+        }
+      );
+      assert.strictEqual(correctRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'checked_out');
+      assert.strictEqual(workerItem.arrivalStatus, 'late');
+      assert.strictEqual(workerItem.departureStatus, 'normal');
+      assert.strictEqual(workerItem.checkOutSource, 'category_default');
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, false);
+
+      const catSummary = rosterData.categorySummaries.find((c: any) => c.workerType === 'Catering Boy');
+      assert.strictEqual(catSummary.absentCount, 0);
+    });
+
+    it('4. Worker check-in corrected back to 17:30 (>= 17:00 departure) automatically marks worker absent again', async () => {
+      const att = await Attendance.findOne({ eventId: chronoEventId, workerId: chronoWorkerId });
+      assert.ok(att);
+
+      const correctRes = await fetch(
+        `http://localhost:${port}/api/attendance/records/${att._id}/correct`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            actualArrivalTime: '17:30',
+            reason: 'Arrival moved back to 17:30',
+          }),
+        }
+      );
+      assert.strictEqual(correctRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'absent');
+      assert.strictEqual(workerItem.arrivalStatus, 'absent');
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, true);
+    });
+
+    it('5. Category departure updated to 18:00 (> 17:30 check-in) automatically restores worker to normal category checkout', async () => {
+      // Re-finalize checkin first since checkin was corrected
+      await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/categories/Catering%20Boy/finalize-checkin`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': 'chrono_fin_key_2',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({ reason: 'Re-finalized checkin for departure update' }),
+        }
+      );
+
+      const depRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/categories/departure`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            workerType: 'Catering Boy',
+            actualDepartureDate: todayStr,
+            actualDepartureTime: '18:00',
+            reason: 'Extended category departure to 18:00',
+          }),
+        }
+      );
+      assert.strictEqual(depRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'checked_out');
+      assert.strictEqual(workerItem.departureStatus, 'normal');
+      assert.strictEqual(workerItem.checkOutSource, 'category_default');
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, false);
+    });
+
+    it('6. Category departure moved earlier to 17:00 (<= 17:30 check-in) automatically marks worker absent again', async () => {
+      const depRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/categories/departure`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            workerType: 'Catering Boy',
+            actualDepartureDate: todayStr,
+            actualDepartureTime: '17:00',
+            reason: 'Reset category departure to 17:00',
+          }),
+        }
+      );
+      assert.strictEqual(depRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'absent');
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, true);
+    });
+
+    it('7. Individual checkout exception at or before check-in (17:15 <= 17:30) is rejected with 400', async () => {
+      const excRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/workers/${chronoWorkerId}/checkout-exception`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            actualDepartureDate: todayStr,
+            actualDepartureTime: '17:15',
+            reason: 'Invalid departure time before arrival',
+          }),
+        }
+      );
+      assert.strictEqual(excRes.status, 400);
+      const data = await excRes.json();
+      assert.match(data.message, /must be strictly later than/i);
+    });
+
+    it('8. Individual checkout exception after check-in (18:30 > 17:30) is accepted and restores worker', async () => {
+      const excRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/workers/${chronoWorkerId}/checkout-exception`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${managerToken}`,
+          },
+          body: JSON.stringify({
+            actualDepartureDate: todayStr,
+            actualDepartureTime: '18:30',
+            reason: 'Valid overtime exception',
+          }),
+        }
+      );
+      assert.strictEqual(excRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'checked_out');
+      assert.strictEqual(workerItem.departureStatus, 'overtime');
+      assert.strictEqual(workerItem.checkOutSource, 'individual_exception');
+    });
+
+    it('9. Clearing checkout exception safely marks worker absent again when check-in >= category departure', async () => {
+      const clearRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/workers/${chronoWorkerId}/checkout-exception`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      assert.strictEqual(clearRes.status, 200);
+
+      const rosterRes = await fetch(
+        `http://localhost:${port}/api/attendance/events/${chronoEventId}/roster`,
+        {
+          headers: { Authorization: `Bearer ${managerToken}` },
+        }
+      );
+      const rosterData = (await rosterRes.json()).data;
+      const workerItem = rosterData.roster.find((w: any) => w.workerId === chronoWorkerId);
+      assert.strictEqual(workerItem.status, 'absent');
+      assert.strictEqual(workerItem.autoAbsentDueToDeparture, true);
     });
   });
 });

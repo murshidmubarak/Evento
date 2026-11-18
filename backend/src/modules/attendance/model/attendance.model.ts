@@ -78,6 +78,12 @@ export interface IAttendance extends Document {
   hasOpenConcern: boolean;
   activeConcernId?: Types.ObjectId;
 
+  // Auto-absent due to departure chronology (check-in at or after category departure)
+  autoAbsentDueToDeparture?: boolean;
+  autoAbsentCheckInSnapshot?: Date;
+  autoAbsentCheckInSource?: TimestampSource;
+  autoAbsentDelayMinutes?: number;
+
   // Immutable audit trail
   corrections: IAttendanceCorrection[];
 
@@ -177,6 +183,14 @@ const attendanceSchema = new Schema<IAttendance>(
     statusLockedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     hasOpenConcern: { type: Boolean, default: false, index: true },
     activeConcernId: { type: Schema.Types.ObjectId, ref: 'AttendanceConcern' },
+
+    autoAbsentDueToDeparture: { type: Boolean, default: false },
+    autoAbsentCheckInSnapshot: { type: Date },
+    autoAbsentCheckInSource: {
+      type: String,
+      enum: ['category_default', 'individual_exception', 'manager_actual', 'system_default', 'not_recorded'],
+    },
+    autoAbsentDelayMinutes: { type: Number, default: 0 },
 
     corrections: { type: [attendanceCorrectionSchema], default: [] },
   },

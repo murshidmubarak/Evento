@@ -2499,3 +2499,27 @@ Implemented complete browser and device push notification system for EventOps ER
   - Backend Type Check (`npm --prefix backend run type-check`): compiled with 0 errors, exit code 0.
   - Backend Test Suite (`npm --prefix backend run test:file tests/attendanceConcernsAndDeadlines.test.ts`): 25/25 tests passing across 7 suites in 8.8s with clean teardown, exit code 0.
   - Frontend Test Suite (`npm --prefix frontend test`): 154/154 tests passing across 23 suites, exit code 0.
+
+---
+
+### [2026-11-18] Attendance: Auto-Mark Absent on Check-in at/after Category Departure & Dynamic Restoration on Time Changes
+- **Requested Change**:
+  - When a worker has checked in at or after the category departure time (`checkIn >= categoryDeparture`), automatically mark that worker absent (`status = 'absent'`, `arrivalStatus = 'absent'`, `checkIn = null`, `checkOut = null`, `durationMinutes = 0`, `autoAbsentDueToDeparture = true`).
+  - Strict backend validation enforcing chronology:
+    - Automatically snapshot the worker's original check-in timestamp (`autoAbsentCheckInSnapshot`) and source.
+    - If the worker's check-in time changes (e.g. corrected to strictly before category departure), dynamically restore the worker back to normal category checkout.
+    - If the category departure time changes (e.g. manager extends category departure to strictly after worker's check-in time), dynamically restore the worker back to normal category checkout.
+    - If an individual checkout exception is recorded, strictly reject any departure time at or before the worker's check-in time with HTTP 400 (`must be strictly later than check-in arrival time`); if departure time is after check-in, accept it and restore the worker with `departureStatus = 'overtime'` and `checkOutSource = 'individual_exception'`.
+    - If individual exception is cleared while check-in remains at or after category departure, safely mark the worker auto-absent again without throwing unhandled exceptions.
+- **Impact Level**: MEDIUM (Attendance business rules and lifecycle state machine consistency; zero breaking changes to existing APIs; fully backwards compatible).
+- **Directly Affected Files**:
+  - `backend/src/modules/attendance/model/attendance.model.ts`: Added schema fields `autoAbsentDueToDeparture`, `autoAbsentCheckInSnapshot`, `autoAbsentCheckInSource`, and `autoAbsentDelayMinutes`.
+  - `backend/src/modules/attendance/service/attendance.service.ts`: Implemented auto-absent detection and automatic bidirectional restoration in `getRoster`, `recordCategoryDeparture`, `recordWorkerCheckIn`, `recordWorkerCheckOutException`, `clearWorkerCheckOutException`, `finalizeCheckout`, and `correctAttendance`.
+  - `backend/tests/attendanceCategoryCheckInIndependence.test.ts`: Added Suite 11 ("Departure Chronology Auto-Absent and Dynamic Restoration Lifecycle") verifying all 9 lifecycle and dynamic restoration scenarios.
+  - `docs/09-change-impact-log.md`: Logged this change entry.
+- **Verification Results**:
+  - Backend Type Check (`npm --prefix backend run type-check`): compiled cleanly with 0 errors, exit code 0.
+  - Backend Integration Tests (`npm --prefix backend run test:file tests/attendanceCategoryCheckInIndependence.test.ts`): 36/36 tests passing across 12 suites in 17.9s with clean teardown, exit code 0.
+  - Backend Concern Tests (`npm --prefix backend run test:file tests/attendanceConcernsAndDeadlines.test.ts`): 25/25 tests passing across 7 suites in 14.1s with clean teardown, exit code 0.
+  - Frontend Test Suite (`npm --prefix frontend test -- --run`): 154/154 tests passing across 23 suites in 72s, exit code 0.
+  - Frontend Production Build (`npm --prefix frontend run build`): compiled cleanly in 12.23s with 0 errors, exit code 0.
